@@ -1,6 +1,7 @@
 /* 界面审查：截取 欢迎页 / 亮色 / 暗色 / 命令面板 四张图 */
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const PORT = 9595;
@@ -9,7 +10,7 @@ const SHOTS = 'test/screenshots';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const server = spawn(process.execPath, ['server/server.js'], {
-  cwd: 'E:/08_project/ev_/tracery',
+  cwd: fileURLToPath(new URL('..', import.meta.url)),   // 仓库根目录，不硬编码
   env: { ...process.env, PORT: String(PORT) },
   stdio: 'pipe',
 });
