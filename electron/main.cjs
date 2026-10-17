@@ -84,6 +84,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      plugins: true,            // 启用 Chromium 内置 PDF 阅读器（应用内看 PDF 用）
     },
     show: false,
   });

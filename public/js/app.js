@@ -13,12 +13,22 @@ import {
 import { onSyncStatus } from './sync-ui.js';
 import { askText, askConfirm } from './dialog.js';
 import { openLightbox } from './lightbox.js';
+import { openPdfViewer } from './pdf-viewer.js';
 import { openDraw } from './draw.js';
 
 const $ = (id) => document.getElementById(id);
 
 /** 图片类文件：文件树点击时用灯箱查看，而不是尝试当笔记打开 */
 const IMG_FILE_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+/** PDF：应用内阅读器打开 */
+const PDF_FILE_RE = /\.pdf$/i;
+
+/** 仓库相对路径 → 绝对路径（桌面能力用） */
+function vaultAbs(rel) {
+  const root = state.vault?.root;
+  if (!root || !rel) return '';
+  return `${root.replace(/[\\/]+$/, '')}\\${rel.replace(/[\\/]/g, '\\')}`;
+}
 
 /**
  * 读 localStorage：优先新键（tracery.*），回退旧键（evnote.*）。
@@ -373,14 +383,16 @@ function renderFile(f) {
   label.textContent = f.name.replace(/\.md$/i, '');
   item.append(icon, label);
   item.onclick = (e) => {
-    // 图片文件：直接灯箱查看（以前会走 openNote → API 只认 .md → 报「笔记不存在」）
+    // 图片 → 灯箱；PDF → 应用内阅读器（以前都走 openNote → 报「笔记不存在」）
     if (IMG_FILE_RE.test(f.path)) { openLightbox(Api.fileUrl(f.path), f.name); return; }
+    if (PDF_FILE_RE.test(f.path)) { openPdfViewer(Api.fileUrl(f.path), f.name, vaultAbs(f.path)); return; }
     openNote(f.path, null, { newTab: !(e.ctrlKey || e.metaKey) });
   };
   item.onauxclick = (e) => {
     if (e.button === 1) {
       e.preventDefault();
       if (IMG_FILE_RE.test(f.path)) { openLightbox(Api.fileUrl(f.path), f.name); return; }
+      if (PDF_FILE_RE.test(f.path)) { openPdfViewer(Api.fileUrl(f.path), f.name, vaultAbs(f.path)); return; }
       openNote(f.path, null, { newTab: true });
     }
   };
@@ -412,13 +424,49 @@ function showMenu(x, y, items) {
 }
 
 function showFileMenu(e, f) {
-  const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
-  showMenu(e.clientX, e.clientY, [
-    { label: '打开（新标签）', icon: '📄', action: () => openNote(f.path, null, { newTab: true }) },
-    { label: '重命名', icon: '✏️', action: () => renameNote(f) },
-    '-',
-    { label: '删除', icon: '🗑️', danger: true, action: () => deleteNote(f) },
-  ]);
+  const isMd = /\.md$/i.test(f.path);
+  const isImg = IMG_FILE_RE.test(f.path);
+  const isPdf = PDF_FILE_RE.test(f.path);
+  const abs = vaultAbs(f.path);
+  const inElectron = !!window.electronAPI;
+  const openIn = () => {
+    if (isImg) { openLightbox(Api.fileUrl(f.path), f.name); return; }
+    if (isPdf) { openPdfViewer(Api.fileUrl(f.path), f.name, abs); return; }
+    openNote(f.path, null, { newTab: true });
+  };
+  const items = [
+    { label: isMd ? '在新标签页中打开' : '查看', icon: isMd ? '📄' : '👁', action: openIn },
+  ];
+  if (isMd) items.push({ label: '创建副本', icon: '📑', action: () => duplicateFile(f) });
+  items.push('-');
+  items.push({ label: '复制路径', icon: '🔗', action: () => copyText(abs) });
+  items.push({ label: '复制相对路径', icon: '🧭', action: () => copyText(f.path) });
+  items.push('-');
+  if (inElectron) {
+    items.push({ label: '使用默认应用打开', icon: '↗', action: () => window.electronAPI.openPath(abs) });
+    items.push({ label: '在系统资源管理器中显示', icon: '📂', action: () => window.electronAPI.reveal(abs) });
+    items.push('-');
+  }
+  items.push({ label: '重命名', icon: '✏️', action: () => renameNote(f) });
+  items.push({ label: '删除', icon: '🗑️', danger: true, action: () => deleteNote(f) });
+  showMenu(e.clientX, e.clientY, items);
+}
+
+/** 复制一份笔记（同名后加「副本」，自动避让重名） */
+async function duplicateFile(f) {
+  try {
+    const { content } = await Api.note(f.path);
+    const base = f.path.replace(/\.md$/i, '');
+    const exists = (p) => !!document.querySelector(`#file-tree .tree-item[data-path="${CSS.escape(p)}"]`);
+    let target = `${base} 副本.md`;
+    let n = 1;
+    while (exists(target)) { n += 1; target = `${base} 副本 ${n}.md`; }
+    await Api.createNote(target, content);
+    await refreshTree();
+    refreshGraph();
+    refreshTags();
+    toast(`已创建副本：${target}`);
+  } catch (err) { toast(`创建副本失败：${err.message}`); }
 }
 
 function showDirMenu(e, dirName) {
@@ -581,16 +629,19 @@ async function deleteAssetFile(rel) {
 }
 
 async function renameNote(f) {
-  const oldName = f.name.replace(/\.md$/i, '');
+  const isMd = /\.md$/i.test(f.name);
+  const ext = (f.name.match(/\.[^.]+$/) || [])[0] || '';
+  const oldName = isMd ? f.name.replace(/\.md$/i, '') : f.name.replace(/\.[^.]+$/, '');
   const input = await askText({
-    title: '重命名笔记',
-    desc: '指向这篇笔记的 [[双链]] 会自动更新',
+    title: isMd ? '重命名笔记' : '重命名文件',
+    desc: isMd ? '指向这篇笔记的 [[双链]] 会自动更新' : '文档里引用这个文件的地方可能不会自动更新',
     value: oldName,
     okText: '重命名',
   });
   if (!input || input === oldName) return;
   const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/') + 1) : '';
-  const newPath = dir + input.replace(/\.md$/i, '') + '.md';
+  const bare = input.replace(/\.[^.]+$/, '');
+  const newPath = dir + bare + ext;
   try {
     await Api.rename(f.path, newPath);
     const ti = state.tabs.indexOf(f.path);

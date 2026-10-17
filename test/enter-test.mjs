@@ -61,18 +61,19 @@ async function openNote(name, content) {
   await sleep(1000);
   return abs;
 }
-/** 把光标放到指定选择器最后一个匹配元素的末尾 */
-async function caretAtEndOf(selector) {
-  await page.evaluate((sel) => {
-    const els = [...document.querySelectorAll(`#editor-live ${sel}`)].filter((el) => el.textContent.trim());
+/** 把光标放到指定选择器最后一个（可带文字过滤）匹配元素的末尾 */
+async function caretAtEndOf(selector, textFilter = '') {
+  await page.evaluate(({ sel, filter }) => {
+    const els = [...document.querySelectorAll(`#editor-live ${sel}`)]
+      .filter((el) => el.textContent.trim() && (!filter || el.textContent.includes(filter)));
     const last = els[els.length - 1];
-    if (!last) throw new Error(`没有匹配 ${sel} 的元素`);
+    if (!last) throw new Error(`没有匹配 ${sel}${filter ? ' 含「' + filter + '」' : ''} 的元素`);
     const r = document.createRange();
     r.selectNodeContents(last); r.collapse(false);
     const s = getSelection();
     s.removeAllRanges(); s.addRange(r);
     document.getElementById('editor-live').focus();
-  }, selector);
+  }, { sel: selector, filter: textFilter });
 }
 /** 把光标放到最后一个「有文字的 p」内第一个文本节点的 offset 处 */
 async function caretAtTextOffset(off) {
@@ -143,6 +144,15 @@ await caretAtTextOffset(2);
 await page.keyboard.press('Enter');
 await page.keyboard.type('X');
 check('软换行段落行中回车 → 拆在光标处', (await readNote(abs)) === '# 测试\n\n甲乙\nX丙丁\n\n', JSON.stringify(await readNote(abs)));
+
+/* ---------- ⑧ 段尾回车（后面还有内容）：必须产生可见空行，打字落进去 ---------- */
+abs = await openNote('场景八.md', '# 测试\n\n第一段\n\n第二段\n');
+await caretAtEndOf('p', '第一段');
+await page.keyboard.press('Enter');
+await page.keyboard.type('新行');
+check('段尾回车（后面有内容）→ 新空行接住输入',
+  (await readNote(abs)) === '# 测试\n\n第一段\n\n新行\n\n第二段\n\n',
+  JSON.stringify(await readNote(abs)));
 
 check('无渲染错误', errors.length === 0, errors.join(' | '));
 

@@ -433,6 +433,39 @@ body.electron .electron-only { display: inline-flex !important; }
 .context-menu button.danger { color: var(--danger); }
 .context-menu .sep { height: 1px; background: var(--hairline); margin: 5px 8px; }
 
+/* ============ PDF 查看器 ============ */
+.pdf-viewer {
+  position: fixed; inset: 0; z-index: 320;
+  display: flex; align-items: center; justify-content: center;
+  padding: 26px;
+  background: color-mix(in srgb, var(--bg-base) 76%, transparent);
+  backdrop-filter: blur(6px) saturate(120%);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
+}
+.pdf-viewer[hidden] { display: none; }
+.pdf-panel {
+  width: min(1120px, 96vw); height: min(90vh, 100%);
+  display: flex; flex-direction: column;
+  background: var(--bg-sheet);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  animation: pop-in 160ms var(--ease);
+}
+.pdf-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 7px 10px 7px 16px;
+  border-bottom: 1px solid var(--hairline);
+  flex-shrink: 0;
+}
+.pdf-title {
+  flex: 1; min-width: 0;
+  font-size: 12.5px; color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pdf-actions { display: flex; gap: 6px; }
+.pdf-frame { flex: 1; width: 100%; border: 0; background: var(--bg-sheet); }
+
 /* 从图片右键菜单「在文件列表中显示」跳转时的高亮脉冲 */
 .tree-item.flash { animation: tree-flash 900ms var(--ease); }
 @keyframes tree-flash {

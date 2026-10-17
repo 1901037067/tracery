@@ -22,6 +22,15 @@ fs.mkdirSync(path.join(VAULT, '附件'), { recursive: true });
 // 1x1 PNG（最小有效图片）
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 fs.writeFileSync(path.join(VAULT, '附件', 'pic.png'), PNG);
+// 最小 PDF（内容不重要：验证的是「点 PDF 打开阅读器浮层」这条链路）
+fs.writeFileSync(path.join(VAULT, '说明文档.pdf'), [
+  '%PDF-1.4',
+  '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj',
+  '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj',
+  '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj',
+  'trailer<</Root 1 0 R>>',
+  '%%EOF',
+].join('\n'), 'utf8');
 fs.writeFileSync(path.join(VAULT, '菜单测试.md'), [
   '# 标题',
   '',
@@ -150,6 +159,35 @@ await page.mouse.click(toggleBox.x, toggleBox.y);
 await sleep(500);
 const expanded = await toggleState();
 check('左侧栏折叠按钮可收起/展开', collapsed === true && expanded === false, `collapsed=${collapsed} expanded=${expanded}`);
+
+/* ---------- ④ PDF 查看器 ---------- */
+await page.evaluate(() => document.querySelector('[data-path="说明文档.pdf"]')?.click());
+await sleep(800);
+const pdf = await page.evaluate(() => ({
+  open: !!document.querySelector('.pdf-viewer') && !document.querySelector('.pdf-viewer').hidden,
+  title: document.querySelector('.pdf-title')?.textContent || '',
+  src: document.querySelector('.pdf-frame')?.getAttribute('src') || '',
+}));
+check('点 PDF → 打开应用内阅读器浮层',
+  pdf.open && pdf.title === '说明文档.pdf' && decodeURIComponent(pdf.src).includes('说明文档.pdf'),
+  JSON.stringify(pdf));
+await page.keyboard.press('Escape');
+await sleep(400);
+check('Esc 关闭 PDF 浮层', await page.evaluate(() => document.querySelector('.pdf-viewer').hidden));
+
+/* ---------- ⑤ 文件树右键菜单（Obsidian 式） ---------- */
+const fileMenu = await page.evaluate(async () => {
+  const item = document.querySelector('#file-tree .tree-item[data-path="菜单测试.md"]');
+  const r = item.getBoundingClientRect();
+  item.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 20, clientY: r.top + 8 }));
+  await new Promise((res) => setTimeout(res, 300));
+  return [...document.querySelectorAll('.context-menu button')].map((b) => b.textContent.replace(/^\S+\s*/, '').trim());
+});
+check('文件树右键 → 菜单项齐全（打开/副本/路径/重命名/删除）',
+  ['在新标签页中打开', '创建副本', '复制路径', '复制相对路径', '重命名', '删除'].every((l) => fileMenu.includes(l)),
+  fileMenu.join(' / '));
+await page.keyboard.press('Escape');
+await page.evaluate(() => document.querySelector('.context-menu')?.remove());
 
 check('无渲染错误', errors.length === 0, errors.join(' | '));
 

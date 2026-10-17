@@ -149,7 +149,21 @@ export function renderMarkdown(md, opts = {}) {
     while (i < stop) {
       const line = lines[i];
 
-      if (/^\s*$/.test(line)) { i++; continue; }
+      if (/^\s*$/.test(line)) {
+        // 连续空行 ≥2 = 一个「空段落」（段尾回车造出来的）。必须渲染成可放光标的
+        // <p><br></p>，否则用户在段尾按回车后视觉上毫无变化（空行被跳过），
+        // 光标还会掉到别处。只吃前面的内容块、且后面还有内容时才补。
+        let j = i;
+        while (j < stop && /^\s*$/.test(lines[j])) j++;
+        if (out.length && j < stop && j - i >= 2) {
+          const p = document.createElement('p');
+          p.appendChild(document.createElement('br'));
+          tagLeaf(p, i, 0);
+          out.push(p);
+        }
+        i = j;
+        continue;
+      }
 
       // 代码围栏
       const fence = FENCE_RE.exec(line);
@@ -527,7 +541,16 @@ function serializeBlocks(root) {
       if (md) out.push(md);
     }
   }
-  return out.join('\n\n');
+  // 拼接要区分「中间空段落」：段落分隔 2 个换行 + 空段落自己 1 个 = 3 个换行
+  // （直接 join('\n\n') 会让空段落占 2 个换行，每轮 round-trip 都长一行，破坏不动点）
+  let md = '';
+  out.forEach((b, i) => {
+    if (i === 0) { md = b; return; }
+    if (out[i - 1] === '' && b !== '') { md += b; return; }
+    if (b === '' && i < out.length - 1) { md += '\n\n\n'; return; }
+    md += '\n\n' + b;
+  });
+  return md;
 }
 
 function serializeList(listEl, ordered) {
