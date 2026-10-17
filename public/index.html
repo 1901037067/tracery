@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EVNote — 仓库型 Markdown 笔记</title>
+  <link rel="stylesheet" href="/themes/apple.css" id="theme-css" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📔</text></svg>" />
+</head>
+<body>
+  <!-- ============ 欢迎页（未打开仓库） ============ -->
+  <div id="welcome" class="welcome" hidden>
+    <div class="welcome-card">
+      <button id="btn-welcome-close" class="welcome-close" title="返回当前仓库（Esc）" hidden aria-label="关闭">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M4 4l8 8M12 4l-8 8"/>
+        </svg>
+      </button>
+      <div class="welcome-logo"><img src="/icon.png" alt="EVNote" /></div>
+      <h1>EVNote</h1>
+      <p class="welcome-sub">仓库型 Markdown 笔记 · Obsidian 复刻学习版</p>
+      <div class="welcome-form">
+        <label>打开一个仓库文件夹（里面的 .md 文件就是笔记）</label>
+        <div class="welcome-row">
+          <input id="vault-path" type="text" placeholder="例如 D:\MyNotes 或 E:\08_project\ev_\evnote\demo-vault" spellcheck="false" />
+          <button id="btn-browse-vault" class="btn-secondary electron-only" title="浏览文件夹">选择…</button>
+          <button id="btn-open-vault" class="btn-primary">打开</button>
+        </div>
+        <div id="vault-error" class="welcome-error" hidden></div>
+      </div>
+      <div id="recent-vaults" class="recent-vaults">
+        <h3>最近打开</h3>
+        <ul id="recent-list"></ul>
+        <p id="recent-empty" class="recent-empty" hidden>还没有打开过仓库</p>
+      </div>
+      <p class="welcome-tip" id="welcome-tip">提示：首次启动会自动打开内置 <code>demo-vault</code> 演示仓库</p>
+    </div>
+  </div>
+
+  <!-- ============ 主界面 ============ -->
+  <div id="app" class="app" hidden>
+    <!-- 标题栏 -->
+    <header class="titlebar">
+      <div class="titlebar-left">
+        <span class="app-logo"><img src="/icon.png" alt="EVNote" /></span>
+        <button class="vault-name" id="vault-name" title="切换 / 管理仓库"></button>
+      </div>
+      <div class="titlebar-right">
+        <button id="btn-toggle-left" class="icon-btn" title="折叠左侧栏 (Ctrl+\)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+            <rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M9.5 5v14"/>
+          </svg>
+        </button>
+        <button id="btn-toggle-right" class="icon-btn" title="折叠右侧栏 (Ctrl+Shift+\)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+            <rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M14.5 5v14"/>
+          </svg>
+        </button>
+        <!-- Windows 窗口按钮（最小化 / 最大化 / 关闭） -->
+        <span class="win-controls electron-only">
+          <button id="win-min" class="win-btn" title="最小化" aria-label="最小化">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><path d="M3 8h10"/></svg>
+          </button>
+          <button id="win-max" class="win-btn" title="最大化" aria-label="最大化">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><rect x="3.2" y="3.2" width="9.6" height="9.6" rx="1"/></svg>
+          </button>
+          <button id="win-close" class="win-btn win-btn-close" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1"><path d="M3.6 3.6l8.8 8.8M12.4 3.6l-8.8 8.8"/></svg>
+          </button>
+        </span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <!-- 左侧功能区图标栏 -->
+      <nav class="ribbon">
+        <button class="ribbon-btn active" data-panel="files" title="文件">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2.5h6.5A2.5 2.5 0 0 1 21 10v6.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z"/>
+          </svg>
+        </button>
+        <button class="ribbon-btn" data-panel="search" title="搜索 (Ctrl+Shift+F)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+            <circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>
+          </svg>
+        </button>
+        <button class="ribbon-btn" data-panel="tags" title="标签">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h7.2a2 2 0 0 1 1.4.6l7 7a2 2 0 0 1 0 2.8l-5.2 5.2a2 2 0 0 1-2.8 0l-7-7A2 2 0 0 1 4 11.2z"/>
+            <circle cx="8.2" cy="8.2" r="1.2"/>
+          </svg>
+        </button>
+        <button class="ribbon-btn" data-panel="graph" title="图谱视图">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+            <circle cx="6" cy="17" r="2.4"/><circle cx="17.5" cy="16.5" r="2.4"/><circle cx="12" cy="6" r="2.4"/>
+            <path d="M7.6 14.9l2.9-6.4M13.8 7.8l2.6 6.4M8.5 17h6.6"/>
+          </svg>
+        </button>
+        <div class="ribbon-spacer"></div>
+        <!-- 底部工具区：主题 / 仓库 / 设置 + 新建 -->
+        <button id="btn-theme" class="ribbon-btn" title="切换亮/暗主题">
+          <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2.8v2.2M12 19v2.2M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2.8 12H5M19 12h2.2M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6"/>
+          </svg>
+          <svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.4 8.4 0 1 0 20 14.2z"/>
+          </svg>
+        </button>
+        <button id="btn-switch-vault" class="ribbon-btn" title="切换 / 管理仓库">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2.5h6.5A2.5 2.5 0 0 1 21 10v6.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z"/>
+            <path d="M9.5 13.2h5M12 10.7v5"/>
+          </svg>
+        </button>
+        <button id="btn-settings" class="ribbon-btn" title="设置 (Ctrl+,)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3.2"/>
+            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.11a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.11A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.11a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.55 1z"/>
+          </svg>
+        </button>
+        <div class="ribbon-divider"></div>
+        <button class="ribbon-btn" id="btn-draw" title="绘图：画示意图并插入笔记 (Ctrl+Shift+D)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20l1.2-4.2L15.4 5.6a2.2 2.2 0 0 1 3.1 3.1L8.2 18.8z"/>
+            <path d="M13.6 7.4l3 3"/>
+          </svg>
+        </button>
+        <button class="ribbon-btn accent" id="btn-new-note" title="新建笔记 (Ctrl+N)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </button>
+      </nav>
+
+      <!-- 左侧面板 -->
+      <aside class="sidebar" id="sidebar">
+        <!-- 文件树 -->
+        <section class="panel active" id="panel-files">
+          <div class="panel-header">
+            <span>文件</span>
+            <span class="panel-actions">
+              <button id="btn-new-note-2" class="mini-btn icon-mini" title="新建笔记">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+              </button>
+              <button id="btn-new-folder" class="mini-btn icon-mini" title="新建文件夹">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 4.6A1.6 1.6 0 0 1 3.4 3h3l1.4 1.8h4.8a1.6 1.6 0 0 1 1.6 1.6v5a1.6 1.6 0 0 1-1.6 1.6H3.4a1.6 1.6 0 0 1-1.6-1.6z"/><path d="M8 7.6v3.2M6.4 9.2h3.2"/></svg>
+              </button>
+              <button id="btn-collapse-tree" class="mini-btn icon-mini" title="折叠/展开全部">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.6 6L8 9.4 11.4 6"/><path d="M4.6 10L8 13.4 11.4 10"/></svg>
+              </button>
+            </span>
+          </div>
+          <div class="panel-body" id="file-tree"></div>
+        </section>
+        <!-- 搜索 -->
+        <section class="panel" id="panel-search">
+          <div class="panel-header"><span>搜索</span></div>
+          <div class="panel-body">
+            <input id="search-input" class="search-input" type="search" placeholder="搜索笔记内容…" />
+            <div id="search-results" class="search-results"></div>
+          </div>
+        </section>
+        <!-- 标签 -->
+        <section class="panel" id="panel-tags">
+          <div class="panel-header"><span>标签</span></div>
+          <div class="panel-body" id="tag-list"></div>
+        </section>
+        <!-- 图谱 -->
+        <section class="panel" id="panel-graph">
+          <div class="panel-header">
+            <span>图谱</span>
+            <span class="panel-actions">
+              <button id="btn-graph-zoom-out" class="mini-btn icon-mini" title="缩小">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 8h8"/></svg>
+              </button>
+              <button id="btn-graph-zoom-in" class="mini-btn icon-mini" title="放大">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 4v8M4 8h8"/></svg>
+              </button>
+              <button id="btn-graph-fit" class="mini-btn icon-mini" title="适应窗口">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>
+              </button>
+              <button id="btn-graph-reheat" class="mini-btn icon-mini" title="重新布局">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.7"/><path d="M13.4 2.6v3.2h-3.2"/></svg>
+              </button>
+              <button id="btn-graph-full" class="mini-btn icon-mini" title="全屏看图谱 (F)">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/><circle cx="8" cy="8" r="1.6"/></svg>
+              </button>
+            </span>
+          </div>
+          <div class="panel-body graph-body">
+            <canvas id="graph-canvas"></canvas>
+            <div class="graph-hint">拖动节点 · 滚轮缩放 · 单击打开笔记</div>
+          </div>
+        </section>
+      </aside>
+
+      <div class="resizer" id="resizer-left" title="拖动调节宽度，双击复位"></div>
+
+      <!-- 编辑区 -->
+      <main class="editor-area" id="editor-area">
+        <div class="tabbar" id="tabbar" hidden>
+          <div class="tablist" id="tablist"></div>
+        </div>
+        <div class="note-header" id="note-header" hidden>
+          <span class="note-path" id="note-path"></span>
+          <span class="note-header-actions">
+            <button class="mini-btn mode-btn" id="btn-mode" title="切换实时预览 / 源码模式 (Ctrl+E)">
+              <svg class="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+                <path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>
+              </svg>
+              <svg class="ic-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>
+              </svg>
+              <span id="btn-mode-label">实时预览</span>
+            </button>
+          </span>
+        </div>
+        <div class="editor-wrap">
+          <div id="editor-live" class="editor markdown-body" contenteditable="true" spellcheck="false"></div>
+          <textarea id="editor-source" class="editor-source" spellcheck="false" hidden></textarea>
+        </div>
+        <div class="statusbar">
+          <span id="status-words">0 词</span>
+          <span id="status-saved"></span>
+          <span id="status-mode"></span>
+        </div>
+      </main>
+
+      <div class="resizer" id="resizer-right" title="拖动调节宽度，双击复位"></div>
+
+      <!-- 右侧面板 -->
+      <aside class="sidebar sidebar-right" id="sidebar-right">
+        <section class="panel active" id="panel-outline">
+          <div class="panel-header"><span>大纲</span></div>
+          <div class="panel-body" id="outline-list"></div>
+        </section>
+        <section class="panel" id="panel-backlinks">
+          <div class="panel-header"><span>反向链接</span><span class="panel-badge" id="backlink-count">0</span></div>
+          <div class="panel-body" id="backlinks-list"></div>
+        </section>
+        <section class="panel" id="panel-note-tags">
+          <div class="panel-header"><span>标签</span></div>
+          <div class="panel-body" id="note-tags-list"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <!-- ============ 命令面板 ============ -->
+  <div id="palette" class="modal" hidden>
+    <div class="palette-box">
+      <input id="palette-input" type="text" placeholder="输入命令或搜索笔记…" spellcheck="false" />
+      <ul id="palette-list" class="palette-list"></ul>
+    </div>
+  </div>
+
+  <!-- ============ 链接悬浮预览 ============ -->
+  <div id="link-preview" class="link-preview" hidden></div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

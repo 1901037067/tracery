@@ -1,0 +1,132 @@
+/**
+ * EVNote Electron 主进程（CommonJS）
+ * 架构对应（详见 docs/OBSIDIAN_ANALYSIS.md）：
+ *   Obsidian = Electron 主进程 + 渲染进程；EVNote 原本是 Node 服务端 + 浏览器。
+ *   打包形态把两者合一：服务端逻辑（server/server.js）作为子进程运行
+ *   （Electron 以 Node 模式启动，ELECTRON_RUN_AS_NODE=1），BrowserWindow 加载本地 HTTP 服务。
+ *   —— 多进程模型与 Obsidian 一致，也避开 Electron 主进程 ESM 的已知坑。
+ */
+const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
+const path = require('node:path');
+const fs = require('node:fs');
+const { spawn } = require('node:child_process');
+
+// 环境自愈：某些环境（如把 Electron 当 Node 用的沙箱/CI）会预设 ELECTRON_RUN_AS_NODE，
+// 这会让 Electron 退化成纯 Node（require('electron') 拿不到 API）。此时去掉它重启自己。
+if (process.env.EVNOTE_REEXEC !== '1' && process.env.ELECTRON_RUN_AS_NODE) {
+  const env = { ...process.env, EVNOTE_REEXEC: '1' };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const child = spawn(process.execPath, process.argv.slice(1), {
+    env,
+    detached: true,
+    stdio: 'inherit',
+  });
+  child.unref();
+  process.exit(0);
+}
+
+const HOME = app.getPath('userData');
+const PORT = process.env.PORT || '9520';
+
+// 打包版没有控制台：日志落盘，方便用户反馈问题时排查
+const logStream = fs.createWriteStream(path.join(HOME, 'evnote.log'), { flags: 'a' });
+const log = (...args) => logStream.write(`[${new Date().toISOString()}] ${args.map(String).join(' ')}\n`);
+log('EVNote 启动中…');
+
+let mainWindow = null;
+let serverProc = null;
+
+function startServer() {
+  const serverPath = path.join(__dirname, '..', 'server', 'server.js');
+  serverProc = spawn(process.execPath, [serverPath], {
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1',   // 让 Electron 二进制以纯 Node 模式运行服务端
+      EVNOTE_HOME: process.env.EVNOTE_HOME || HOME,  // asar 只读 → 配置/仓库写用户目录（可用环境变量重定向，便于便携模式/测试）
+      PORT: String(PORT),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  serverProc.stdout.on('data', (d) => log('[server]', String(d).trimEnd()));
+  serverProc.stderr.on('data', (d) => log('[server:err]', String(d).trimEnd()));
+  serverProc.on('exit', (code) => log('[server] 退出, code =', code));
+}
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 860,
+    minWidth: 760,
+    minHeight: 480,
+    frame: false,               // 无边框，用应用内自定义标题栏（仿 Obsidian）
+    titleBarStyle: 'hidden',
+    backgroundColor: '#1e1e1e',
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+    show: false,
+  });
+
+  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.loadURL(`http://localhost:${PORT}`);
+
+  // 外链交给系统浏览器，不在应用内开新窗
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  ipcMain.on('evnote:win-minimize', () => mainWindow && mainWindow.minimize());
+  ipcMain.on('evnote:win-maximize', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+  });
+  ipcMain.on('evnote:win-close', () => mainWindow && mainWindow.close());
+
+  // 原生「选择仓库文件夹」对话框
+  ipcMain.handle('evnote:pick-vault', async () => {
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: '选择仓库文件夹',
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: '打开仓库',
+    });
+    if (res.canceled || !res.filePaths?.length) return null;
+    return res.filePaths[0];
+  });
+}
+
+app.whenReady().then(() => {
+  startServer();
+  // 等服务端就绪再开窗口（最多等 10 秒）
+  const waitAndOpen = async () => {
+    for (let i = 0; i < 50; i++) {
+      try {
+        const res = await fetch(`http://localhost:${PORT}/api/state`);
+        if (res.ok) break;
+      } catch { /* 重试 */ }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (!mainWindow) createWindow();
+  };
+  waitAndOpen();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+// 退出时确保服务端子进程一起退（否则端口被占）
+app.on('before-quit', () => {
+  if (serverProc && !serverProc.killed) {
+    serverProc.kill();
+    serverProc = null;
+  }
+});
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});

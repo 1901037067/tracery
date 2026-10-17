@@ -1,0 +1,2453 @@
+{
+  "bundles": {
+    "app.js": {
+      "count": 196,
+      "bundler": "webpack",
+      "exports": [
+        {
+          "mod": "1979",
+          "name": "RateAppWeb"
+        },
+        {
+          "mod": "6043",
+          "name": "E_"
+        },
+        {
+          "mod": "6043",
+          "name": "F3"
+        },
+        {
+          "mod": "6043",
+          "name": "I9"
+        },
+        {
+          "mod": "6043",
+          "name": "Ii"
+        },
+        {
+          "mod": "4839",
+          "name": "T"
+        },
+        {
+          "mod": "4839",
+          "name": "X"
+        },
+        {
+          "mod": "5176",
+          "name": "boolean"
+        },
+        {
+          "mod": "5176",
+          "name": "booleanish"
+        },
+        {
+          "mod": "5176",
+          "name": "commaOrSpaceSeparated"
+        },
+        {
+          "mod": "5176",
+          "name": "commaSeparated"
+        },
+        {
+          "mod": "5176",
+          "name": "number"
+        },
+        {
+          "mod": "5176",
+          "name": "overloadedBoolean"
+        },
+        {
+          "mod": "5176",
+          "name": "spaceSeparated"
+        },
+        {
+          "mod": "3357",
+          "name": "SecureStorageWeb"
+        },
+        {
+          "mod": "8502",
+          "name": "A"
+        },
+        {
+          "mod": "5759",
+          "name": "LC"
+        },
+        {
+          "mod": "8193",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8193",
+          "name": "default"
+        },
+        {
+          "mod": "3179",
+          "name": "Decoder"
+        },
+        {
+          "mod": "3179",
+          "name": "Encoder"
+        },
+        {
+          "mod": "3179",
+          "name": "Reader"
+        },
+        {
+          "mod": "3179",
+          "name": "__esModule"
+        },
+        {
+          "mod": "3179",
+          "name": "tools"
+        },
+        {
+          "mod": "9547",
+          "name": "__esModule"
+        },
+        {
+          "mod": "9547",
+          "name": "default"
+        },
+        {
+          "mod": "6931",
+          "name": "basename"
+        },
+        {
+          "mod": "6931",
+          "name": "dirname"
+        },
+        {
+          "mod": "6931",
+          "name": "extname"
+        },
+        {
+          "mod": "6931",
+          "name": "join"
+        },
+        {
+          "mod": "6931",
+          "name": "sep"
+        },
+        {
+          "mod": "9804",
+          "name": "SecureStorageNative"
+        },
+        {
+          "mod": "8173",
+          "name": "CA"
+        },
+        {
+          "mod": "8173",
+          "name": "T2"
+        },
+        {
+          "mod": "8173",
+          "name": "aq"
+        },
+        {
+          "mod": "4635",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4635",
+          "name": "default"
+        },
+        {
+          "mod": "5416",
+          "name": "__esModule"
+        },
+        {
+          "mod": "5416",
+          "name": "byEbmlID"
+        },
+        {
+          "mod": "8177",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7578",
+          "name": "P"
+        },
+        {
+          "mod": "7578",
+          "name": "g"
+        },
+        {
+          "mod": "9840",
+          "name": "Buffer"
+        },
+        {
+          "mod": "9840",
+          "name": "VP8BitStreamToRiffWebPBuffer"
+        },
+        {
+          "mod": "9840",
+          "name": "WebPBlockFilter"
+        },
+        {
+          "mod": "9840",
+          "name": "__esModule"
+        },
+        {
+          "mod": "9840",
+          "name": "concat"
+        },
+        {
+          "mod": "9840",
+          "name": "convertEBMLDateToJSDate"
+        },
+        {
+          "mod": "9840",
+          "name": "createFloatBuffer"
+        },
+        {
+          "mod": "9840",
+          "name": "createIntBuffer"
+        },
+        {
+          "mod": "9840",
+          "name": "createRIFFChunk"
+        },
+        {
+          "mod": "9840",
+          "name": "createUIntBuffer"
+        },
+        {
+          "mod": "9840",
+          "name": "ebmlBlock"
+        },
+        {
+          "mod": "9840",
+          "name": "encodeTag"
+        },
+        {
+          "mod": "9840",
+          "name": "encodeValueToBuffer"
+        },
+        {
+          "mod": "9840",
+          "name": "extractElement"
+        },
+        {
+          "mod": "9840",
+          "name": "makeMetadataSeekable"
+        },
+        {
+          "mod": "9840",
+          "name": "putRefinedMetaData"
+        },
+        {
+          "mod": "9840",
+          "name": "readBlock"
+        },
+        {
+          "mod": "9840",
+          "name": "readVint"
+        },
+        {
+          "mod": "9840",
+          "name": "removeElement"
+        },
+        {
+          "mod": "9840",
+          "name": "writeVint"
+        },
+        {
+          "mod": "4686",
+          "name": "Buffer"
+        },
+        {
+          "mod": "4686",
+          "name": "INSPECT_MAX_BYTES"
+        },
+        {
+          "mod": "4686",
+          "name": "SlowBuffer"
+        },
+        {
+          "mod": "4686",
+          "name": "kMaxLength"
+        },
+        {
+          "mod": "5350",
+          "name": "byteLength"
+        },
+        {
+          "mod": "5350",
+          "name": "fromByteArray"
+        },
+        {
+          "mod": "5350",
+          "name": "toByteArray"
+        },
+        {
+          "mod": "4741",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4741",
+          "name": "default"
+        },
+        {
+          "mod": "7947",
+          "name": "read"
+        },
+        {
+          "mod": "7947",
+          "name": "write"
+        },
+        {
+          "mod": "3784",
+          "name": "closing"
+        },
+        {
+          "mod": "3784",
+          "name": "opening"
+        },
+        {
+          "mod": "1606",
+          "name": "A"
+        },
+        {
+          "mod": "3860",
+          "name": "u"
+        },
+        {
+          "mod": "7512",
+          "name": "cwd"
+        },
+        {
+          "mod": "5226",
+          "name": "__esModule"
+        },
+        {
+          "mod": "5226",
+          "name": "default"
+        }
+      ]
+    },
+    "lib/codemirror/vim.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "lib/pdfjs/pdf.min.mjs": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "lib/defuddle.full.js": {
+      "count": 65,
+      "bundler": null,
+      "exports": [
+        {
+          "mod": "5959",
+          "name": "RedditExtractor"
+        },
+        {
+          "mod": "5959",
+          "name": "__esModule"
+        },
+        {
+          "mod": "5752",
+          "name": "DOMParser"
+        },
+        {
+          "mod": "5752",
+          "name": "__DOMHandler"
+        },
+        {
+          "mod": "5752",
+          "name": "normalizeLineEndings"
+        },
+        {
+          "mod": "5752",
+          "name": "onErrorStopParsing"
+        },
+        {
+          "mod": "5752",
+          "name": "onWarningStopParsing"
+        },
+        {
+          "mod": "3974",
+          "name": "__esModule"
+        },
+        {
+          "mod": "3974",
+          "name": "createCleanMathEl"
+        },
+        {
+          "mod": "3974",
+          "name": "getLatexFromElement"
+        },
+        {
+          "mod": "3974",
+          "name": "mathRules"
+        },
+        {
+          "mod": "5654",
+          "name": "BlueskyExtractor"
+        },
+        {
+          "mod": "5654",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8983",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8983",
+          "name": "removeHiddenElements"
+        },
+        {
+          "mod": "7393",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7393",
+          "name": "removeBySelector"
+        },
+        {
+          "mod": "6581",
+          "name": "SubstackExtractor"
+        },
+        {
+          "mod": "6581",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4840",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4840",
+          "name": "removeOrphanedDividers"
+        },
+        {
+          "mod": "4840",
+          "name": "standardizeContent"
+        },
+        {
+          "mod": "9964",
+          "name": "MastodonExtractor"
+        },
+        {
+          "mod": "9964",
+          "name": "__esModule"
+        },
+        {
+          "mod": "9098",
+          "name": "__esModule"
+        },
+        {
+          "mod": "9098",
+          "name": "createMarkdownContent"
+        },
+        {
+          "mod": "9098",
+          "name": "default"
+        },
+        {
+          "mod": "7228",
+          "name": "LeetCodeExtractor"
+        },
+        {
+          "mod": "7228",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8978",
+          "name": "Attr"
+        },
+        {
+          "mod": "8978",
+          "name": "CDATASection"
+        },
+        {
+          "mod": "8978",
+          "name": "CharacterData"
+        },
+        {
+          "mod": "8978",
+          "name": "Comment"
+        },
+        {
+          "mod": "8978",
+          "name": "DOMException"
+        },
+        {
+          "mod": "8978",
+          "name": "DOMExceptionName"
+        },
+        {
+          "mod": "8978",
+          "name": "DOMImplementation"
+        },
+        {
+          "mod": "8978",
+          "name": "DOMParser"
+        },
+        {
+          "mod": "8978",
+          "name": "Document"
+        },
+        {
+          "mod": "8978",
+          "name": "DocumentFragment"
+        },
+        {
+          "mod": "8978",
+          "name": "DocumentType"
+        },
+        {
+          "mod": "8978",
+          "name": "Element"
+        },
+        {
+          "mod": "8978",
+          "name": "Entity"
+        },
+        {
+          "mod": "8978",
+          "name": "EntityReference"
+        },
+        {
+          "mod": "8978",
+          "name": "ExceptionCode"
+        },
+        {
+          "mod": "8978",
+          "name": "LiveNodeList"
+        },
+        {
+          "mod": "8978",
+          "name": "MIME_TYPE"
+        },
+        {
+          "mod": "8978",
+          "name": "NAMESPACE"
+        },
+        {
+          "mod": "8978",
+          "name": "NamedNodeMap"
+        },
+        {
+          "mod": "8978",
+          "name": "Node"
+        },
+        {
+          "mod": "8978",
+          "name": "NodeList"
+        },
+        {
+          "mod": "8978",
+          "name": "Notation"
+        },
+        {
+          "mod": "8978",
+          "name": "ParseError"
+        },
+        {
+          "mod": "8978",
+          "name": "ProcessingInstruction"
+        },
+        {
+          "mod": "8978",
+          "name": "Text"
+        },
+        {
+          "mod": "8978",
+          "name": "XMLSerializer"
+        },
+        {
+          "mod": "8978",
+          "name": "assign"
+        },
+        {
+          "mod": "8978",
+          "name": "hasDefaultHTMLNamespace"
+        },
+        {
+          "mod": "8978",
+          "name": "isHTMLMimeType"
+        },
+        {
+          "mod": "8978",
+          "name": "isValidMimeType"
+        },
+        {
+          "mod": "8978",
+          "name": "normalizeLineEndings"
+        },
+        {
+          "mod": "8978",
+          "name": "onErrorStopParsing"
+        },
+        {
+          "mod": "8978",
+          "name": "onWarningStopParsing"
+        },
+        {
+          "mod": "5666",
+          "name": "XOembedExtractor"
+        },
+        {
+          "mod": "5666",
+          "name": "__esModule"
+        },
+        {
+          "mod": "6618",
+          "name": "__esModule"
+        },
+        {
+          "mod": "6618",
+          "name": "bbcodeToHtml"
+        },
+        {
+          "mod": "9970",
+          "name": "ThreadsExtractor"
+        },
+        {
+          "mod": "9970",
+          "name": "__esModule"
+        },
+        {
+          "mod": "5181",
+          "name": "ConversationExtractor"
+        },
+        {
+          "mod": "5181",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8090",
+          "name": "NytimesExtractor"
+        },
+        {
+          "mod": "8090",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4454",
+          "name": "DiscourseExtractor"
+        },
+        {
+          "mod": "4454",
+          "name": "__esModule"
+        },
+        {
+          "mod": "1756",
+          "name": "MediumExtractor"
+        },
+        {
+          "mod": "1756",
+          "name": "__esModule"
+        },
+        {
+          "mod": "3610",
+          "name": "FOOTNOTE_SECTION_RE"
+        },
+        {
+          "mod": "3610",
+          "name": "__esModule"
+        },
+        {
+          "mod": "3610",
+          "name": "standardizeFootnotes"
+        },
+        {
+          "mod": "8397",
+          "name": "ClaudeExtractor"
+        },
+        {
+          "mod": "8397",
+          "name": "__esModule"
+        },
+        {
+          "mod": "27",
+          "name": "C2WikiExtractor"
+        },
+        {
+          "mod": "27",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2408",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2408",
+          "name": "findSmallImages"
+        },
+        {
+          "mod": "2408",
+          "name": "getElementIdentifier"
+        },
+        {
+          "mod": "2408",
+          "name": "removeSmallImages"
+        },
+        {
+          "mod": "9759",
+          "name": "BilibiliExtractor"
+        },
+        {
+          "mod": "9759",
+          "name": "__esModule"
+        },
+        {
+          "mod": "3258",
+          "name": "YoutubeExtractor"
+        },
+        {
+          "mod": "3258",
+          "name": "__esModule"
+        },
+        {
+          "mod": "639",
+          "name": "__esModule"
+        },
+        {
+          "mod": "639",
+          "name": "decodeHTMLEntities"
+        },
+        {
+          "mod": "639",
+          "name": "escapeHtml"
+        },
+        {
+          "mod": "639",
+          "name": "getClassName"
+        },
+        {
+          "mod": "639",
+          "name": "hasResponsiveShowClass"
+        },
+        {
+          "mod": "639",
+          "name": "isDangerousUrl"
+        },
+        {
+          "mod": "639",
+          "name": "isDirectTableChild"
+        },
+        {
+          "mod": "639",
+          "name": "parseHTML"
+        },
+        {
+          "mod": "639",
+          "name": "serializeHTML"
+        },
+        {
+          "mod": "639",
+          "name": "transferContent"
+        },
+        {
+          "mod": "1608",
+          "name": "MetadataExtractor"
+        },
+        {
+          "mod": "1608",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7278",
+          "name": "LwnExtractor"
+        },
+        {
+          "mod": "7278",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2248",
+          "name": "TwitterExtractor"
+        },
+        {
+          "mod": "2248",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8632",
+          "name": "ChatGPTExtractor"
+        },
+        {
+          "mod": "8632",
+          "name": "__esModule"
+        },
+        {
+          "mod": "1064",
+          "name": "XArticleExtractor"
+        },
+        {
+          "mod": "1064",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2458",
+          "name": "HackerNewsExtractor"
+        },
+        {
+          "mod": "2458",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8431",
+          "name": "default"
+        },
+        {
+          "mod": "4582",
+          "name": "HTML_BOOLEAN_ATTRIBUTES"
+        },
+        {
+          "mod": "4582",
+          "name": "HTML_RAW_TEXT_ELEMENTS"
+        },
+        {
+          "mod": "4582",
+          "name": "HTML_VOID_ELEMENTS"
+        },
+        {
+          "mod": "4582",
+          "name": "MIME_TYPE"
+        },
+        {
+          "mod": "4582",
+          "name": "NAMESPACE"
+        },
+        {
+          "mod": "4582",
+          "name": "assign"
+        },
+        {
+          "mod": "4582",
+          "name": "find"
+        },
+        {
+          "mod": "4582",
+          "name": "freeze"
+        },
+        {
+          "mod": "4582",
+          "name": "hasDefaultHTMLNamespace"
+        },
+        {
+          "mod": "4582",
+          "name": "hasOwn"
+        },
+        {
+          "mod": "4582",
+          "name": "isHTMLBooleanAttribute"
+        },
+        {
+          "mod": "4582",
+          "name": "isHTMLEscapableRawTextElement"
+        },
+        {
+          "mod": "4582",
+          "name": "isHTMLMimeType"
+        },
+        {
+          "mod": "4582",
+          "name": "isHTMLRawTextElement"
+        },
+        {
+          "mod": "4582",
+          "name": "isHTMLVoidElement"
+        },
+        {
+          "mod": "4582",
+          "name": "isValidMimeType"
+        },
+        {
+          "mod": "1917",
+          "name": "ExtractorRegistry"
+        },
+        {
+          "mod": "1917",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7726",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7726",
+          "name": "standardizeCallouts"
+        },
+        {
+          "mod": "3055",
+          "name": "BbcodeDataExtractor"
+        },
+        {
+          "mod": "3055",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7282",
+          "name": "LOOKS_LIKE_LATEX_RE"
+        },
+        {
+          "mod": "7282",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7282",
+          "name": "extractLatexFromImageSrc"
+        },
+        {
+          "mod": "7282",
+          "name": "getBasicLatexFromElement"
+        },
+        {
+          "mod": "7282",
+          "name": "getMathMLFromElement"
+        },
+        {
+          "mod": "7282",
+          "name": "isBlockDisplay"
+        },
+        {
+          "mod": "7282",
+          "name": "mathFastCheck"
+        },
+        {
+          "mod": "7282",
+          "name": "mathSelectors"
+        },
+        {
+          "mod": "7282",
+          "name": "reconstructMathMLFromMjx"
+        },
+        {
+          "mod": "7282",
+          "name": "wrapRawLatexDelimiters"
+        },
+        {
+          "mod": "2649",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2649",
+          "name": "imageRules"
+        },
+        {
+          "mod": "2649",
+          "name": "isBase64Placeholder"
+        },
+        {
+          "mod": "662",
+          "name": "__esModule"
+        },
+        {
+          "mod": "662",
+          "name": "removeMetadataBlock"
+        },
+        {
+          "mod": "6077",
+          "name": "__esModule"
+        },
+        {
+          "mod": "6077",
+          "name": "buildComment"
+        },
+        {
+          "mod": "6077",
+          "name": "buildCommentTree"
+        },
+        {
+          "mod": "6077",
+          "name": "buildContentHtml"
+        },
+        {
+          "mod": "6077",
+          "name": "buildQuotedPost"
+        },
+        {
+          "mod": "3172",
+          "name": "__esModule"
+        },
+        {
+          "mod": "3172",
+          "name": "removeByContentPattern"
+        },
+        {
+          "mod": "3172",
+          "name": "removeEyebrowLabel"
+        },
+        {
+          "mod": "5628",
+          "name": "Defuddle"
+        },
+        {
+          "mod": "5628",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2552",
+          "name": "CJK_CHAR_RANGES"
+        },
+        {
+          "mod": "2552",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2552",
+          "name": "countWords"
+        },
+        {
+          "mod": "2552",
+          "name": "getComputedStyle"
+        },
+        {
+          "mod": "2552",
+          "name": "getWindow"
+        },
+        {
+          "mod": "2552",
+          "name": "isCommentNode"
+        },
+        {
+          "mod": "2552",
+          "name": "isElement"
+        },
+        {
+          "mod": "2552",
+          "name": "isSVGElement"
+        },
+        {
+          "mod": "2552",
+          "name": "isTextNode"
+        },
+        {
+          "mod": "2552",
+          "name": "logDebug"
+        },
+        {
+          "mod": "2552",
+          "name": "normalizeText"
+        },
+        {
+          "mod": "2552",
+          "name": "textPreview"
+        },
+        {
+          "mod": "8477",
+          "name": "LinkedInExtractor"
+        },
+        {
+          "mod": "8477",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4722",
+          "name": "Attr"
+        },
+        {
+          "mod": "4722",
+          "name": "CDATASection"
+        },
+        {
+          "mod": "4722",
+          "name": "CharacterData"
+        },
+        {
+          "mod": "4722",
+          "name": "Comment"
+        },
+        {
+          "mod": "4722",
+          "name": "DOMImplementation"
+        },
+        {
+          "mod": "4722",
+          "name": "Document"
+        },
+        {
+          "mod": "4722",
+          "name": "DocumentFragment"
+        },
+        {
+          "mod": "4722",
+          "name": "DocumentType"
+        },
+        {
+          "mod": "4722",
+          "name": "Element"
+        },
+        {
+          "mod": "4722",
+          "name": "Entity"
+        },
+        {
+          "mod": "4722",
+          "name": "EntityReference"
+        },
+        {
+          "mod": "4722",
+          "name": "LiveNodeList"
+        },
+        {
+          "mod": "4722",
+          "name": "NamedNodeMap"
+        },
+        {
+          "mod": "4722",
+          "name": "Node"
+        },
+        {
+          "mod": "4722",
+          "name": "NodeList"
+        },
+        {
+          "mod": "4722",
+          "name": "Notation"
+        },
+        {
+          "mod": "4722",
+          "name": "ProcessingInstruction"
+        },
+        {
+          "mod": "4722",
+          "name": "Text"
+        },
+        {
+          "mod": "4722",
+          "name": "XMLSerializer"
+        },
+        {
+          "mod": "4722",
+          "name": "_updateLiveList"
+        },
+        {
+          "mod": "4722",
+          "name": "walkDOM"
+        },
+        {
+          "mod": "2640",
+          "name": "ALLOWED_ATTRIBUTES"
+        },
+        {
+          "mod": "2640",
+          "name": "ALLOWED_ATTRIBUTES_DEBUG"
+        },
+        {
+          "mod": "2640",
+          "name": "ALLOWED_EMPTY_ELEMENTS"
+        },
+        {
+          "mod": "2640",
+          "name": "BLOCK_ELEMENTS"
+        },
+        {
+          "mod": "2640",
+          "name": "BLOCK_ELEMENTS_SELECTOR"
+        },
+        {
+          "mod": "2640",
+          "name": "BLOCK_ELEMENTS_SET"
+        },
+        {
+          "mod": "2640",
+          "name": "BLOCK_LEVEL_ELEMENTS"
+        },
+        {
+          "mod": "2640",
+          "name": "CONTENT_ELEMENT_SELECTOR"
+        },
+        {
+          "mod": "2640",
+          "name": "ENTRY_POINT_ELEMENTS"
+        },
+        {
+          "mod": "2640",
+          "name": "EXACT_SELECTORS"
+        },
+        {
+          "mod": "2640",
+          "name": "EXACT_SELECTORS_JOINED"
+        },
+        {
+          "mod": "2640",
+          "name": "FOOTNOTE_INLINE_REFERENCES"
+        },
+        {
+          "mod": "2640",
+          "name": "FOOTNOTE_LIST_SELECTORS"
+        },
+        {
+          "mod": "2640",
+          "name": "HIDDEN_EXACT_SELECTOR"
+        },
+        {
+          "mod": "2640",
+          "name": "HIDDEN_EXACT_SKIP_SELECTOR"
+        },
+        {
+          "mod": "2640",
+          "name": "INLINE_ELEMENTS"
+        },
+        {
+          "mod": "2640",
+          "name": "MOBILE_WIDTH"
+        },
+        {
+          "mod": "2640",
+          "name": "PARTIAL_SELECTORS"
+        },
+        {
+          "mod": "2640",
+          "name": "PARTIAL_SELECTORS_ANCHORED_REGEX"
+        },
+        {
+          "mod": "2640",
+          "name": "PARTIAL_SELECTORS_REGEX"
+        },
+        {
+          "mod": "2640",
+          "name": "PRESERVE_ELEMENTS"
+        },
+        {
+          "mod": "2640",
+          "name": "TAILWIND_COLORS"
+        },
+        {
+          "mod": "2640",
+          "name": "TAILWIND_SPECIAL"
+        },
+        {
+          "mod": "2640",
+          "name": "TEST_ATTRIBUTES"
+        },
+        {
+          "mod": "2640",
+          "name": "TEST_ATTRIBUTES_SELECTOR"
+        },
+        {
+          "mod": "2640",
+          "name": "TW_ARBITRARY_RE"
+        },
+        {
+          "mod": "2640",
+          "name": "TW_COLOR_CLASS_RE"
+        },
+        {
+          "mod": "2640",
+          "name": "TW_SPECIAL_CLASS_RE"
+        },
+        {
+          "mod": "2640",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2279",
+          "name": "BaseExtractor"
+        },
+        {
+          "mod": "2279",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4750",
+          "name": "MathMLToLaTeX"
+        },
+        {
+          "mod": "3550",
+          "name": "ContentScorer"
+        },
+        {
+          "mod": "3550",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2983",
+          "name": "DOMException"
+        },
+        {
+          "mod": "2983",
+          "name": "DOMExceptionName"
+        },
+        {
+          "mod": "2983",
+          "name": "ExceptionCode"
+        },
+        {
+          "mod": "2983",
+          "name": "ParseError"
+        },
+        {
+          "mod": "3020",
+          "name": "GrokExtractor"
+        },
+        {
+          "mod": "3020",
+          "name": "__esModule"
+        },
+        {
+          "mod": "1497",
+          "name": "__esModule"
+        },
+        {
+          "mod": "1497",
+          "name": "buildTranscript"
+        },
+        {
+          "mod": "1497",
+          "name": "formatTimestamp"
+        },
+        {
+          "mod": "754",
+          "name": "__esModule"
+        },
+        {
+          "mod": "754",
+          "name": "codeBlockRules"
+        },
+        {
+          "mod": "4732",
+          "name": "GeminiExtractor"
+        },
+        {
+          "mod": "4732",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7076",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7076",
+          "name": "asGenericElement"
+        },
+        {
+          "mod": "7076",
+          "name": "createMarkdownContent"
+        },
+        {
+          "mod": "7076",
+          "name": "isGenericElement"
+        },
+        {
+          "mod": "7076",
+          "name": "toMarkdown"
+        },
+        {
+          "mod": "7864",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7864",
+          "name": "headingRules"
+        },
+        {
+          "mod": "7864",
+          "name": "isPermalinkAnchor"
+        },
+        {
+          "mod": "7864",
+          "name": "removePermalinkAnchors"
+        },
+        {
+          "mod": "3588",
+          "name": "GitHubExtractor"
+        },
+        {
+          "mod": "3588",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4466",
+          "name": "XMLReader"
+        },
+        {
+          "mod": "4466",
+          "name": "parseDoctypeCommentOrCData"
+        },
+        {
+          "mod": "4466",
+          "name": "parseUtils"
+        },
+        {
+          "mod": "2763",
+          "name": "ABOUT_LEGACY_COMPAT"
+        },
+        {
+          "mod": "2763",
+          "name": "ABOUT_LEGACY_COMPAT_SystemLiteral"
+        },
+        {
+          "mod": "2763",
+          "name": "AttlistDecl"
+        },
+        {
+          "mod": "2763",
+          "name": "CDATA_END"
+        },
+        {
+          "mod": "2763",
+          "name": "CDATA_START"
+        },
+        {
+          "mod": "2763",
+          "name": "CDSect"
+        },
+        {
+          "mod": "2763",
+          "name": "COMMENT_END"
+        },
+        {
+          "mod": "2763",
+          "name": "COMMENT_START"
+        },
+        {
+          "mod": "2763",
+          "name": "Char"
+        },
+        {
+          "mod": "2763",
+          "name": "Comment"
+        },
+        {
+          "mod": "2763",
+          "name": "DOCTYPE_DECL_START"
+        },
+        {
+          "mod": "2763",
+          "name": "EntityDecl"
+        },
+        {
+          "mod": "2763",
+          "name": "EntityValue"
+        },
+        {
+          "mod": "2763",
+          "name": "ExternalID"
+        },
+        {
+          "mod": "2763",
+          "name": "ExternalID_match"
+        },
+        {
+          "mod": "2763",
+          "name": "InvalidChar"
+        },
+        {
+          "mod": "2763",
+          "name": "Name"
+        },
+        {
+          "mod": "2763",
+          "name": "NotationDecl"
+        },
+        {
+          "mod": "2763",
+          "name": "PEReference"
+        },
+        {
+          "mod": "2763",
+          "name": "PI"
+        },
+        {
+          "mod": "2763",
+          "name": "PUBLIC"
+        },
+        {
+          "mod": "2763",
+          "name": "PubidLiteral"
+        },
+        {
+          "mod": "2763",
+          "name": "PubidLiteral_match"
+        },
+        {
+          "mod": "2763",
+          "name": "QName"
+        },
+        {
+          "mod": "2763",
+          "name": "QName_exact"
+        },
+        {
+          "mod": "2763",
+          "name": "QName_group"
+        },
+        {
+          "mod": "2763",
+          "name": "Reference"
+        },
+        {
+          "mod": "2763",
+          "name": "S"
+        },
+        {
+          "mod": "2763",
+          "name": "SChar_s"
+        },
+        {
+          "mod": "2763",
+          "name": "SYSTEM"
+        },
+        {
+          "mod": "2763",
+          "name": "S_OPT"
+        },
+        {
+          "mod": "2763",
+          "name": "SystemLiteral"
+        },
+        {
+          "mod": "2763",
+          "name": "SystemLiteral_match"
+        },
+        {
+          "mod": "2763",
+          "name": "UNICODE_REPLACEMENT_CHARACTER"
+        },
+        {
+          "mod": "2763",
+          "name": "UNICODE_SUPPORT"
+        },
+        {
+          "mod": "2763",
+          "name": "XMLDecl"
+        },
+        {
+          "mod": "2763",
+          "name": "chars"
+        },
+        {
+          "mod": "2763",
+          "name": "chars_without"
+        },
+        {
+          "mod": "2763",
+          "name": "detectUnicodeSupport"
+        },
+        {
+          "mod": "2763",
+          "name": "elementdecl"
+        },
+        {
+          "mod": "2763",
+          "name": "reg"
+        },
+        {
+          "mod": "2763",
+          "name": "regg"
+        },
+        {
+          "mod": "6559",
+          "name": "HTML_ENTITIES"
+        },
+        {
+          "mod": "6559",
+          "name": "XML_ENTITIES"
+        },
+        {
+          "mod": "6559",
+          "name": "entityMap"
+        },
+        {
+          "mod": "4467",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4467",
+          "name": "findContentStart"
+        },
+        {
+          "mod": "4467",
+          "name": "isAboveContentStart"
+        },
+        {
+          "mod": "2144",
+          "name": "WikipediaExtractor"
+        },
+        {
+          "mod": "2144",
+          "name": "__esModule"
+        }
+      ]
+    },
+    "(unknown)": {
+      "count": 70,
+      "bundler": null,
+      "exports": []
+    },
+    "lib/mathjax/output/chtml/fonts/tex.js": {
+      "count": 58,
+      "bundler": "webpack",
+      "exports": [
+        {
+          "mod": "8105",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8105",
+          "name": "texCalligraphicBold"
+        },
+        {
+          "mod": "584",
+          "name": "__esModule"
+        },
+        {
+          "mod": "584",
+          "name": "texSize3"
+        },
+        {
+          "mod": "7405",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7405",
+          "name": "smallop"
+        },
+        {
+          "mod": "6949",
+          "name": "__esModule"
+        },
+        {
+          "mod": "6949",
+          "name": "sansSerifBoldItalic"
+        },
+        {
+          "mod": "3518",
+          "name": "__esModule"
+        },
+        {
+          "mod": "3518",
+          "name": "sansSerifBoldItalic"
+        },
+        {
+          "mod": "9349",
+          "name": "__esModule"
+        },
+        {
+          "mod": "9349",
+          "name": "fraktur"
+        },
+        {
+          "mod": "5031",
+          "name": "__esModule"
+        },
+        {
+          "mod": "5031",
+          "name": "bold"
+        },
+        {
+          "mod": "8955",
+          "name": "PV"
+        },
+        {
+          "mod": "8955",
+          "name": "r8"
+        },
+        {
+          "mod": "8667",
+          "name": "q"
+        },
+        {
+          "mod": "5392",
+          "name": "__esModule"
+        },
+        {
+          "mod": "5392",
+          "name": "texCalligraphicBold"
+        },
+        {
+          "mod": "2518",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2518",
+          "name": "texCalligraphic"
+        },
+        {
+          "mod": "9741",
+          "name": "__esModule"
+        },
+        {
+          "mod": "9741",
+          "name": "italic"
+        },
+        {
+          "mod": "3869",
+          "name": "__esModule"
+        },
+        {
+          "mod": "3869",
+          "name": "boldItalic"
+        },
+        {
+          "mod": "6736",
+          "name": "__esModule"
+        },
+        {
+          "mod": "6736",
+          "name": "sansSerif"
+        },
+        {
+          "mod": "6051",
+          "name": "__esModule"
+        },
+        {
+          "mod": "6051",
+          "name": "doubleStruck"
+        },
+        {
+          "mod": "5674",
+          "name": "__esModule"
+        },
+        {
+          "mod": "5674",
+          "name": "doubleStruck"
+        },
+        {
+          "mod": "6466",
+          "name": "__esModule"
+        },
+        {
+          "mod": "6466",
+          "name": "scriptBold"
+        },
+        {
+          "mod": "5595",
+          "name": "__esModule"
+        },
+        {
+          "mod": "5595",
+          "name": "texMathit"
+        },
+        {
+          "mod": "4228",
+          "name": "FontData"
+        },
+        {
+          "mod": "4228",
+          "name": "H"
+        },
+        {
+          "mod": "4228",
+          "name": "NOSTRETCH"
+        },
+        {
+          "mod": "4228",
+          "name": "V"
+        },
+        {
+          "mod": "4228",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4228",
+          "name": "enum"
+        },
+        {
+          "mod": "7557",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7557",
+          "name": "bold"
+        },
+        {
+          "mod": "7611",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7611",
+          "name": "texOldstyle"
+        },
+        {
+          "mod": "482",
+          "name": "__esModule"
+        },
+        {
+          "mod": "482",
+          "name": "largeop"
+        },
+        {
+          "mod": "5074",
+          "name": "Pp"
+        },
+        {
+          "mod": "4244",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4244",
+          "name": "italic"
+        },
+        {
+          "mod": "6357",
+          "name": "__esModule"
+        },
+        {
+          "mod": "6357",
+          "name": "texOldstyleBold"
+        },
+        {
+          "mod": "8135",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8135",
+          "name": "texVariant"
+        },
+        {
+          "mod": "1937",
+          "name": "__esModule"
+        },
+        {
+          "mod": "1937",
+          "name": "fraktur"
+        },
+        {
+          "mod": "3012",
+          "name": "__esModule"
+        },
+        {
+          "mod": "3012",
+          "name": "script"
+        },
+        {
+          "mod": "2290",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2290",
+          "name": "scriptBold"
+        },
+        {
+          "mod": "196",
+          "name": "__esModule"
+        },
+        {
+          "mod": "196",
+          "name": "monospace"
+        },
+        {
+          "mod": "965",
+          "name": "__esModule"
+        },
+        {
+          "mod": "965",
+          "name": "sansSerifBold"
+        },
+        {
+          "mod": "2970",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2970",
+          "name": "monospace"
+        },
+        {
+          "mod": "9236",
+          "name": "__esModule"
+        },
+        {
+          "mod": "9236",
+          "name": "frakturBold"
+        },
+        {
+          "mod": "7841",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7841",
+          "name": "boldItalic"
+        },
+        {
+          "mod": "1668",
+          "name": "__esModule"
+        },
+        {
+          "mod": "1668",
+          "name": "normal"
+        },
+        {
+          "mod": "9169",
+          "name": "__esModule"
+        },
+        {
+          "mod": "9169",
+          "name": "sansSerifItalic"
+        },
+        {
+          "mod": "2827",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2827",
+          "name": "largeop"
+        },
+        {
+          "mod": "4214",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4214",
+          "name": "sansSerif"
+        },
+        {
+          "mod": "5351",
+          "name": "__esModule"
+        },
+        {
+          "mod": "5351",
+          "name": "texMathit"
+        },
+        {
+          "mod": "2138",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2138",
+          "name": "texVariant"
+        },
+        {
+          "mod": "2308",
+          "name": "TeXFont"
+        },
+        {
+          "mod": "2308",
+          "name": "__esModule"
+        },
+        {
+          "mod": "73",
+          "name": "AddCSS"
+        },
+        {
+          "mod": "73",
+          "name": "CHTMLFontData"
+        },
+        {
+          "mod": "73",
+          "name": "__esModule"
+        },
+        {
+          "mod": "9474",
+          "name": "__esModule"
+        },
+        {
+          "mod": "9474",
+          "name": "texOldstyle"
+        },
+        {
+          "mod": "527",
+          "name": "__esModule"
+        },
+        {
+          "mod": "527",
+          "name": "normal"
+        },
+        {
+          "mod": "8787",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8787",
+          "name": "smallop"
+        },
+        {
+          "mod": "873",
+          "name": "__esModule"
+        },
+        {
+          "mod": "873",
+          "name": "texOldstyleBold"
+        },
+        {
+          "mod": "2632",
+          "name": "__esModule"
+        },
+        {
+          "mod": "2632",
+          "name": "sansSerifItalic"
+        },
+        {
+          "mod": "4629",
+          "name": "GL"
+        },
+        {
+          "mod": "8798",
+          "name": "__esModule"
+        },
+        {
+          "mod": "8798",
+          "name": "texSize4"
+        },
+        {
+          "mod": "7481",
+          "name": "HDW1"
+        },
+        {
+          "mod": "7481",
+          "name": "HDW2"
+        },
+        {
+          "mod": "7481",
+          "name": "HDW3"
+        },
+        {
+          "mod": "7481",
+          "name": "VSIZES"
+        },
+        {
+          "mod": "7481",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7481",
+          "name": "delimiters"
+        },
+        {
+          "mod": "3776",
+          "name": "__esModule"
+        },
+        {
+          "mod": "3776",
+          "name": "script"
+        },
+        {
+          "mod": "6318",
+          "name": "__esModule"
+        },
+        {
+          "mod": "6318",
+          "name": "texCalligraphic"
+        },
+        {
+          "mod": "2176",
+          "name": "CommonTeXFontMixin"
+        },
+        {
+          "mod": "2176",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4324",
+          "name": "__esModule"
+        },
+        {
+          "mod": "4324",
+          "name": "texSize4"
+        },
+        {
+          "mod": "5193",
+          "name": "__esModule"
+        },
+        {
+          "mod": "5193",
+          "name": "sansSerifBold"
+        },
+        {
+          "mod": "7002",
+          "name": "__esModule"
+        },
+        {
+          "mod": "7002",
+          "name": "frakturBold"
+        },
+        {
+          "mod": "6590",
+          "name": "__esModule"
+        },
+        {
+          "mod": "6590",
+          "name": "texSize3"
+        }
+      ]
+    },
+    "lib/mermaid.min.js": {
+      "count": 18,
+      "bundler": "webpack",
+      "exports": []
+    },
+    "lib/codemirror/markdown.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "i18n.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "lib/codemirror/meta.min.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "enhance.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "lib/i18next.min.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "help.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "lib/moment.min.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "lib/codemirror/modes.min.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "lib/codemirror/codemirror.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "lib/codemirror/overlay.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    },
+    "lib/codemirror/cm-addons.js": {
+      "count": 1,
+      "bundler": null,
+      "exports": []
+    }
+  },
+  "importCount": 1330,
+  "importSpecifiers": [
+    "require:2176",
+    "require:9840",
+    "undefined:undefined",
+    "require:639",
+    "require:212",
+    "worker:undefined",
+    "require:991",
+    "require:5666",
+    "require:9650",
+    "require:6931",
+    "require:7611",
+    "require:1383",
+    "require:9677",
+    "require:527",
+    "undefined:null",
+    "require:2144",
+    "require:5674",
+    "require:5392",
+    "require:753",
+    "require:6043",
+    "require:313",
+    "require:7194",
+    "require:8477",
+    "require:765",
+    "require:8131",
+    "require:6252",
+    "require:5245",
+    "require:2279",
+    "require:1126",
+    "require:3228",
+    "require:2632",
+    "require:3610",
+    "require:3860",
+    "require:6058",
+    "require:7405",
+    "require:6077",
+    "require:7282",
+    "require:1900",
+    "require:9510",
+    "require:4571",
+    "require:2877",
+    "require:4750",
+    "require:4297",
+    "require:6581",
+    "require:5628",
+    "require:73",
+    "require:8632",
+    "require:493",
+    "require:../../lib/codemirror",
+    "require:2552",
+    "require:2700",
+    "require:7269",
+    "require:5261",
+    "require:8711",
+    "require:8593",
+    "require:4472",
+    "require:1716",
+    "require:3115",
+    "require:7824",
+    "require:7422",
+    "require:5810",
+    "require:9040",
+    "require:6920",
+    "require:7297",
+    "require:134",
+    "require:7092",
+    "require:3550",
+    "undefined:../../lib/codemirror",
+    "require:5151",
+    "require:3518",
+    "require:1890",
+    "require:5125",
+    "require:1608",
+    "require:6736",
+    "require:140",
+    "require:8105",
+    "require:6901",
+    "require:9795",
+    "require:7137",
+    "require:8798",
+    "require:6357",
+    "require:5595",
+    "require:7648",
+    "require:196",
+    "require:2472",
+    "require:3869",
+    "require:9741",
+    "require:8787",
+    "require:7122",
+    "require:8785",
+    "require:2640",
+    "require:8124",
+    "require:551",
+    "require:3632",
+    "require:7578",
+    "require:2983",
+    "require:5181",
+    "require:5874",
+    "require:741",
+    "require:8671",
+    "require:5193",
+    "require:5351",
+    "require:1497",
+    "require:9098",
+    "require:6051",
+    "require:5176",
+    "require:4732",
+    "require:1782",
+    "require:2970",
+    "require:3179",
+    "require:7002",
+    "require:6318",
+    "require:3258",
+    "require:482",
+    "require:439",
+    "require:3974",
+    "require:2258",
+    "require:1765",
+    "require:9159",
+    "require:1393",
+    "require:2298",
+    "require:6590",
+    "require:965",
+    "require:3776",
+    "bundler-entry-module:undefined",
+    "require:8397",
+    "require:1528",
+    "require:9759",
+    "require:935",
+    "require:8055",
+    "require:5325",
+    "require:9546",
+    "require:631",
+    "require:1944",
+    "require:9474",
+    "require:9710",
+    "require:8813",
+    "require:1339",
+    "require:806",
+    "require:1071",
+    "require:662",
+    "require:9964",
+    "require:2763",
+    "require:2408",
+    "require:8257",
+    "undefined:../xml/xml",
+    "require:8707",
+    "require:4582",
+    "require:6047",
+    "require:2138",
+    "require:4228",
+    "require:4686",
+    "require:5393",
+    "require:4272",
+    "require:7274",
+    "require:6933",
+    "require:4840",
+    "require:6134",
+    "require:2356",
+    "require:9349",
+    "require:8090",
+    "require:4839",
+    "require:5275",
+    "require:548",
+    "require:1134",
+    "require:8942",
+    "require:3390",
+    "require:5785",
+    "require:7057",
+    "require:2115",
+    "require:767",
+    "require:618",
+    "require:4467",
+    "require:7841",
+    "require:8135",
+    "require:6451",
+    "require:5759",
+    "require:8518",
+    "require:7278",
+    "require:2518",
+    "require:6504",
+    "require:4741",
+    "require:7512",
+    "require:8607",
+    "require:902",
+    "require:2290",
+    "require:4159",
+    "require:8812",
+    "require:1668",
+    "require:4506",
+    "require:9405",
+    "require:658",
+    "require:6658",
+    "require:7393",
+    "require:8978",
+    "require:3588",
+    "require:6618",
+    "require:9970",
+    "require:1937",
+    "require:3849"
+  ],
+  "externalSpecifiers": [
+    "require '../../lib/codemirror' (in lib/codemirror/cm-addons.js)",
+    "undefined '../../lib/codemirror' (in lib/codemirror/cm-addons.js)",
+    "undefined '../../lib/codemirror' (in lib/codemirror/overlay.js)",
+    "undefined '../xml/xml' (in lib/codemirror/markdown.js)",
+    "require '../../lib/codemirror' (in lib/codemirror/overlay.js)",
+    "require '../meta' (in lib/codemirror/markdown.js)",
+    "undefined '../meta' (in lib/codemirror/markdown.js)",
+    "require '../xml/xml' (in lib/codemirror/markdown.js)",
+    "require '../../lib/codemirror' (in lib/codemirror/markdown.js)",
+    "require './foldcode' (in lib/codemirror/cm-addons.js)",
+    "undefined '../../lib/codemirror' (in lib/codemirror/markdown.js)",
+    "undefined './foldcode' (in lib/codemirror/cm-addons.js)"
+  ],
+  "obsidianApiExports": [],
+  "limitations": [
+    "CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.",
+    "Graph coverage is incomplete; unavailable facts remain explicit and must not be read as absence.",
+    "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
+    "Resource constraint during analyze_javascript_application: Expanded application relationships for lib/mathjax/tex-chtml-full.js exceed the parent's result budget; complete static facts were retained on the file node",
+    "Resource constraint during analyze_javascript_application: Expanded application relationships for lib/pdfjs/pdf.viewer.min.mjs exceed the parent's result budget; complete static facts were retained on the file node",
+    "Resource constraint during analyze_javascript_application: Expanded application relationships for lib/pdfjs/pdf.worker.min.mjs exceed the parent's result budget; complete static facts were retained on the file node",
+    "Source analysis was interrupted: Analysis operation timed out after 600000ms: analyze_javascript_application",
+    "Static imports, entrypoints, workers, endpoints, and storage relationships do not prove runtime execution.",
+    "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
+    "Webpack/Rspack factories were recovered from AST literals; REA did not invoke push handlers or bundle bootstrap code.",
+    "lib/codemirror/codemirror.js: Resource constraint during analyze_javascript_application: Semantic graph for lib/codemirror/codemirror.js exceeds the parent's remaining result budget; static and module facts were retained",
+    "lib/codemirror/modes.min.js: Resource constraint during analyze_javascript_application: Semantic graph for lib/codemirror/modes.min.js exceeds the parent's remaining result budget; static and module facts were retained",
+    "lib/codemirror/vim.js: Resource constraint during analyze_javascript_application: Semantic graph for lib/codemirror/vim.js exceeds the parent's remaining result budget; static and module facts were retained",
+    "lib/defuddle.full.js: Resource constraint during analyze_javascript_application: Semantic graph for lib/defuddle.full.js exceeds the parent's remaining result budget; static and module facts were retained",
+    "lib/mathjax/output/chtml/fonts/tex.js: Resource constraint during analyze_javascript_application: Semantic graph for lib/mathjax/output/chtml/fonts/tex.js exceeds the parent's remaining result budget; static and module facts were retained",
+    "lib/mathjax/tex-chtml-full.js: Resource constraint during analyze_javascript_application: The parent reserved its remaining result capacity for static observations; semantic analysis of lib/mathjax/tex-chtml-full.js was not started",
+    "lib/mermaid.min.js: Resource constraint during analyze_javascript_application: Semantic graph for lib/mermaid.min.js exceeds the parent's remaining result budget; static and module facts were retained",
+    "lib/moment.min.js: Resource constraint during analyze_javascript_application: Semantic graph for lib/moment.min.js exceeds the parent's remaining result budget; static and module facts were retained",
+    "lib/pdfjs/pdf.min.mjs: Resource constraint during analyze_javascript_application: Semantic graph for lib/pdfjs/pdf.min.mjs exceeds the parent's remaining result budget; static and module facts were retained",
+    "lib/pdfjs/pdf.viewer.min.mjs: Resource constraint during analyze_javascript_application: The parent reserved its remaining result capacity for static observations; semantic analysis of lib/pdfjs/pdf.viewer.min.mjs was not started",
+    "lib/pdfjs/pdf.worker.min.mjs: Resource constraint during analyze_javascript_application: The parent reserved its remaining result capacity for static observations; semantic analysis of lib/pdfjs/pdf.worker.min.mjs was not started",
+    "lib/pdfjs/wasm/openjpeg_nowasm_fallback.js: Analysis operation timed out after 600000ms: analyze_javascript_application"
+  ],
+  "coverage": {
+    "status": "partial",
+    "truncated": false,
+    "omitted_count": null,
+    "limits": [
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 176048736,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 206315992,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 210939382,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 22535620,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 25682400,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 297057640,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 4501490,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 5071292,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 6080020,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 8700108,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_available_result_budget_bytes",
+        "value": 8868888,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_parent_result_budget_bytes",
+        "value": 1970124768,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_semantic_result_budget_bytes",
+        "value": 0,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_worker_heap_limit_bytes",
+        "value": 2172649472,
+        "unit": "bytes"
+      },
+      {
+        "name": "javascript_analysis_worker_timeout_ms",
+        "value": 600000,
+        "unit": "milliseconds"
+      }
+    ]
+  },
+  "rootNodeIds": [
+    "jag_node_3d0498fda451629d6094a3c9f9f143a1d78bb8e29b97703eb4588c8fdcca4d8f"
+  ],
+  "graphId": "jag_f2d0f638b2da3ff636f9de05715a5f78c49b867a327593d9d16b81d5894c58cd"
+}

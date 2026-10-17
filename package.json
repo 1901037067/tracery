@@ -1,0 +1,67 @@
+{
+  "name": "evnote",
+  "version": "1.0.0",
+  "description": "EVNote · 仓库型 Markdown 笔记软件（Obsidian 复刻学习版）— 基于 REA 逆向分析 Obsidian 架构后用 Web 技术栈复刻",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node server/server.js",
+    "sync": "node sync-server/index.js",
+    "test:e2e": "node test/e2e.mjs",
+    "test:sync": "node test/sync-test.mjs",
+    "test:sync-ui": "node test/sync-ui-test.mjs",
+    "test:ui": "node test/ui-vault-test.mjs",
+    "test:ux": "node test/ui-ux-test.mjs",
+    "start:electron": "electron .",
+    "dist": "electron-builder --win portable",
+    "dist:dir": "electron-builder --dir",
+    "repack": "node scripts/repack.mjs",
+    "test:merge": "node test/merge-test.mjs",
+    "test:draw": "node test/draw-test.mjs",
+    "test:lan": "node test/lan-test.mjs",
+    "test:tabs": "node test/tabs-test.mjs"
+  },
+  "dependencies": {
+    "node-diff3": "^3.2.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.4.4",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "puppeteer-core": "^23.11.1"
+  },
+  "build": {
+    "appId": "com.evnote.app",
+    "productName": "EVNote",
+    "copyright": "Copyright © 2026 EVNote contributors",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "server/**/*",
+      "public/**/*",
+      "demo-vault/**/*",
+      "sync-server/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "EVNote-portable.exe"
+    }
+  }
+}

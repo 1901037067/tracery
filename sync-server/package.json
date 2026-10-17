@@ -1,0 +1,23 @@
+{
+  "name": "evnote-sync",
+  "version": "1.0.0",
+  "description": "EVNote 自托管同步服务端：内容寻址存储 + 版本化清单，零业务逻辑",
+  "type": "module",
+  "bin": {
+    "evnote-sync": "index.js"
+  },
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "evnote",
+    "sync",
+    "markdown",
+    "self-hosted"
+  ],
+  "license": "MIT"
+}

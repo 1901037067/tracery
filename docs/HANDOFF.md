@@ -1,0 +1,133 @@
+# EVNote 交接文档（Handoff）
+
+> 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
+> 最后更新：2026-10-17 15:27（对应代码状态：同步 v2 + 绘图 + 局域网直连 + 多标签 + 可调栏宽）
+
+---
+
+## 1. 一句话现状
+
+EVNote 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、图谱全屏、多标签页、可拖拽栏宽。测试 123/123，打包版可发布。
+
+## 2. 环境与常用命令
+
+```bash
+# 开发（浏览器）
+npm start                    # http://localhost:9520，静态文件热更新；改 server/* 需重启
+
+# 桌面窗口
+npm run start:electron
+
+# 测试（全部无头 Edge，用临时目录，不碰真实仓库）
+npm run test:e2e             # 15  功能回归
+npm run test:ui              # 10  窗口按钮/主题图标/仓库切换
+npm run test:ux              # 16  布局/对话框/图片/图谱全屏
+npm run test:sync            # 27  同步（双实例+真服务端：合并/冲突/分块/Range/删除）
+npm run test:sync-ui         # 13  同步面板 + 部署说明 + 局域网区块
+npm run test:merge           # 10  三方合并单测
+npm run test:draw            # 12  绘图
+npm run test:lan             # 10  局域网直连
+npm run test:tabs            # 12  多标签/栏宽/绘图历史
+
+# 同步服务端（可选，常驻机器）
+npm run sync -- --data ./evnote-sync
+
+# 打包（重要，见 §7）
+npm run dist:dir             # electron-builder 产出 dist/win-unpacked
+npm run repack               # 只重打 app.asar（改完前端/服务端后用这条，绕过 winCodeSign）
+# 再压 zip：7za a -tzip dist/EVNote-1.0.0-win32-x64.zip dist/win-unpacked/*
+# 桌面快捷方式：node scripts/make-shortcut.mjs（手写 .lnk，不用 COM）
+```
+
+无头浏览器是 `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`，测试用 `puppeteer-core`。
+
+## 3. 架构与文件地图
+
+```
+渲染进程（public/js，纯 ESM，无框架）
+  app.js        主控制器：状态/文件树/面板/命令面板/标签页/快捷键/WS
+  editor.js     contenteditable 实时预览编辑器（md 坐标系 + _replaceRange/insertSnippet/flush）
+  markdown.js   Markdown ↔ DOM 双向（图片 ![]()、嵌入 ![[..]]、序列化、光标映射）
+  settings.js   设置面板（外观/编辑器/同步/通用），CSS 变量即时生效
+  sync-ui.js    同步面板（表单/已连接/部署说明/局域网直连）
+  draw.js       内置绘图（快照历史、笔/荧光/橡皮、导出 PNG）
+  lightbox.js   图片灯箱（滚轮缩放/拖动/双击复位）
+  dialog.js     askText/askConfirm（替代 prompt/confirm，见 §6）
+  api.js        API + WebSocket
+  themes/*.css  apple / obsidian 两套皮肤，全是变量
+
+Node 服务端（server）
+  server.js     HTTP + WS + vault 监听 + 配置（≈ Obsidian 主进程）
+  sync.js       同步引擎：三方比对(local/remote/base)、diff3 合并、分块传输
+  merge.js      node-diff3 封装（CRLF 保留、只放行 .md/.markdown/.txt）
+  lan.js        局域网直连：内嵌 sync-server + UDP 广播发现 + 本机引擎配对
+sync-server/index.js   同步服务端（CLI 与 startSyncServer() 双形态）
+electron/main.cjs       桌面壳：窗口按钮/拖拽区/选文件夹对话框/起服务端子进程
+test/*.mjs              九个测试套件（见 §2）
+```
+
+约定：仓库根目录 `E:\08_project\ev_\evnote`；演示仓库 `demo-vault/`；配置在 `EVNOTE_HOME/evnote.config.json`（默认 `%APPDATA%/evnote`）；每仓库同步配置 `<vault>/.evnote/sync.json`；同步删除进 `<vault>/.evnote/trash/`；绘图笔画存 `附件/<名>.draw.json`（文件树隐藏但参与同步）。
+
+## 4. 已完成功能（截至 2026-10-17）
+
+- 编辑器：实时预览、任务列表、Callout、表格、代码块、高亮、源码模式、自动保存 0.9s
+- 双链/反链/标签/全文搜索/命令面板/力导向图谱（全屏+缩放+适应）/大纲
+- 图片：`![[图]]` `![[目录/图]]` `![[图|400]]` `![](相对路径)` + 点击灯箱看大图
+- 内置绘图：`Ctrl+Shift+D` 或左下角笔图标；保存 PNG 到 `附件/` 并插入光标处
+- 多标签页：树点击开新标签、`Ctrl+W`/`Ctrl+Tab`、持久化、外删自清理
+- 可拖拽栏宽：侧栏/右栏拖拽 + 双击复位 + 记忆
+- 主题：apple/obsidian × 亮暗，强调色/圆角/字号/行宽即时生效，可导出 CSS
+- 同步：NAS/服务器方式 + **局域网六位通行码直连**；自动三方合并、冲突副本、删除回收站、
+  内容寻址去重、1MB 分块上传、Range 断点下载、自动同步开关/间隔/自动合并开关
+- 仓库管理：欢迎页浮层（Esc/✕/点空白关闭）、最近列表、原生选文件夹、标题栏仓库名可点
+
+## 5. 技术决策（别推翻，先读理由）
+
+1. **同步配置按仓库存 `.evnote/sync.json`**（不是全局 settings）：不同仓库绝不能共用一个同步目标，否则切仓库会把 A 灌进 B。
+2. **局域网直连 = 内嵌 sync-server + 本机引擎也连它**：主机自己也是客户端，零新协议，合并/冲突/回收站全部复用。
+3. **UDP 广播发现**（端口 47891-47893），码只用于配对换 token；探测地址时逐个 IP `GET /api/health` 选通的。
+4. **合并只对文本**（`.md/.markdown/.txt`），同段冲突一律退化为冲突副本——宁可多一份文件，不猜内容。
+5. **附件合并基准取服务端历史 blob**：服务端不删旧 blob，正好当 base。
+6. **`dialog.js` 替代 prompt/confirm**：Electron 渲染进程不支持 `prompt()`（静默失效）。
+7. **主题是一套 CSS 变量**：改皮肤不动布局；按钮图标显隐要写 `#btn-theme .ic-moon`（0,2,0 才能压过 `.ribbon-btn svg`）。
+8. **图谱 fit() 按节点包围盒算 scale+pan**，不是 reset 到 1x（否则全屏后缩成一坨）。
+
+## 6. 已知坑（踩过的，直接抄结论）
+
+| 坑 | 结论 |
+|---|---|
+| 渲染进程 `prompt()` 无效 | 全部走 `dialog.js` 的 `askText/askConfirm` |
+| asar 内 `fs.cpSync` 报 ENOENT opendir | 复制演示仓库用 `readdirSync`+`copyFileSync`（`copyDirSafe`），并用 `DEFAULT_VAULT.includes('.asar')` 判定 |
+| electron-builder 解 winCodeSign 要符号链接权限（普通 Windows 账户失败） | 用 `npm run dist:dir` 产出目录 + `npm run repack` 只重打 asar + 7za 压 zip |
+| repack staging 漏带 `sync-server/` → asar 内 import 失败 | staging 固定包含 `electron server public demo-vault sync-server` + `node_modules/{ws,node-diff3}` |
+| WScript.Shell COM 被安全策略拦截 | 桌面快捷方式用 `scripts/make-shortcut.mjs` 手写 .lnk 二进制 |
+| 用 `bash -e "…"` 写 JS，模板字符串/`$()` 被 shell 吃掉 | **改代码一律用 Edit/Write 工具**，不要用 bash -e 生成代码 |
+| `body.electron` 右侧要留窗口按钮位置 | `body.electron { padding-right: 0 }` + `.titlebar-right { align-self: stretch }` |
+| Windows 文件/目录名不能含 `:*?"<>\|` | 冲突副本/绘图文件名统一 `.replace(/[\\/:*?"<>|]/g,'-')` |
+
+## 7. 新对话怎么继续（按优先级）
+
+1. **同步 v3：端到端加密**。路线：scrypt(密码) 派生 masterKey → 内容 AES-GCM 加密后再上传 → manifest 路径用 HMAC 存。服务端接口不用改（本来就只认 blob+sha）。注意：合并会失效（服务端看不到明文），需改成「客户端持有 base 明文」策略。
+2. **绘图二次编辑**：笔画 JSON 已存 `附件/*.draw.json`，做「右键图片 → 编辑绘图」回填 draw.js 即可；跨设备时 JSON 也参与同步。
+3. **PWA + 响应式**（ROADMAP P0 最后一项）：manifest + service worker + 移动三栏。
+4. **大仓库性能**：文件树虚拟滚动 + 增量索引落盘。
+5. **mDNS 精细发现**（替代当前 UDP 广播启发式）。
+
+## 8. 协作方式约定
+
+- 回复用中文；用户习惯**截图 + 一句话需求**驱动迭代，先定位根因再动手，别猜。
+- 测试必须真实驱动（puppeteer-core + 无头 Edge），截图落 `test/screenshots/`，改完跑相关套件再打包。
+- 所有 UI 文案保持中文，代码注释中文；新文件头写清「为什么这样做」。
+- 提交信息用中文，颗粒度按功能（未接入远端仓库则本地 commit 即可）。
+- 项目记忆在 `E:\08_project\ev_\.workbuddy\memory/2026-10-17.md`（当天日志）+ `MEMORY.md`，新对话可读。
+
+## 9. 快速自检清单（接手后 5 分钟）
+
+```bash
+npm start                 # 起服务，浏览器开 http://localhost:9520
+npm run test:e2e          # 应 15/15
+npm run test:lan          # 应 10/10（验证局域网直连没坏）
+npm run test:sync         # 应 27/27
+```
+
+如果全绿，说明环境和代码状态与本文档一致，可以按 §7 挑一项开工。
