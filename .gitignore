@@ -3,7 +3,9 @@ dist/
 
 # 运行时配置与仓库配置目录（不提交用户数据）
 tracery.config.json
+evnote.config.json
 .tracery/
+.evnote/
 
 # 构建/调试日志
 *.log
