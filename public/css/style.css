@@ -483,7 +483,7 @@ body.electron .electron-only { display: inline-flex !important; }
 .statusbar .mode-btn:hover { background: var(--bg-fill); color: var(--text-primary); }
 
 .editor-wrap { flex: 1; position: relative; min-height: 0; }
-.editor, .editor-source { position: absolute; inset: 0; overflow-y: auto; outline: none; }
+.editor { position: absolute; inset: 0; overflow-y: auto; outline: none; }
 .editor {
   padding: 36px 48px 40vh;
   caret-color: var(--accent);
@@ -491,7 +491,24 @@ body.electron .electron-only { display: inline-flex !important; }
   font-size: var(--editor-font-size, 16px);
 }
 .editor > * { max-width: var(--editor-width, 720px); margin-left: auto; margin-right: auto; }
+
+/* ============ 源码模式（行号槽 + 等宽编辑区，实时预览模式不显示） ============ */
+.source-wrap { position: absolute; inset: 0; display: flex; min-width: 0; }
+.source-gutter {
+  flex-shrink: 0; width: 46px;
+  overflow: hidden;
+  /* 与 .editor-source 严格同参：字号/行高/上padding 一致，行号才对齐得齐 */
+  padding: 32px 12px 40vh 16px;
+  font-family: var(--font-mono);
+  font-size: 13.5px; line-height: 1.8;
+  color: var(--text-tertiary);
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid var(--hairline);
+}
 .editor-source {
+  flex: 1; min-width: 0;
+  overflow: auto; outline: none;
   padding: 32px 40px 40vh;
   border: none; resize: none;
   background: transparent;

@@ -1,13 +1,13 @@
 # Tracery 交接文档（Handoff）
 
 > 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
-> 最后更新：2026-10-17 19:30（对应代码状态：Tracery 重命名 + 侧栏折叠修复 + 附件管理 + 粘贴/拖拽入库 + Tab 栏搬入标题栏 + 笔记头行删除 + Markdown round-trip 属性测试）
+> 最后更新：2026-10-17 20:10（对应代码状态：Tracery 重命名 + 侧栏折叠修复 + 附件管理 + 粘贴/拖拽入库 + Tab 栏搬入标题栏 + 笔记头行删除 + Markdown round-trip 属性测试 + 回车 bug 修复 + 图片直阅/行号/折叠图标）
 
 ---
 
 ## 1. 一句话现状
 
-Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、图谱全屏、多标签页（Tab 栏即标题栏）、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）。测试 159/159，打包版可发布。
+Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、图谱全屏、多标签页（Tab 栏即标题栏）、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）、文件树图片直阅、源码模式行号。测试 175/175，打包版可发布。
 
 ## 2. 环境与常用命令
 
@@ -26,6 +26,7 @@ npm run test:sync            # 27  同步（双实例+真服务端：合并/冲�
 npm run test:sync-ui         # 13  同步面板 + 部署说明 + 局域网区块
 npm run test:merge           # 10  三方合并单测
 npm run test:roundtrip       # 7   Markdown 双向引擎属性测试（恒等/不动点/内容不丢/渲染确定性，含 300 篇模糊 + demo-vault 全量）
+npm run test:enter           # 8   编辑器回车行为回归（段尾/行中/连续回车、列表续行与退出、软换行段）
 npm run test:draw            # 12  绘图
 npm run test:lan             # 10  局域网直连
 npm run test:layout          # 12  侧栏折叠回归 / 紧凑头栏
@@ -83,6 +84,7 @@ test/*.mjs              九个测试套件（见 §2）
 - **Tab 栏即标题栏**：标签条在窗口最顶部，与最小化/最大化/关闭按钮同一行
   （VS Code / Obsidian「Tab 标题栏」模式），编辑区直接从笔记头开始
 - 可拖拽栏宽：侧栏/右栏拖拽 + 双击复位 + 记忆（折叠已兼容内联栏宽，见 §5-9）
+- 折叠/展开全部按钮图标双状态（⤡/⤢，随折叠状态切换，参考 Obsidian）
 - 紧凑头栏：标签行 + 笔记头压成一条（合计 < 70px，中间无分隔线，活动标签下圆角为 0）
 - 主题：apple/obsidian × 亮暗，强调色/圆角/字号/行宽即时生效，可导出 CSS
 - 同步：NAS/服务器方式 + **局域网六位通行码直连**；自动三方合并、冲突副本、删除回收站、
@@ -104,6 +106,9 @@ test/*.mjs              九个测试套件（见 §2）
 11. **粘贴/拖拽必须拦下来自己存**：不拦的话浏览器默认把图片塞进 contenteditable（data/blob URL，刷新即丢），拖文件甚至直接导航打开。
 12. **Tab 栏即标题栏**（VS Code / Obsidian「Tab 标题栏」模式）：标签搬进标题栏与窗口按钮同一行；标题栏永远可见（它是 Electron 拖拽区 + 窗口按钮的家），无标签时只隐藏 tablist。三个坑：① `.tablist{display:flex}` 会压过 `[hidden]` 的 UA 规则，必须显式 `.tablist[hidden]{display:none}`；② 标题栏是 `app-region:drag`，标签和控件必须显式 `no-drag` 否则点不动；③ 切仓库必须重置标签（按 vault root 存 localStorage）——UI 流程走 `enterApp`，WS `vault-opened` 也必须走同一条 `restoreTabsAfterVaultSwitch`，且要先 await 树刷新再 `loadTabsState`（`hasNotePath` 用旧树过滤会把上个仓库的标签带过来）。
 13. **round-trip 测试分两级契约**（`test/roundtrip-test.mjs`）：规范格式语料要求**恒等**（serialize(render(md))===md，对应「打开不编辑就保存不能动文件一个字节」）；任意怪格式只要求**不动点**（第二次 round-trip 起稳定，对应「正常化只许发生一次」）。已知的正常化（不动点容忍、恒等语料刻意避开）：`_em_`→`*em*`、`***`→`---`、`|---|---|`→`| --- |`、`*`/`+`列表符→`-`、有序列表重新从 1 编号、行首行尾空白、连续空行折叠、链接 title 丢弃、`[[x#y]]` 补显式别名。改 markdown.js 前后都必须跑这个套件。
+14. **编辑器回车三件套**（2026-10-17 修，`test/enter-test.mjs` 锁死）：① 渲染器必须给「行尾空行」补一个 `<p><br></p>`（带源码偏移标记）——否则段尾回车插入的 `\n` 在 DOM 里不存在，下次输入序列化就被吃掉；② 序列化器必须把空段落产出空块——否则那个空行活不过一轮；③ `domPointToMd` 的 DOM 偏移必须与 `inlineMapOffset` 同口径（`<br>` 计 1，见 `domOffsetBrAware`）——否则含软换行的段落光标映射整体偏移，回车从字中间拆行。另：**`_placeCaret` 必须同步恢复光标**，包 `requestAnimationFrame` 会让下一个按键打进旧位置。
+15. **源码模式行号**：textarea 外层包 `.source-wrap`（行号槽 + wrap="off" 的 textarea），切模式隐藏的是 **wrap 不是 textarea**；槽与 textarea 的字号/行高/上 padding 必须严格同参才对得齐；实时预览模式不显示行号。
+16. **文件树点图片走灯箱**：图片扩展名（png/jpg/gif/webp/svg/bmp/avif）直接 `openLightbox(Api.fileUrl(path))`，不能再走 `openNote`（API 只认 .md，会报「笔记不存在」）。
 
 ## 6. 已知坑（踩过的，直接抄结论）
 

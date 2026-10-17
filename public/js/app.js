@@ -17,6 +17,9 @@ import { openDraw } from './draw.js';
 
 const $ = (id) => document.getElementById(id);
 
+/** 图片类文件：文件树点击时用灯箱查看，而不是尝试当笔记打开 */
+const IMG_FILE_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+
 /**
  * 读 localStorage：优先新键（tracery.*），回退旧键（evnote.*）。
  * 2026-10 产品从 EVNote 改名 Tracery 时加的保护——
@@ -288,6 +291,22 @@ function resolveVaultFile(name) {
 }
 
 /* ================= 文件树 ================= */
+/* 折叠/展开全部的两种图标（参考 Obsidian：⤡ 折叠 / ⤢ 展开，状态可辨） */
+const ICON_COLLAPSE_ALL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5v4H2.5M10 2.5v4h3.5M6 13.5v-4H2.5M10 13.5v-4h3.5"/></svg>';
+const ICON_EXPAND_ALL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6V2.5h4M13.5 6V2.5h-4M2.5 10v3.5h4M13.5 10v3.5h-4"/></svg>';
+
+/** 按当前折叠状态刷新按钮图标：全折叠 → 显示「展开」，否则 → 显示「折叠」 */
+function updateCollapseTreeIcon() {
+  const btn = $('btn-collapse-tree');
+  if (!btn) return;
+  const all = new Set();
+  const walk = (node) => { for (const d of node.dirs || []) { all.add(d.name); walk(d); } };
+  if (state.tree) walk(state.tree);
+  const allCollapsed = all.size > 0 && state.collapsed.size >= all.size;
+  btn.innerHTML = allCollapsed ? ICON_EXPAND_ALL : ICON_COLLAPSE_ALL;
+  btn.title = allCollapsed ? '展开全部文件夹' : '折叠全部文件夹';
+}
+
 function renderTree() {
   const box = $('file-tree');
   box.innerHTML = '';
@@ -297,6 +316,7 @@ function renderTree() {
     return;
   }
   box.appendChild(renderTreeNode(state.tree, 0, true));
+  updateCollapseTreeIcon();
 }
 
 function renderTreeNode(node, depth, isRoot = false) {
@@ -352,8 +372,18 @@ function renderFile(f) {
   label.className = 'label';
   label.textContent = f.name.replace(/\.md$/i, '');
   item.append(icon, label);
-  item.onclick = (e) => openNote(f.path, null, { newTab: !(e.ctrlKey || e.metaKey) });
-  item.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); openNote(f.path, null, { newTab: true }); } };
+  item.onclick = (e) => {
+    // 图片文件：直接灯箱查看（以前会走 openNote → API 只认 .md → 报「笔记不存在」）
+    if (IMG_FILE_RE.test(f.path)) { openLightbox(Api.fileUrl(f.path), f.name); return; }
+    openNote(f.path, null, { newTab: !(e.ctrlKey || e.metaKey) });
+  };
+  item.onauxclick = (e) => {
+    if (e.button === 1) {
+      e.preventDefault();
+      if (IMG_FILE_RE.test(f.path)) { openLightbox(Api.fileUrl(f.path), f.name); return; }
+      openNote(f.path, null, { newTab: true });
+    }
+  };
   item.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showFileMenu(e, f); };
   return item;
 }
@@ -921,6 +951,8 @@ function highlightPalette(i) {
 const editor = new LiveEditor({
   liveEl: $('editor-live'),
   sourceEl: $('editor-source'),
+  gutterEl: $('source-gutter'),
+  sourceWrap: $('source-wrap'),
   resolveLink: (target) => {
     const clean = target.split('#')[0].trim().replace(/\.md$/i, '');
     return state.nameIndex.get(clean.toLowerCase()) || null;
@@ -1114,8 +1146,7 @@ function bindGlobalEvents() {
     else state.collapsed = new Set();
     localStorage.setItem('tracery.collapsed', JSON.stringify([...state.collapsed]));
     renderTree();
-  };
-  $('btn-graph-reheat').onclick = () => graphView?._reheat();
+  };  $('btn-graph-reheat').onclick = () => graphView?._reheat();
   $('btn-graph-zoom-in').onclick = () => graphView?.zoomIn();
   $('btn-graph-zoom-out').onclick = () => graphView?.zoomOut();
   $('btn-graph-fit').onclick = () => graphView?.fit();

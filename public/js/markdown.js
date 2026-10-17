@@ -399,6 +399,22 @@ export function renderMarkdown(md, opts = {}) {
   }
 
   for (const el of parseBlocks(0, lines.length)) frag.appendChild(el);
+
+  // 文档以空行结尾时，补一个空段落 <p><br></p>。
+  // 为什么必须有它：段落累积器会跳过空行，"第一段\n" 原本渲染成 <p>第一段</p>，
+  // 行尾那个换行在 DOM 里不存在——用户按回车打到新行，下一次输入序列化时
+  // 这个 \n 就被吃掉（实测：段尾回车后续打，两行拼成一行）。补了空段落，
+  // 回车落点才有可放光标的 DOM 节点，序列化也接得住（见 serializeBlocks 空段落分支）。
+  // 多个连续空行只补一个：序列化按 '\n\n' 拼接，每空行都补会逐轮膨胀、破坏不动点。
+  // 从尾部向前找最后一个非空行；它之后的连续空白段才是「行尾空行」
+  let lastText = lines.length - 1;
+  while (lastText >= 0 && /^\s*$/.test(lines[lastText])) lastText--;
+  if (lastText < lines.length - 1) {
+    const p = document.createElement('p');
+    p.appendChild(document.createElement('br'));
+    tagLeaf(p, lastText + 1, 0);
+    frag.appendChild(p);
+  }
   return frag;
 }
 
@@ -472,8 +488,12 @@ function serializeBlocks(root) {
     if (/^H[1-6]$/.test(tag)) {
       out.push(`${'#'.repeat(Number(tag[1]))} ${serializeInline(el).trim()}`);
     } else if (tag === 'P' || (tag === 'DIV' && !el.classList.contains('callout'))) {
-      const md = [...el.childNodes].map(serializeInline).join('').trim();
+      const raw = [...el.childNodes].map(serializeInline).join('');
+      const md = raw.trim();
+      // 空段落（只有 <br> 或真的空）→ 空块：渲染器为「行尾空行」补的 <p><br></p>
+      // 靠它活下来——丢了它，用户打回车造出的新行会在下次输入时被吞
       if (md) out.push(md);
+      else if (raw === '' || raw === '\n') out.push('');
     } else if (tag === 'UL' || tag === 'OL') {
       out.push(serializeList(el, tag === 'OL'));
     } else if (tag === 'BLOCKQUOTE') {
@@ -584,9 +604,41 @@ export function domPointToMd(root, node, offset) {
   if (el && el.nodeType === Node.TEXT_NODE) el = el.parentElement;
   const leaf = el?.closest?.('[data-md-content-start]');
   if (!leaf) return textOffsetOf(root, node, offset);
-  const domOff = textOffsetOf(leaf, node, offset);
+  const domOff = domOffsetBrAware(leaf, node, offset);
   const contentStart = Number(leaf.dataset.mdContentStart);
   return contentStart + inlineMapOffset(leaf, domOff);
+}
+
+/**
+ * 与 inlineMapOffset 同口径的 DOM 偏移：<br> 计 1（它对应 Markdown 里的 \n）。
+ * 为什么不能直接用 textOffsetOf：那个函数只数文本节点，而 inlineMapOffset 的
+ * walker 把 <br> 算 1 个字符——口径不一致时，含软换行的段落里光标映射整体偏移
+ * （实测：行尾在 "Xef" 末尾，md 偏移应是 19，旧实现给 18，回车把字从中间拆开）。
+ * 元素锚点（选区落在元素上、offset 是子节点索引）时，累加到前 offset 个子节点。
+ */
+function domOffsetBrAware(root, node, offset) {
+  const len = (n) => {
+    if (n.nodeType === Node.TEXT_NODE) return n.textContent.length;
+    if (n.nodeType === Node.ELEMENT_NODE && n.tagName === 'BR') return 1;
+    return 0;
+  };
+  let count = 0;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL);
+  let cur;
+  while ((cur = walker.nextNode())) {
+    if (cur === node) {
+      if (cur.nodeType === Node.TEXT_NODE) return count + offset;
+      if (cur.nodeType === Node.ELEMENT_NODE) {
+        if (offset <= 0) return count;
+        let extra = 0;
+        for (let i = 0; i < offset && i < cur.childNodes.length; i++) extra += len(cur.childNodes[i]);
+        return count + extra;
+      }
+      return count;
+    }
+    count += len(cur);
+  }
+  return count;
 }
 
 /**
@@ -776,9 +828,15 @@ export function mdOffsetToDom(root, mdOffset) {
 
   for (const c of leaf.childNodes) { walk(c); if (result) break; }
   if (!result) {
-    // 目标超出该块（通常是文档末尾）：放到全文最后一个文本节点末尾
-    const last = nodeAtTextOffset(root, Number.MAX_SAFE_INTEGER);
-    result = last;
+    if (!leaf.textContent.trim()) {
+      // 空段落（渲染器补的行尾空行 <p><br></p>）：光标放进段落内，
+      // 否则会掉到全文最后一个文本节点——用户回车后的新行上打不了字
+      result = { node: leaf, offset: 0 };
+    } else {
+      // 目标超出该块（通常是文档末尾）：放到全文最后一个文本节点末尾
+      const last = nodeAtTextOffset(root, Number.MAX_SAFE_INTEGER);
+      result = last;
+    }
   }
   return result;
 }

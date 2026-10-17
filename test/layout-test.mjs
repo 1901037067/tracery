@@ -146,6 +146,49 @@ check('模式切换按钮在状态栏、靠右、可见',
   `inStatusbar=${header.modeBtnInStatusbar} nearRight=${header.modeBtnNearRight}`);
 check('活动标签圆角统一 7px', header.tabRadius === '7px', header.tabRadius);
 
+/* ================= 3. 图片查看 / 行号 / 折叠图标 ================= */
+
+// ① 文件树点图片 → 灯箱查看（以前会尝试当笔记打开，报「笔记不存在」）
+await page.evaluate(() => document.querySelector('[data-path="附件/图谱示例.png"]')?.click());
+await sleep(1000);
+const imgView = await page.evaluate(() => ({
+  open: !!document.querySelector('.lightbox') && !document.querySelector('.lightbox').hidden,
+  src: document.querySelector('.lb-img')?.getAttribute('src') || '',
+}));
+check('文件树点图片 → 灯箱打开', imgView.open && decodeURIComponent(imgView.src).includes('图谱示例'), JSON.stringify(imgView));
+await page.keyboard.press('Escape');
+await sleep(400);
+
+// ② 源码模式行号（实时预览模式不显示）
+const srcMode = await page.evaluate(async () => {
+  document.getElementById('btn-mode').click();   // 切源码
+  await new Promise((r) => setTimeout(r, 500));
+  const gutter = document.getElementById('source-gutter');
+  const wrap = document.getElementById('source-wrap');
+  const src = document.getElementById('editor-source');
+  const sourceState = { wrapVisible: !wrap.hidden, count: gutter.childElementCount, lines: src.value.split('\n').length };
+  document.getElementById('btn-mode').click();   // 切回实时
+  await new Promise((r) => setTimeout(r, 400));
+  return { ...sourceState, liveHidden: wrap.hidden };
+});
+check('源码模式显示行号且数量=文本行数', srcMode.wrapVisible && srcMode.count === srcMode.lines, `gutter=${srcMode.count} lines=${srcMode.lines}`);
+check('实时预览模式不显示行号', srcMode.liveHidden);
+
+// ③ 折叠/展开全部图标随状态变化
+const iconState = await page.evaluate(async () => {
+  const btn = document.getElementById('btn-collapse-tree');
+  const pathOf = () => btn.querySelector('path')?.getAttribute('d') || '';
+  const before = { d: pathOf(), title: btn.title };
+  btn.click();                                   // 全折叠
+  await new Promise((r) => setTimeout(r, 400));
+  const collapsed = { d: pathOf(), title: btn.title };
+  btn.click();                                   // 再展开
+  await new Promise((r) => setTimeout(r, 400));
+  return { before, collapsed, after: { d: pathOf(), title: btn.title } };
+});
+check('折叠后图标切换为「展开」', iconState.before.d !== iconState.collapsed.d && iconState.collapsed.title === '展开全部文件夹', iconState.collapsed.title);
+check('展开后图标切回「折叠」', iconState.collapsed.d !== iconState.after.d && iconState.after.title === '折叠全部文件夹', iconState.after.title);
+
 check('无渲染错误', errors.length === 0, errors.join(' | '));
 
 await browser.close();

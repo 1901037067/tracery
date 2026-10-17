@@ -38,6 +38,9 @@ export class LiveEditor {
   constructor(opts) {
     this.liveEl = opts.liveEl;
     this.sourceEl = opts.sourceEl;
+    this.gutterEl = opts.gutterEl || null;   // 源码模式行号槽（实时模式不显示）
+    // 源码区外层容器（行号槽 + textarea）：切模式要隐藏的是它，不再是 textarea 本身
+    this.sourceWrap = opts.sourceWrap || this.sourceEl.closest('.source-wrap');
     this.opts = opts;
     this.path = null;
     this.mode = 'live';            // live | source
@@ -161,8 +164,28 @@ export class LiveEditor {
       this.dirty = true;
       this.opts.onDirtyChange?.(true);
       this.opts.onChange?.(this.md);
+      this._updateGutter();
       this.autosave();
     });
+    // 行号槽跟着源码区滚动
+    this.sourceEl.addEventListener('scroll', () => this._updateGutter());
+  }
+
+  /** 刷新源码模式行号：行数变了才重建数字，滚动只同步 scrollTop */
+  _updateGutter() {
+    const gutter = this.gutterEl;
+    if (!gutter || this.mode !== 'source') return;
+    const lines = this.sourceEl.value.split('\n').length;
+    if (gutter.childElementCount !== lines) {
+      const frag = document.createDocumentFragment();
+      for (let i = 1; i <= lines; i++) {
+        const d = document.createElement('div');
+        d.textContent = String(i);
+        frag.appendChild(d);
+      }
+      gutter.replaceChildren(frag);
+    }
+    gutter.scrollTop = this.sourceEl.scrollTop;
   }
 
   /* ---------- 加载 / 保存 ---------- */
@@ -175,6 +198,7 @@ export class LiveEditor {
     if (!keepMode) this.setMode('live');
     this._renderLive();
     this.sourceEl.value = content;
+    this._updateGutter();
     this.opts.onChange?.(this.md);
   }
 
@@ -429,6 +453,7 @@ export class LiveEditor {
       this.dirty = true;
       this.opts.onDirtyChange?.(true);
       this.opts.onChange?.(this.md);
+      this._updateGutter();
       this.autosave();
       return;
     }
@@ -478,7 +503,11 @@ export class LiveEditor {
   }
 
   _placeCaret(mdOffset) {
-    requestAnimationFrame(() => this._restoreCaretMd(mdOffset));
+    // 同步恢复光标。原来这里包了一层 requestAnimationFrame——等一帧的功夫，
+    // 用户下一个按键就送到了，字打进旧位置（实测：回车后立刻打字，字落在
+    // 上一行行尾；列表回车后续打，"乙" 跑到 "甲" 后面）。_replaceRange 里
+    // _renderLive 已同步重建 DOM，不需要再等帧。
+    this._restoreCaretMd(mdOffset);
   }
 
   _restoreCaretMd(mdOffset) {
@@ -672,11 +701,14 @@ export class LiveEditor {
       this._flushSave();
       this.sourceEl.value = this.md;
       this.liveEl.hidden = true;
+      if (this.sourceWrap) this.sourceWrap.hidden = false;
       this.sourceEl.hidden = false;
       this.mode = 'source';
+      this._updateGutter();
     } else {
       this.md = this.sourceEl.value;
       this.liveEl.hidden = false;
+      if (this.sourceWrap) this.sourceWrap.hidden = true;
       this.sourceEl.hidden = true;
       this.mode = 'live';
       this._renderLive();
