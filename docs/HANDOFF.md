@@ -35,8 +35,8 @@ npm run sync -- --data ./evnote-sync
 # 打包（重要，见 §7）
 npm run dist:dir             # electron-builder 产出 dist/win-unpacked
 npm run repack               # 只重打 app.asar（改完前端/服务端后用这条，绕过 winCodeSign）
-# 再压 zip：7za a -tzip dist/EVNote-1.0.0-win32-x64.zip dist/win-unpacked/*
-# 桌面快捷方式：node scripts/make-shortcut.mjs（手写 .lnk，不用 COM）
+npm run release              # 一键：repack + 压 zip（先写 .new.zip 再改名，压缩失败不毁旧包）
+npm run release -- --shortcut  # 同上，并生成桌面快捷方式（手写 .lnk，不用 COM）
 ```
 
 无头浏览器是 `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`，测试用 `puppeteer-core`。

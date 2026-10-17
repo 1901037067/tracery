@@ -22,6 +22,7 @@
     "dist": "electron-builder --win portable",
     "dist:dir": "electron-builder --dir",
     "repack": "node scripts/repack.mjs",
+    "release": "node scripts/release.mjs",
     "test:merge": "node test/merge-test.mjs",
     "test:draw": "node test/draw-test.mjs",
     "test:lan": "node test/lan-test.mjs",
