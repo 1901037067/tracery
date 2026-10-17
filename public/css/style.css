@@ -205,9 +205,9 @@ input, textarea { font-family: inherit; color: inherit; }
 /* ============ 主布局 ============ */
 .app { height: 100vh; display: flex; flex-direction: column; }
 
-/* --- 工具栏（毛玻璃） --- */
+/* --- 标题栏（Tab 栏即标题栏：46px，容纳标签行 + 窗口按钮） --- */
 .titlebar {
-  height: 52px;
+  height: 46px;
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 14px;
   background: var(--bg-sidebar);
@@ -350,7 +350,7 @@ body.electron .electron-only { display: inline-flex !important; }
 .icon-mini svg { width: 14px; height: 14px; display: block; }
 .mode-btn {
   display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; padding: 5px 10px;
+  font-size: 12px; padding: 3px 9px;
 }
 .mode-btn svg { width: 14px; height: 14px; display: block; }
 .mode-btn .ic-code { display: none; }
@@ -471,7 +471,7 @@ body.electron .electron-only { display: inline-flex !important; }
 }
 .note-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 7px 16px;
+  padding: 5px 16px;
   border-bottom: 1px solid var(--hairline);
   flex-shrink: 0;
 }
@@ -1224,33 +1224,32 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
 .sync-cmd .btn-ghost { padding: 4px 10px; font-size: 12px; border-radius: 6px; color: var(--accent); }
 .sync-help .set-note { font-size: 11.5px; }
 
-/* ============ 标签页 ============ */
-/* 仿 Obsidian：标签行与面包屑行压成一条紧凑头栏——中间不加分隔线，
-   活动标签用 7px 7px 0 0 的圆角「贴」在下面的笔记头上，视觉上是一整块 */
-.tabbar {
-  display: flex; align-items: center;
-  padding: 4px 8px 0;
-  flex-shrink: 0;
-  background: var(--bg-sheet);
-}
+/* ============ 标签页（位于标题栏内，与窗口按钮同一行） ============ */
+/* 设计：VS Code / Obsidian「Tab 标题栏」模式——Tab 条即标题栏，
+   编辑区直接从笔记内容开始。标题栏是 Electron 拖拽区，标签必须显式 no-drag。 */
 .tablist {
-  display: flex; gap: 2px;
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 2px;
   overflow-x: auto; overflow-y: hidden;
   scrollbar-width: none;
-  min-width: 0;
+  -webkit-app-region: no-drag;
 }
 .tablist::-webkit-scrollbar { display: none; }
+/* display:flex 会压过 [hidden] 的 UA 规则，必须显式隐藏（否则无标签时中间空一条） */
+.tablist[hidden] { display: none; }
 .tab {
   display: flex; align-items: center; gap: 6px;
-  padding: 3px 8px 3px 10px;
-  border-radius: 7px 7px 0 0;
+  padding: 4px 8px 4px 10px;
+  border-radius: 7px;
   max-width: 168px; min-width: 64px;
   font-size: 12px; color: var(--text-secondary);
   cursor: default; user-select: none;
+  -webkit-app-region: no-drag;
   transition: background 120ms linear, color 120ms linear;
 }
 .tab:hover { background: var(--bg-fill); color: var(--text-primary); }
-.tab.active { background: var(--bg-fill-hover); color: var(--text-primary); font-weight: 500; }
+/* 活跃标签用「纸」的颜色：暗示这就是下面编辑区那张纸 */
+.tab.active { background: var(--bg-sheet); color: var(--text-primary); font-weight: 500; }
 .tab-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-close {
   width: 16px; height: 16px; flex-shrink: 0;

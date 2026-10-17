@@ -171,19 +171,26 @@ async function enterApp(vault) {
   await refreshTree();
   await refreshGraph();
   await refreshTags();
-  // 恢复上次的标签页（设置里可关掉自动打开）
+  await restoreTabsAfterVaultSwitch();
+}
+
+/**
+ * 切仓库后：恢复该仓库的标签页，并按启动设置开一篇。
+ * enterApp 与 WS vault-opened 共用——两边漏任何一边，
+ * 旧仓库的标签就会带进新仓库（标签是按仓库根目录存 localStorage 的）。
+ */
+async function restoreTabsAfterVaultSwitch() {
   loadTabsState();
   renderTabs();
   const startup = getSettings().startup;
-  if (startup !== 'empty') {
-    if (state.tabs.length) {
-      state.activeTab = Math.min(state.activeTab < 0 ? 0 : state.activeTab, state.tabs.length - 1);
-      await loadTab(state.tabs[state.activeTab]);
-    } else {
-      const last = lsGet('tracery.lastNote');
-      const target = last && hasNotePath(last) ? last : firstNotePath();
-      if (target) await openNote(target, null, { newTab: true });
-    }
+  if (startup === 'empty') return;
+  if (state.tabs.length) {
+    state.activeTab = Math.min(state.activeTab < 0 ? 0 : state.activeTab, state.tabs.length - 1);
+    await loadTab(state.tabs[state.activeTab]);
+  } else {
+    const last = lsGet('tracery.lastNote');
+    const target = last && hasNotePath(last) ? last : firstNotePath();
+    if (target) await openNote(target, null, { newTab: true });
   }
 }
 
@@ -508,11 +515,12 @@ function loadTabsState() {
 }
 
 function renderTabs() {
-  const bar = $('tabbar');
+  // 标签栏已并入标题栏：标题栏永远可见（拖拽区 + 窗口按钮），
+  // 无标签时只隐藏标签列表本身，不能再隐藏整个 bar
   const list = $('tablist');
-  if (!bar || !list) return;
-  if (!state.tabs.length) { bar.hidden = true; list.innerHTML = ''; return; }
-  bar.hidden = false;
+  if (!list) return;
+  if (!state.tabs.length) { list.hidden = true; list.innerHTML = ''; return; }
+  list.hidden = false;
   list.innerHTML = '';
   state.tabs.forEach((p, i) => {
     const tab = document.createElement('div');
@@ -1196,7 +1204,7 @@ function onWsMessage(msg) {
     }
   } else if (msg.type === 'vault-opened') {
     // 其他窗口切换了仓库：同步标题栏与各索引
-    Api.state().then((s) => {
+    Api.state().then(async (s) => {
       if (s.vault) {
         state.vault = s.vault;
         state.currentPath = null;
@@ -1206,7 +1214,11 @@ function onWsMessage(msg) {
         $('welcome').hidden = true;
         $('app').hidden = false;
       }
-      refreshTree(); refreshGraph(); refreshTags();
+      // 先等树刷新再恢复标签：loadTabsState 靠 hasNotePath 过滤，
+      // 用旧树过滤会把上一个仓库的标签带进来
+      await refreshTree();
+      refreshGraph(); refreshTags();
+      await restoreTabsAfterVaultSwitch();
     }).catch(() => { refreshTree(); refreshGraph(); refreshTags(); });
   } else if (msg.type === 'settings' && msg.settings) {
     // 其他窗口改了设置：同步应用（幂等）

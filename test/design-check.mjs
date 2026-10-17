@@ -1,6 +1,9 @@
 /* 界面审查：截取 欢迎页 / 亮色 / 暗色 / 命令面板 四张图 */
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
@@ -8,10 +11,12 @@ const PORT = 9595;
 const BASE = `http://localhost:${PORT}`;
 const SHOTS = 'test/screenshots';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 隔离配置目录：否则会读到开发机上的真实仓库配置，截图可能带个人内容
+const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tracery-dc-'));
 
 const server = spawn(process.execPath, ['server/server.js'], {
   cwd: fileURLToPath(new URL('..', import.meta.url)),   // 仓库根目录，不硬编码
-  env: { ...process.env, PORT: String(PORT) },
+  env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME },
   stdio: 'pipe',
 });
 for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/api/state`)).ok) break; } catch {} await sleep(250); }
@@ -78,5 +83,7 @@ await page.screenshot({ path: `${SHOTS}/design-settings-editor.png` });
 
 await browser.close();
 server.kill();
+fs.rmSync(HOME, { recursive: true, force: true });
+console.log('截图完成（隔离配置目录，未触碰真实仓库）');
 console.log('截图完成');
 process.exit(0);

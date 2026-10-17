@@ -40,12 +40,13 @@
 
   <!-- ============ 主界面 ============ -->
   <div id="app" class="app" hidden>
-    <!-- 标题栏 -->
+    <!-- 标题栏（Tab 栏即标题栏：标签与窗口按钮同一行，VS Code / Obsidian Tab 标题栏模式） -->
     <header class="titlebar">
       <div class="titlebar-left">
         <span class="app-logo"><img src="/icon.png" alt="Tracery" /></span>
         <button class="vault-name" id="vault-name" title="切换 / 管理仓库"></button>
       </div>
+      <div class="tablist" id="tablist" hidden></div>
       <div class="titlebar-right">
         <button id="btn-toggle-left" class="icon-btn" title="折叠左侧栏 (Ctrl+\)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
@@ -200,9 +201,6 @@
 
       <!-- 编辑区 -->
       <main class="editor-area" id="editor-area">
-        <div class="tabbar" id="tabbar" hidden>
-          <div class="tablist" id="tablist"></div>
-        </div>
         <div class="note-header" id="note-header" hidden>
           <span class="note-path" id="note-path"></span>
           <span class="note-header-actions">

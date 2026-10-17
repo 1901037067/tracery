@@ -1,7 +1,9 @@
 /**
- * 布局回归：侧边栏折叠 + 紧凑头栏（标签行/笔记头）
- * 背景：拖拽过栏宽后内联 style.width 会覆盖 .collapsed{width:0}，折叠失效——
- * 本套件锁死这个场景；头栏尺寸锁 Obsidian 式紧凑（两行合计 < 70px）。
+ * 布局回归：侧边栏折叠 + Tab 栏位置（标题栏模式）
+ * 背景①：拖拽过栏宽后内联 style.width 会覆盖 .collapsed{width:0}，折叠失效——
+ *   本套件锁死这个场景。
+ * 背景②：Tab 栏已搬进标题栏（VS Code / Obsidian「Tab 标题栏」模式），
+ *   与窗口按钮同一行；锁死「Tab 在编辑区上方 / 与窗口按钮同线 / 标题栏紧凑」。
  * 使用临时 TRACERY_HOME + demo-vault，不触碰用户真实仓库。
  */
 import puppeteer from 'puppeteer-core';
@@ -100,23 +102,38 @@ await page.evaluate(() => {
 await sleep(900);
 
 const header = await page.evaluate(() => {
-  const tabbar = document.getElementById('tabbar');
+  // Electron 布局：窗口按钮只在 body.electron 下显示，加上类再量才是用户实见的样式
+  document.body.classList.add('electron');
+  const list = document.getElementById('tablist');
+  const titlebar = document.querySelector('.titlebar');
   const noteHeader = document.getElementById('note-header');
+  const editorArea = document.getElementById('editor-area');
   const activeTab = document.querySelector('.tab.active');
+  const winClose = document.getElementById('win-close');
+  const listRect = list.getBoundingClientRect();
+  const editorRect = editorArea.getBoundingClientRect();
+  const tabRect = activeTab?.getBoundingClientRect();
+  const winRect = winClose?.getBoundingClientRect();
   return {
-    tabbarH: tabbar.getBoundingClientRect().height,
-    noteHeaderH: noteHeader.getBoundingClientRect().height,
-    tabbarBorder: getComputedStyle(tabbar).borderBottomWidth,
-    tabRadius: activeTab ? getComputedStyle(activeTab).borderRadius : '',
     tabCount: document.querySelectorAll('.tab').length,
+    titlebarH: titlebar.getBoundingClientRect().height,
+    listTop: listRect.top,
+    listAboveEditor: listRect.bottom <= editorRect.top + 1,
+    tabCenterY: tabRect ? tabRect.top + tabRect.height / 2 : null,
+    winCenterY: winRect ? winRect.top + winRect.height / 2 : null,
+    tabRadius: activeTab ? getComputedStyle(activeTab).borderRadius : '',
+    noteHeaderH: noteHeader.getBoundingClientRect().height,
   };
 });
-const total = header.tabbarH + header.noteHeaderH;
 check('至少两个标签（启动自开的 + 点击两篇）', header.tabCount >= 2, `tabs=${header.tabCount}`);
-check('标签行 + 笔记头合计 < 70px（紧凑头栏）', total < 70, `${total.toFixed(1)}px`);
-check('标签行自身 < 34px', header.tabbarH < 34, `${header.tabbarH.toFixed(1)}px`);
-check('两行之间无分隔线（视觉上是一整条）', header.tabbarBorder === '0px', header.tabbarBorder);
-check('活动标签底部圆角为 0（贴在笔记头上）', /0px 0px$/.test(header.tabRadius), header.tabRadius);
+check('Tab 条整体在编辑区上方（已搬进标题栏，不再是编辑区内部的行）', header.listAboveEditor, `listBottom=${header.listTop.toFixed(0)}`);
+check('Tab 条贴在窗口最顶部', header.listTop < 60, `top=${header.listTop.toFixed(1)}px`);
+check('Tab 与窗口关闭按钮同一水平线（垂直中心差 < 6px）',
+  header.tabCenterY != null && header.winCenterY != null && Math.abs(header.tabCenterY - header.winCenterY) < 6,
+  `tab=${header.tabCenterY?.toFixed(1)} win=${header.winCenterY?.toFixed(1)}`);
+check('标题栏高度紧凑（30~50px）', header.titlebarH > 30 && header.titlebarH < 50, `${header.titlebarH.toFixed(1)}px`);
+check('笔记头仍紧凑（< 34px）', header.noteHeaderH < 34, `${header.noteHeaderH.toFixed(1)}px`);
+check('活动标签圆角统一 7px', header.tabRadius === '7px', header.tabRadius);
 
 check('无渲染错误', errors.length === 0, errors.join(' | '));
 
