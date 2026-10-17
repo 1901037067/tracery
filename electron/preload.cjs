@@ -11,4 +11,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.send('tracery:win-maximize'),
   close: () => ipcRenderer.send('tracery:win-close'),
   pickVault: () => ipcRenderer.invoke('tracery:pick-vault'),
+  reveal: (p) => ipcRenderer.send('tracery:reveal', p),
+  openPath: (p) => ipcRenderer.send('tracery:open-path', p),
 });

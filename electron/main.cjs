@@ -105,6 +105,14 @@ function createWindow() {
   });
   ipcMain.on('tracery:win-close', () => mainWindow && mainWindow.close());
 
+  // 附件右键菜单用：在资源管理器中定位 / 用系统默认应用打开（只接受绝对路径）
+  ipcMain.on('tracery:reveal', (e, p) => {
+    if (typeof p === 'string' && path.isAbsolute(p)) shell.showItemInFolder(p);
+  });
+  ipcMain.on('tracery:open-path', (e, p) => {
+    if (typeof p === 'string' && path.isAbsolute(p)) shell.openPath(p);
+  });
+
   // 原生「选择仓库文件夹」对话框
   ipcMain.handle('tracery:pick-vault', async () => {
     const res = await dialog.showOpenDialog(mainWindow, {

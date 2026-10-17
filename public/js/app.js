@@ -428,6 +428,158 @@ function showDirMenu(e, dirName) {
   ]);
 }
 
+/* ================= 编辑区右键菜单（仿 Obsidian） ================= */
+// 点菜单项会让 contenteditable 失焦、选区丢失 —— 右键时先存一份，动作前还原，
+// 否则「标题/加粗」这类要靠光标位置的动作全部落空
+let editorSavedRange = null;
+
+function restoreEditorSelection() {
+  if (!editorSavedRange) return;
+  try {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(editorSavedRange);
+  } catch { /* 选区所在节点已被重渲染替换，忽略 */ }
+}
+
+/** 包装菜单动作：先还原选区再执行 */
+function withSelection(fn) {
+  return () => { restoreEditorSelection(); fn(); };
+}
+
+function onEditorContextMenu(e) {
+  const sel = window.getSelection();
+  editorSavedRange = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+  const fig = e.target.closest?.('.embed-image');
+  const img = e.target.closest?.('img');
+  if (fig || img) { e.preventDefault(); showImageMenu(e, fig || img); return; }
+  e.preventDefault();
+  showTextMenu(e);
+}
+
+async function pasteFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) editor.insertText(text);
+  } catch (err) { toast(`读不到剪贴板：${err.message}`); }
+}
+
+function showTextMenu(e) {
+  // 所有动作都先还原右键时的选区（点菜单会把选区清掉）
+  const item = (icon, label, fn) => ({ icon, label, action: withSelection(fn) });
+  showMenu(e.clientX, e.clientY, [
+    item('🔗', '新增链接', () => editor.wrapSelection('[[', ']]')),
+    item('🌐', '新增外部链接', () => editor.wrapSelection('[', '](https://)')),
+    '-',
+    item('𝐁', '加粗', () => editor.wrapSelection('**', '**')),
+    item('𝐼', '斜体', () => editor.wrapSelection('*', '*')),
+    item('S̶', '删除线', () => editor.wrapSelection('~~', '~~')),
+    item('🖍', '高亮', () => editor.wrapSelection('==', '==')),
+    item('<>', '行内代码', () => editor.wrapSelection('`', '`')),
+    '-',
+    item('H1', '标题 1', () => editor.setLinePrefix('# ')),
+    item('H2', '标题 2', () => editor.setLinePrefix('## ')),
+    item('H3', '标题 3', () => editor.setLinePrefix('### ')),
+    item('¶', '正文', () => editor.setLinePrefix('')),
+    item('•', '无序列表', () => editor.setLinePrefix('- ')),
+    item('☑', '任务', () => editor.setLinePrefix('- [ ] ')),
+    item('❝', '引用', () => editor.setLinePrefix('> ')),
+    '-',
+    item('▦', '插入表格', () => editor.insertSnippet('| 列 1 | 列 2 |\n| --- | --- |\n|  |  |')),
+    item('⛓', '插入代码块', () => editor.insertSnippet('```\n\n```')),
+    item('—', '插入分割线', () => editor.insertSnippet('---')),
+    '-',
+    item('✂', '剪切', () => document.execCommand('cut')),
+    item('⧉', '复制', () => document.execCommand('copy')),
+    item('📋', '粘贴', pasteFromClipboard),
+    item('📄', '以纯文本形式粘贴', pasteFromClipboard),
+    item('▭', '全选', () => editor.selectAll()),
+  ]);
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(
+    () => toast('已复制'),
+    (err) => toast(`复制失败：${err.message}`),
+  );
+}
+
+/** 复制图片本身到剪贴板（统一转 PNG，方便粘贴到其它软件） */
+async function copyImageToClipboard(src) {
+  try {
+    const blob = await (await fetch(src)).blob();
+    const bmp = await createImageBitmap(blob);
+    const canvas = document.createElement('canvas');
+    canvas.width = bmp.width;
+    canvas.height = bmp.height;
+    canvas.getContext('2d').drawImage(bmp, 0, 0);
+    const png = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    toast('图片已复制');
+  } catch (err) { toast(`复制图片失败：${err.message}`); }
+}
+
+/** 在文件树里定位并高亮某个文件（展开祖先目录） */
+function revealInTree(rel) {
+  if (!rel) return;
+  switchPanel('files');
+  const parts = rel.replace(/\\/g, '/').split('/');
+  parts.pop();
+  if (parts.length) {
+    for (const name of parts) state.collapsed.delete(name);
+    localStorage.setItem('tracery.collapsed', JSON.stringify([...state.collapsed]));
+    renderTree();
+  }
+  const el = document.querySelector(`#file-tree .tree-item[data-path="${CSS.escape(rel)}"]`);
+  if (!el) { toast('文件树里没找到这个文件'); return; }
+  el.scrollIntoView({ block: 'center' });
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 900);
+}
+
+function showImageMenu(e, target) {
+  const fig = target.classList?.contains('embed-image') ? target : target.closest?.('.embed-image');
+  const img = fig ? fig.querySelector('img') : target;
+  const rel = fig
+    ? (fig.dataset.target || '').split('|')[0].split('#')[0].trim()
+    : (img?.dataset?.mdSrc || '');
+  const resolved = rel ? (resolveVaultFile(rel) || rel) : '';
+  const abs = resolved && state.vault?.root
+    ? `${state.vault.root.replace(/[\\/]+$/, '')}\\${resolved.replace(/[\\/]/g, '\\')}`
+    : '';
+  const src = img?.getAttribute('src') || '';
+  const inElectron = !!window.electronAPI;
+  showMenu(e.clientX, e.clientY, [
+    { icon: '📋', label: '复制图片', action: () => copyImageToClipboard(src) },
+    { icon: '🔍', label: '查看大图', action: () => openLightbox(src, img?.alt || '') },
+    { icon: '🔗', label: '复制路径', action: () => copyText(resolved) },
+    '-',
+    { icon: '📂', label: '在资源管理器中显示', action: () => (inElectron ? window.electronAPI.reveal(abs) : toast('仅桌面版支持')) },
+    { icon: '↗', label: '使用默认应用打开', action: () => (inElectron ? window.electronAPI.openPath(abs) : toast('仅桌面版支持')) },
+    { icon: '🌲', label: '在文件列表中显示', action: () => revealInTree(resolved) },
+    '-',
+    { icon: '✂️', label: '移除图片', action: () => editor.removeImageAt(img) },
+    { icon: '🗑️', label: '删除图片文件', danger: true, action: () => deleteAssetFile(resolved) },
+  ]);
+}
+
+async function deleteAssetFile(rel) {
+  if (!rel) return;
+  const ok = await askConfirm({
+    title: '删除这个图片文件？',
+    desc: `${rel}\n\n会从仓库里删除文件本身，文档里引用它的地方会变成坏链。`,
+    okText: '删除',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await Api.remove(rel);
+    await refreshTree();
+    refreshGraph();
+    toast('已删除图片文件');
+  } catch (err) { toast(`删除失败：${err.message}`); }
+}
+
 async function renameNote(f) {
   const oldName = f.name.replace(/\.md$/i, '');
   const input = await askText({
@@ -1008,6 +1160,20 @@ const editor = new LiveEditor({
     if (label) label.textContent = mode === 'live' ? '实时预览' : '源码';
     $('btn-mode').classList.toggle('is-source', mode === 'source');
   },
+});
+
+// 编辑区右键菜单：文字 / 图片两套（仿 Obsidian）
+$('editor-live').addEventListener('contextmenu', onEditorContextMenu);
+$('editor-source').addEventListener('contextmenu', onEditorContextMenu);
+// 在已选中的文字上右键时保住选区（否则浏览器先折叠选区，「加粗选中文字」就变成插入空标记）
+$('editor-live').addEventListener('mousedown', (e) => {
+  if (e.button !== 2) return;
+  const sel = window.getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) return;
+  const inside = [...sel.getRangeAt(0).getClientRects()].some(
+    (r) => e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom,
+  );
+  if (inside) e.preventDefault();
 });
 
 const refreshRightPanelsThrottled = debounce((content) => refreshRightPanels(content), 400);

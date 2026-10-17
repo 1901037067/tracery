@@ -277,6 +277,9 @@ body.electron .win-controls { align-self: stretch; align-items: stretch; margin-
 .win-btn-close:active { background: #b32a1c; color: #fff; }
 
 .icon-btn {
+  /* 标题栏是拖拽区；按钮可能被放在 .titlebar-left（原本靠 .titlebar-right 的
+     no-drag 继承），必须自己声明 no-drag，否则点击变成拖窗口 */
+  -webkit-app-region: no-drag;
   height: 30px; min-width: 30px; padding: 0 8px;
   border-radius: var(--r-sm);
   font-size: 14px; line-height: 1;
@@ -430,6 +433,13 @@ body.electron .electron-only { display: inline-flex !important; }
 .context-menu button.danger { color: var(--danger); }
 .context-menu .sep { height: 1px; background: var(--hairline); margin: 5px 8px; }
 
+/* 从图片右键菜单「在文件列表中显示」跳转时的高亮脉冲 */
+.tree-item.flash { animation: tree-flash 900ms var(--ease); }
+@keyframes tree-flash {
+  0%, 100% { background: transparent; }
+  25%, 60% { background: var(--accent-soft); }
+}
+
 /* ============ 搜索 ============ */
 .search-input {
   width: 100%;
@@ -482,9 +492,10 @@ body.electron .electron-only { display: inline-flex !important; }
 /* ============ 编辑区（浮动纸张） ============ */
 .editor-area {
   flex: 1; display: flex; flex-direction: column; min-width: 0;
-  margin: 8px 10px 12px 10px;
+  /* 底边不留缝、下半部不圆角：内容区直接和窗口底部相连（不再是浮在中间的一张卡） */
+  margin: 8px 10px 0 10px;
   background: var(--bg-sheet);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
   box-shadow: var(--shadow-sheet);
   overflow: hidden;
 }

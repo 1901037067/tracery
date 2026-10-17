@@ -464,6 +464,122 @@ export class LiveEditor {
     this._placeCaret(at + lead.length + text.length + 1);
   }
 
+  /* ---------- 右键菜单等外部调用（实时预览 / 源码模式都支持） ---------- */
+
+  /** 源码模式的统一收尾：同步 md、通知、刷新行号、自动保存 */
+  _sourceChanged(text) {
+    this.md = text;
+    this.dirty = true;
+    this.opts.onDirtyChange?.(true);
+    this.opts.onChange?.(this.md);
+    this._updateGutter();
+    this.autosave();
+  }
+
+  /** 用标记包裹选区（无选区时插入成对标记，光标居中） */
+  wrapSelection(open, close) {
+    if (this.mode === 'source') {
+      const el = this.sourceEl;
+      const s = el.selectionStart ?? 0;
+      const e = el.selectionEnd ?? s;
+      const text = el.value.slice(s, e);
+      const next = el.value.slice(0, s) + open + text + close + el.value.slice(e);
+      el.value = next;
+      el.selectionStart = el.selectionEnd = s + open.length + (text ? text.length + close.length : 0);
+      this._sourceChanged(next);
+      return;
+    }
+    this._wrapSelection(open, close);
+  }
+
+  /** 当前行替换成指定前缀（'## ' / '- ' / '> ' / '' = 正文） */
+  setLinePrefix(prefix) {
+    const strip = (line) => line.replace(/^(\s*)(#{1,6}\s+|[-*+]\s+(?:\[[ x]\]\s+)?|>\s?|\d+\.\s+)/, '$1');
+    if (this.mode === 'source') {
+      const el = this.sourceEl;
+      const pos = el.selectionStart ?? 0;
+      const lineStart = el.value.lastIndexOf('\n', Math.max(0, pos - 1)) + 1;
+      const nl = el.value.indexOf('\n', pos);
+      const lineEnd = nl === -1 ? el.value.length : nl;
+      const line = el.value.slice(lineStart, lineEnd);
+      const indent = line.match(/^\s*/)[0];
+      const next = indent + prefix + strip(line).slice(indent.length);
+      el.value = el.value.slice(0, lineStart) + next + el.value.slice(lineEnd);
+      el.selectionStart = el.selectionEnd = Math.min(lineStart + next.length, el.value.length);
+      this._sourceChanged(el.value);
+      return;
+    }
+    const lr = this._currentLineRange();
+    if (!lr) return;
+    const line = this.md.slice(lr.lineStart, lr.lineEnd);
+    const indent = line.match(/^\s*/)[0];
+    const next = indent + prefix + strip(line).slice(indent.length);
+    this._replaceRange(lr.lineStart, lr.lineEnd, next);
+    this._placeCaret(lr.lineStart + next.length);
+  }
+
+  /** 在光标处插入纯文本（不加额外空行——粘贴用） */
+  insertText(text) {
+    if (this.mode === 'source') {
+      const el = this.sourceEl;
+      const s = el.selectionStart ?? el.value.length;
+      const e = el.selectionEnd ?? s;
+      const next = el.value.slice(0, s) + text + el.value.slice(e);
+      el.value = next;
+      el.selectionStart = el.selectionEnd = s + text.length;
+      this._sourceChanged(next);
+      return;
+    }
+    const sel = window.getSelection();
+    let a = null;
+    let b = null;
+    if (sel.rangeCount) {
+      a = domPointToMd(this.liveEl, sel.anchorNode, sel.anchorOffset);
+      b = domPointToMd(this.liveEl, sel.focusNode, sel.focusOffset);
+    }
+    const start = Math.min(a ?? this.md.length, b ?? this.md.length);
+    const end = Math.max(a ?? this.md.length, b ?? this.md.length);
+    this._replaceRange(start, end, text);
+    this._placeCaret(start + text.length);
+  }
+
+  /** 全选当前编辑内容 */
+  selectAll() {
+    if (this.mode === 'source') {
+      this.sourceEl.focus();
+      this.sourceEl.select();
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(this.liveEl);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    this.liveEl.focus();
+  }
+
+  /** 从正文里移除某张图片的 Markdown 标记（图片右键菜单「移除图片」） */
+  removeImageAt(el) {
+    if (this.mode !== 'live') return;
+    const fig = el?.closest?.('.embed-image');
+    const img = fig ? fig.querySelector('img') : el;
+    let token = '';
+    if (fig) token = `![[${fig.dataset.target || ''}]]`;
+    else if (img?.dataset?.mdSrc) token = `![${img.getAttribute('alt') || ''}](${img.dataset.mdSrc})`;
+    let idx = token ? this.md.indexOf(token) : -1;
+    let end = idx >= 0 ? idx + token.length : -1;
+    if (idx < 0 && img?.dataset?.mdSrc) {
+      // alt / 空格可能被序列化改写过：退化为按 src 定位整段 ![..](src)
+      const tail = this.md.indexOf(`](${img.dataset.mdSrc})`);
+      if (tail >= 0) {
+        const open = this.md.lastIndexOf('![', tail);
+        if (open >= 0) { idx = open; end = tail + 2 + img.dataset.mdSrc.length; }
+      }
+    }
+    if (idx < 0) { toast('没找到图片在源码里的位置'); return; }
+    this._replaceRange(idx, end, '');
+  }
+
   /**
    * 把粘贴/拖入的文件存成仓库附件，并在光标处插入 ![[路径]]。
    * 落点 = 设置里的附件位置（folder/note/root），服务端独立清洗兜底。

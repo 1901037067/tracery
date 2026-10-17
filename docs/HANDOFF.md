@@ -7,7 +7,7 @@
 
 ## 1. 一句话现状
 
-Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、图谱全屏、多标签页（Tab 栏即标题栏）、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）、文件树图片直阅、源码模式行号。测试 175/175，打包版可发布。
+Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、图谱全屏、多标签页（Tab 栏即标题栏）、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）、文件树图片直阅、源码模式行号、编辑区右键菜单（仿 Obsidian 文本/图片两套）。测试 182/182，打包版可发布。
 
 ## 2. 环境与常用命令
 
@@ -27,6 +27,7 @@ npm run test:sync-ui         # 13  同步面板 + 部署说明 + 局域网区块
 npm run test:merge           # 10  三方合并单测
 npm run test:roundtrip       # 7   Markdown 双向引擎属性测试（恒等/不动点/内容不丢/渲染确定性，含 300 篇模糊 + demo-vault 全量）
 npm run test:enter           # 8   编辑器回车行为回归（段尾/行中/连续回车、列表续行与退出、软换行段）
+npm run test:menu            # 7   编辑区右键菜单（文字/图片）+ 左侧栏折叠回归
 npm run test:draw            # 12  绘图
 npm run test:lan             # 10  局域网直连
 npm run test:layout          # 12  侧栏折叠回归 / 紧凑头栏
@@ -112,6 +113,8 @@ test/*.mjs              九个测试套件（见 §2）
 16. **文件树点图片走灯箱**：图片扩展名（png/jpg/gif/webp/svg/bmp/avif）直接 `openLightbox(Api.fileUrl(path))`，不能再走 `openNote`（API 只认 .md，会报「笔记不存在」）。
 17. **标签多了不许挤压**：`.tab` 的 `min-width: 120px` 是底线（低于它标题变「00...」不可读），超出部分横向滚动 + 滚轮横滚 + 溢出侧 `mask-image` 渐隐（`data-overflow` 由 `updateTabOverflow()` 维护）。标签条空白区必须留在拖拽区里（no-drag 只挂 `.tab`）。
 18. **覆盖式滚动条与圆角**：Electron/Chromium 用覆盖式滚动条（不占布局、浮在滚动区边缘），`::-webkit-scrollbar-track{margin}` 对它无效——滚到顶部会和纸的圆角边框交叉。正确解法是给滚动容器（`.editor` / `.source-wrap`）让出 `margin: 10px 8px 10px 0`，把滚动区缩进直边里；padding 相应减 10px 保持正文位置不变。
+19. **编辑区右键菜单**：文本/图片两套（`showTextMenu` / `showImageMenu`）。两个关键坑：① 点菜单项会让 contenteditable 失焦、选区丢失——右键时把 Range 克隆下来（`editorSavedRange`），每个动作前 `restoreEditorSelection()` 再执行；② 在已选中的文字上右键，浏览器会先折叠选区——`mousedown` 里判断右键点是否落在选区 rect 内，是则 `preventDefault` 保住选区（Obsidian 同行为）。图片相关的路径解析走 `resolveVaultFile`，桌面能力（资源管理器定位/默认应用打开）走 `electronAPI.reveal/openPath`（main.cjs 校验绝对路径）。
+20. **编辑区容器贴底**：`.editor-area` 只留上/左右边距，`border-radius` 只圆上半部，底边与窗口相连——状态栏在纸内最底部。
 
 ## 6. 已知坑（踩过的，直接抄结论）
 
