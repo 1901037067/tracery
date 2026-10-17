@@ -40,6 +40,12 @@ if (tool) {
     { stdio: 'inherit' }
   );
 }
+// 兜底校验：压缩子进程被拦截/静默失败时不会抛错，但文件不会出现——
+// 不查这一步，下一步 rename 会报一个莫名其妙的 ENOENT
+if (!fs.existsSync(ZIP_NEW)) {
+  console.error('压缩失败：临时 zip 未生成。常见原因：压缩进程被安全策略拦截，或目标文件被占用（关掉正在运行的打包版再试）');
+  process.exit(1);
+}
 fs.renameSync(ZIP_NEW, ZIP);
 const mb = (fs.statSync(ZIP).size / 1024 / 1024).toFixed(1);
 
