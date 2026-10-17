@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * EVNote 自托管同步服务端（独立 CLI，不依赖 EVNote 客户端）
+ * Tracery 自托管同步服务端（独立 CLI，不依赖 Tracery 客户端）
  * ------------------------------------------------------------------
  * 职责：只做「内容寻址存储 + 版本化清单」，不理解 Markdown，不解析笔记。
  *   <data>/config.json              服务端身份（vaultId / 配对码 / 设备令牌）
@@ -13,10 +13,10 @@
  *   3. v3 要加端到端加密时，只需把 blob 换成密文 + manifest 路径换 HMAC，协议不用改。
  *
  * 用法：
- *   npx evnote-sync                      # 默认 0.0.0.0:9600，数据在 ~/.evnote-sync
- *   npx evnote-sync --port 9600 --data D:\evnote-sync --name 家里的NAS
+ *   npx tracery-sync                      # 默认 0.0.0.0:9600，数据在 ~/.tracery-sync
+ *   npx tracery-sync --port 9600 --data D:\tracery-sync --name 家里的NAS
  *
- * 也可以作为模块嵌入：startSyncServer({ data, port, pairCode }) —— EVNote 的
+ * 也可以作为模块嵌入：startSyncServer({ data, port, pairCode }) —— Tracery 的
  * 「局域网直连」就是用它在主机设备内部起一个同步服务端。
  */
 import http from 'node:http';
@@ -39,11 +39,11 @@ function parseArgs(argv) {
     else if (a === '--pair-code') out.pairCode = argv[++i];
     else if (a === '--help' || a === '-h') {
       console.log(`
-EVNote 自托管同步服务端
+Tracery 自托管同步服务端
 
   --port, -p <端口>      监听端口（默认 9600）
   --host <地址>          监听地址（默认 0.0.0.0，局域网可访问）
-  --data, -d <目录>      数据目录（默认 ~/.evnote-sync）
+  --data, -d <目录>      数据目录（默认 ~/.tracery-sync）
   --name, -n <名称>      服务端显示名（默认主机名）
   --pair-code <码>       指定配对码（默认随机生成，形如 ABCD-EFGH）
 
@@ -56,14 +56,20 @@ EVNote 自托管同步服务端
 }
 
 /**
- * 以库的方式启动同步服务端（局域网直连时由 EVNote 主进程内嵌调用）。
+ * 以库的方式启动同步服务端（局域网直连时由 Tracery 主进程内嵌调用）。
  * @returns {Promise<{ port:number, code:string, name:string, close:() => void }>}
  */
 export function startSyncServer(opts = {}) {
+  // 默认数据目录：新名 ~/.tracery-sync；但已部署过旧版的机器沿用 ~/.evnote-sync，
+  // 否则一次改名就会让服务端「失忆」（vaultId / 配对码 / token / blob 全重来，客户端全部要重新配对）
+  let defaultData = path.join(os.homedir(), '.tracery-sync');
+  if (!opts.data && !fs.existsSync(defaultData) && fs.existsSync(path.join(os.homedir(), '.evnote-sync'))) {
+    defaultData = path.join(os.homedir(), '.evnote-sync');
+  }
   const args = {
     port: Number(opts.port) || 9600,
     host: opts.host || '0.0.0.0',
-    data: opts.data || path.join(os.homedir(), '.evnote-sync'),
+    data: opts.data || defaultData,
     name: opts.name || os.hostname(),
     pairCode: opts.pairCode || null,
     quiet: !!opts.quiet,
@@ -230,7 +236,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/health') {
       return json(res, 200, {
         ok: true,
-        app: 'evnote-sync',
+        app: 'tracery-sync',
         name: identity.name,
         vaultId: identity.vaultId,
         version: manifest.version,
@@ -437,10 +443,10 @@ const server = http.createServer(async (req, res) => {
 
     // 简易状态页：浏览器打开能看到服务端还活着
     if (p === '/' && req.method === 'GET') {
-      const html = `<!doctype html><meta charset="utf-8"><title>EVNote Sync</title>
+      const html = `<!doctype html><meta charset="utf-8"><title>Tracery Sync</title>
 <style>body{font:14px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;max-width:620px;margin:12vh auto;padding:0 24px;color:#1d1d1f}
 h1{font-size:22px}code{background:#f2f2f4;padding:2px 6px;border-radius:5px}p{color:#6b6b70}</style>
-<h1>EVNote 同步服务端</h1>
+<h1>Tracery 同步服务端</h1>
 <p>服务名：<b>${identity.name}</b> · 仓库版本：<b>v${manifest.version}</b> · 文件数：<b>${Object.keys(manifest.files).length}</b></p>
 <p>配对码：<code>${identity.pairCode}</code>（在客户端「设置 → 同步」里填写）</p>
 <p>已配对设备：${Object.values(identity.tokens).map((t) => t.device).join('、') || '暂无'}</p>`;
@@ -463,7 +469,7 @@ h1{font-size:22px}code{background:#f2f2f4;padding:2px 6px;border-radius:5px}p{co
       const actual = server.address().port;
       if (!args.quiet) {
         const urls = args.host === '0.0.0.0' ? lanUrls(actual) : [`http://${args.host}:${actual}`];
-        console.log('\n  EVNote 同步服务端已启动');
+        console.log('\n  Tracery 同步服务端已启动');
         console.log('  服务名     ' + identity.name);
         console.log('  数据目录   ' + VAULT_DIR);
         console.log('  仓库版本   v' + manifest.version + ' · ' + Object.keys(manifest.files).length + ' 个文件');

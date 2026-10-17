@@ -1,6 +1,6 @@
 /**
  * 同步面板 UI 测试：设置 → 同步 → 填地址/配对码 → 连接 → 立即同步
- * 真跑一个同步服务端 + 一个 EVNote 实例，用无头 Edge 操作界面。
+ * 真跑一个同步服务端 + 一个 Tracery 实例，用无头 Edge 操作界面。
  */
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const TMP = path.join(os.tmpdir(), 'evnote-sync-ui');
+const TMP = path.join(os.tmpdir(), 'tracery-sync-ui');
 const VAULT = path.join(TMP, 'vault');
 const HOME = path.join(TMP, 'home');
 const SYNC_DATA = path.join(TMP, 'sync-data');
@@ -50,7 +50,7 @@ async function main() {
     return p;
   };
   start('sync', ['sync-server/index.js', '--port', String(SYNC_PORT), '--data', SYNC_DATA, '--name', '我家NAS', '--pair-code', PAIR__CODE], {});
-  start('app', ['server/server.js'], { PORT: '9563', EVNOTE_HOME: HOME });
+  start('app', ['server/server.js'], { PORT: '9563', TRACERY_HOME: HOME });
 
   await waitFor(`http://localhost:${SYNC_PORT}/api/health`);
   await waitFor(`${API}/api/state`);
@@ -107,7 +107,7 @@ async function main() {
     };
   });
   check('「怎么部署」展开三步说明并滚到可视区', help.open && help.steps === 3 && help.inView, JSON.stringify(help));
-  check('部署命令可复制', help.cmd.includes('npx evnote-sync'));
+  check('部署命令可复制', help.cmd.includes('npx tracery-sync'));
   await page.screenshot({ path: path.join(SHOTS, 'sync-pane-form.png') });
 
   // 填表连接
@@ -149,7 +149,7 @@ async function main() {
   check('自动同步开关可关闭', autoOff);
 
   // 服务端确实收到了清单
-  const cfg = JSON.parse(fs.readFileSync(path.join(VAULT, '.evnote', 'sync.json'), 'utf8'));
+  const cfg = JSON.parse(fs.readFileSync(path.join(VAULT, '.tracery', 'sync.json'), 'utf8'));
   const manifest = await (await fetch(`http://localhost:${SYNC_PORT}/api/manifest`, {
     headers: { Authorization: `Bearer ${cfg.token}` },
   })).json();

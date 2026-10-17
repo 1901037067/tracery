@@ -1,7 +1,7 @@
 {
-  "name": "evnote",
+  "name": "tracery",
   "version": "1.0.0",
-  "description": "EVNote · 仓库型 Markdown 笔记软件（Obsidian 复刻学习版）— 基于 REA 逆向分析 Obsidian 架构后用 Web 技术栈复刻",
+  "description": "Tracery · 仓库型 Markdown 笔记软件（Obsidian 复刻学习版）— 基于 REA 逆向分析 Obsidian 架构后用 Web 技术栈复刻",
   "type": "module",
   "license": "MIT",
   "private": true,
@@ -39,9 +39,9 @@
     "puppeteer-core": "^23.11.1"
   },
   "build": {
-    "appId": "com.evnote.app",
-    "productName": "EVNote",
-    "copyright": "Copyright © 2026 EVNote contributors",
+    "appId": "com.tracery.app",
+    "productName": "Tracery",
+    "copyright": "Copyright © 2026 Tracery contributors",
     "directories": {
       "output": "dist"
     },
@@ -62,7 +62,7 @@
       "icon": "build/icon.ico"
     },
     "portable": {
-      "artifactName": "EVNote-portable.exe"
+      "artifactName": "Tracery-portable.exe"
     }
   }
 }

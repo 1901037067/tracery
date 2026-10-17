@@ -1,5 +1,5 @@
 /**
- * EVNote 设置面板 + 外观设置引擎
+ * Tracery 设置面板 + 外观设置引擎
  * 设计：macOS 系统设置风格（左侧导航 + 右侧分组行），所有改动即时预览。
  * 外观 = CSS 变量，所以「改设置」不需要重载页面，也不碰布局代码。
  */
@@ -206,9 +206,9 @@ function build() {
         <div class="settings-pane" data-pane="about">
           <h2>关于</h2>
           <div class="about-hero">
-            <img src="/icon.png" alt="EVNote" />
+            <img src="/icon.png" alt="Tracery" />
             <div>
-              <div class="about-name">EVNote</div>
+              <div class="about-name">Tracery</div>
               <div class="about-ver">v1.0.0 · MIT 开源</div>
             </div>
           </div>
@@ -304,7 +304,7 @@ function bind(el) {
 export function exportCurrentTheme() {
   const acc = ACCENTS[settings.accent] || ACCENTS.blue;
   const [xs, sm, md, lg, xl] = RADII[settings.radius] || RADII.default;
-  return `/* EVNote 自定义主题（由设置面板导出） */
+  return `/* Tracery 自定义主题（由设置面板导出） */
 :root {
   --accent: ${acc.light};
   --accent-hover: ${acc.light};

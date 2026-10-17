@@ -1,18 +1,18 @@
-# EVNote 同步服务端
+# Tracery 同步服务端
 
-EVNote 的自托管同步中心。零依赖、单文件、只存数据和版本清单 —— 放在 NAS、树莓派、一台旧笔记本上都能跑。
+Tracery 的自托管同步中心。零依赖、单文件、只存数据和版本清单 —— 放在 NAS、树莓派、一台旧笔记本上都能跑。
 
 ```bash
-npx evnote-sync                 # 0.0.0.0:9600，数据在 ~/.evnote-sync
-npx evnote-sync --port 9600 --data /volume1/evnote --name 家里的NAS
+npx tracery-sync                 # 0.0.0.0:9600，数据在 ~/.tracery-sync
+npx tracery-sync --port 9600 --data /volume1/tracery --name 家里的NAS
 ```
 
 启动后会打印：
 
 ```
-  EVNote 同步服务端已启动
+  Tracery 同步服务端已启动
   服务名     家里的NAS
-  数据目录   /volume1/evnote/<vaultId>
+  数据目录   /volume1/tracery/<vaultId>
   配对码     ABCD-EFGH
   地址       http://192.168.1.10:9600
 ```
@@ -42,13 +42,13 @@ npx evnote-sync --port 9600 --data /volume1/evnote --name 家里的NAS
 
 ```ini
 [Unit]
-Description=EVNote Sync
+Description=Tracery Sync
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/npx evnote-sync --data /var/lib/evnote-sync --port 9600
+ExecStart=/usr/bin/npx tracery-sync --data /var/lib/tracery-sync --port 9600
 Restart=always
-User=evnote
+User=tracery
 
 [Install]
 WantedBy=multi-user.target
@@ -58,15 +58,15 @@ WantedBy=multi-user.target
 
 ```dockerfile
 FROM node:22-alpine
-RUN npm i -g evnote-sync
+RUN npm i -g tracery-sync
 VOLUME /data
 EXPOSE 9600
-CMD ["evnote-sync", "--data", "/data", "--port", "9600"]
+CMD ["tracery-sync", "--data", "/data", "--port", "9600"]
 ```
 
 ```bash
-docker build -t evnote-sync .
-docker run -d -p 9600:9600 -v evnote-sync:/data --name evnote-sync evnote-sync
+docker build -t tracery-sync .
+docker run -d -p 9600:9600 -v tracery-sync:/data --name tracery-sync tracery-sync
 ```
 
 ## 安全说明（v1 的边界，别当成已解决）

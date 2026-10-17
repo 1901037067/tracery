@@ -1,10 +1,10 @@
-# EVNote
+# Tracery
 
 **开源的仓库型 Markdown 笔记软件 · Obsidian 兼容备选**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](/)
-[![Tests](https://img.shields.io/badge/tests-123%2F123%20passed-brightgreen)](test)
+[![Tests](https://img.shields.io/badge/tests-125%2F125%20passed-brightgreen)](test)
 
 一个文件夹就是一座仓库，`.md` 文件就是笔记，`[[双链]]` 把它们织成网络。
 **纯 Markdown 存储，完全兼容 Obsidian 仓库** —— 拿来就能用，随时能回去。
@@ -18,7 +18,7 @@
 ## 为什么做它
 
 Obsidian 很好，但有四件事不舒服：同步 $4/月且服务端在海外、商用 $50/人/年、移动端必须装 App、
-安装包 225MB。EVNote 的取舍是 **MIT 免费商用 + 自托管同步 + 中文优先 + 轻量**，
+安装包 225MB。Tracery 的取舍是 **MIT 免费商用 + 自托管同步 + 中文优先 + 轻量**，
 完整对比见 **[docs/ROADMAP.md](docs/ROADMAP.md)** · 接手开发先读 **[docs/HANDOFF.md](docs/HANDOFF.md)**。
 
 ## 功能
@@ -47,10 +47,10 @@ npm install && npm start          # 浏览器打开 http://localhost:9520
 npm run start:electron
 
 # 打包 Windows exe
-npm run dist:dir                  # 产出 dist/win-unpacked/EVNote.exe
+npm run dist:dir                  # 产出 dist/win-unpacked/Tracery.exe
 ```
 
-已打包版本从 Releases 下载 zip，解压双击 **EVNote.exe**。首次启动自动打开演示仓库。
+已打包版本从 Releases 下载 zip，解压双击 **Tracery.exe**。首次启动自动打开演示仓库。
 
 > 国内网络加镜像：`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`。
 > 单文件 portable exe 需要符号链接权限（Windows 开发者模式）；普通账户用
@@ -77,14 +77,14 @@ npm run dist:dir                  # 产出 dist/win-unpacked/EVNote.exe
 ### 方式二：自建同步服务端（NAS / 服务器，长期多设备）
 
 ```bash
-npx evnote-sync --port 9600 --data /volume1/evnote --name 家里的NAS
+npx tracery-sync --port 9600 --data /volume1/tracery --name 家里的NAS
 ```
 
 把打印出的**地址 + 配对码**填进客户端「设置 → 同步」：
 
 - 多设备自动同步；内容寻址去重；大附件 1MB 分块上传，断点续传
 - **能合就合**：两边改的不是同一段 → 自动三方合并；同一段冲突才保留两份（原文件 + `笔记 (冲突 设备名 时间).md`）
-- 远端删除的文件进 `.evnote/trash/`，不直接销毁
+- 远端删除的文件进 `.tracery/trash/`，不直接销毁
 - 服务端零业务逻辑，只存 blob + 版本清单
 
 协议、systemd / Docker 部署、安全边界：**[sync-server/README.md](sync-server/README.md)** ·
@@ -106,12 +106,12 @@ Node 服务端（Electron 版作为子进程）
    仓库文件夹（纯 .md，随时可用别的编辑器打开）
 ```
 
-| 环节 | Obsidian（REA 结论） | EVNote |
+| 环节 | Obsidian（REA 结论） | Tracery |
 |---|---|---|
 | 运行时 | Electron 主进程 + 渲染进程 | Node 服务端 + 浏览器客户端（Electron 壳可选） |
 | 编辑器 | CodeMirror | contenteditable + 自研 Markdown 双向引擎 |
 | 图谱 | PixiJS | Canvas 手写力导向 |
-| 配置目录 | `.obsidian/` | `.evnote/` |
+| 配置目录 | `.obsidian/` | `.tracery/` |
 | 同步 | 官方付费服务 | 自托管 `sync-server/` |
 
 想改代码：`server/server.js`（文件与索引）、`public/js/editor.js`（编辑器）、

@@ -9,7 +9,7 @@ const SHOTS = 'test/screenshots';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const server = spawn(process.execPath, ['server/server.js'], {
-  cwd: 'E:/08_project/ev_/evnote',
+  cwd: 'E:/08_project/ev_/tracery',
   env: { ...process.env, PORT: String(PORT) },
   stdio: 'pipe',
 });

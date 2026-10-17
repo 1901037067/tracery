@@ -1,5 +1,5 @@
 /* ==========================================================================
-   EVNote 主题：Apple 风（默认）
+   Tracery 主题：Apple 风（默认）
    设计意图：macOS 桌面应用的冷静质感 —— 大圆角浮动纸张、毛玻璃工具栏、
             中性灰阶 + 单一系统蓝、细发丝分隔线、克制的留白。
    改主题 = 改这里的变量，其他文件不需要动。
@@ -56,9 +56,9 @@
   --shadow-float: 0 2px 8px rgba(0, 0, 0, 0.06), 0 24px 56px rgba(0, 0, 0, 0.18);
 
   /* ---- 字体 ---- */
-  --font-ui: "EVNote CJK Punct", "SF Pro Text", -apple-system, BlinkMacSystemFont,
+  --font-ui: "Tracery CJK Punct", "SF Pro Text", -apple-system, BlinkMacSystemFont,
     "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-display: "EVNote CJK Punct", "SF Pro Display", -apple-system, BlinkMacSystemFont,
+  --font-display: "Tracery CJK Punct", "SF Pro Display", -apple-system, BlinkMacSystemFont,
     "Segoe UI Variable Display", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
 

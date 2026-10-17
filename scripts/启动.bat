@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d %~dp0..
 echo ============================================
-echo   EVNote - Obsidian 复刻学习版
+echo   Tracery - Obsidian 复刻学习版
 echo ============================================
 echo.
 
@@ -18,8 +18,8 @@ if not exist node_modules (
     call npm install --no-audit --no-fund
 )
 
-if not exist evnote.config.json (
-    echo {"currentVault":null,"recentVaults":[],"theme":"dark"} > evnote.config.json
+if not exist tracery.config.json (
+    echo {"currentVault":null,"recentVaults":[],"theme":"dark"} > tracery.config.json
 )
 
 echo [启动] http://localhost:9520

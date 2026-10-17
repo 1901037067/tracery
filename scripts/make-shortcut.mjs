@@ -1,16 +1,18 @@
 /**
- * 在桌面创建 EVNote 快捷方式（不使用 COM：部分环境会禁用 WScript.Shell）
+ * 在桌面创建 Tracery 快捷方式（不使用 COM：部分环境会禁用 WScript.Shell）
  * 直接按 Shell Link (.LNK) 二进制格式写出文件。
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-const EXE = 'E:\\08_project\\ev_\\evnote\\dist\\win-unpacked\\EVNote.exe';
-const WORKDIR = 'E:\\08_project\\ev_\\evnote\\dist\\win-unpacked';
+// 从脚本位置推导，不再硬编码机器相关绝对路径（项目目录搬家/改名都不用改这里）
+const ROOT = path.resolve(import.meta.dirname, '..');
+const EXE = path.join(ROOT, 'dist', 'win-unpacked', 'Tracery.exe');
+const WORKDIR = path.join(ROOT, 'dist', 'win-unpacked');
 
-const desktop = process.env.EVNOTE_DESKTOP || path.join(os.homedir(), 'Desktop');
-const lnkPath = path.join(desktop, 'EVNote.lnk');
+const desktop = process.env.TRACERY_DESKTOP || path.join(os.homedir(), 'Desktop');
+const lnkPath = path.join(desktop, 'Tracery.lnk');
 
 if (!fs.existsSync(EXE)) {
   console.error('exe 不存在：', EXE);
@@ -84,7 +86,7 @@ const strData = (s, encoding = 'utf16') => {
 };
 
 const strings = Buffer.concat([
-  strData('EVNote'),                                  // NAME_STRING
+  strData('Tracery'),                                  // NAME_STRING
   strData(WORKDIR),                                   // WORKING_DIR
   strData(EXE + ',0'),                                // ICON_LOCATION
 ]);

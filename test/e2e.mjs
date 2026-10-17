@@ -1,7 +1,7 @@
 /**
- * EVNote 端到端测试
+ * Tracery 端到端测试
  * ------------------------------------------------------------------
- * 无头 Edge 真实驱动 EVNote：
+ * 无头 Edge 真实驱动 Tracery：
  *   1. 启动即自动打开 demo-vault 演示仓库
  *   2. 文件树渲染（10 篇笔记）
  *   3. 打开笔记 → 实时预览渲染（标题/双链/任务列表/Callout）
@@ -29,7 +29,7 @@ const BASE = `http://localhost:${PORT}`;
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const SHOTS = path.join(__dirname, 'screenshots');
 // 每次都用全新的临时配置目录，保证「首次启动自动打开 demo-vault」的行为可复现
-const E2E_HOME = path.join(process.env.TEMP || '/tmp', 'evnote-e2e-home');
+const E2E_HOME = path.join(process.env.TEMP || '/tmp', 'tracery-e2e-home');
 
 const results = [];
 const check = (name, ok, extra = '') => {
@@ -86,8 +86,8 @@ async function main() {
   // ---- 启动被测服务器（独立端口，避开开发实例） ----
   const server = spawn(process.execPath, ['server/server.js'], {
     cwd: ROOT,
-    // 隔离配置：不用仓库根目录的 evnote.config.json，避免读到用户真实仓库
-    env: { ...process.env, PORT: String(PORT), EVNOTE_HOME: E2E_HOME },
+    // 隔离配置：不用仓库根目录的 tracery.config.json，避免读到用户真实仓库
+    env: { ...process.env, PORT: String(PORT), TRACERY_HOME: E2E_HOME },
     stdio: 'pipe',
   });
   server.stderr.on('data', (d) => process.stderr.write('[server] ' + d));
@@ -152,12 +152,12 @@ async function main() {
       sel.removeAllRanges();
       sel.addRange(range);
     });
-    await typeText(page, '\n\nEVNOTE_E2E_TEST_LINE');
+    await typeText(page, '\n\nTRACERY_E2E_TEST_LINE');
     await sleep(1800); // 等自动保存（900ms 防抖 + 余量）
     const saved = await page.evaluate(async () => {
       const res = await fetch('/api/note?path=' + encodeURIComponent('Markdown 语法.md'));
       const data = await res.json();
-      return data.content.includes('EVNOTE_E2E_TEST_LINE');
+      return data.content.includes('TRACERY_E2E_TEST_LINE');
     });
     check('编辑器输入后自动保存到磁盘', saved);
     // 清理测试行
@@ -167,7 +167,7 @@ async function main() {
       await fetch('/api/note', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: 'Markdown 语法.md', content: content.replace(/\n*EVNOTE_E2E_TEST_LINE/g, '') }),
+        body: JSON.stringify({ path: 'Markdown 语法.md', content: content.replace(/\n*TRACERY_E2E_TEST_LINE/g, '') }),
       });
     });
 
@@ -272,7 +272,7 @@ async function main() {
 
     await sleep(700); // 等防抖落盘
     const persisted = await page.evaluate(async () => (await (await fetch('/api/state')).json()).settings);
-    check('设置：持久化到 evnote.config.json',
+    check('设置：持久化到 tracery.config.json',
       persisted.accent === 'purple' && persisted.radius === 'compact',
       JSON.stringify({ accent: persisted.accent, radius: persisted.radius }));
 

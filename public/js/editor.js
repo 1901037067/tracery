@@ -1,5 +1,5 @@
 /**
- * EVNote 实时预览编辑器（仿 Obsidian Live Preview）
+ * Tracery 实时预览编辑器（仿 Obsidian Live Preview）
  *  - contenteditable WYSIWYG：Markdown 语法边打边渲染
  *  - 输入防抖 → DOM 序列化回 Markdown → 重渲染 → 按字符偏移恢复光标
  *  - Enter 智能续行 / Tab 缩进 / Ctrl+B/I/S 包裹 / 复选框点击 / 双链点击与悬浮预览 / ![[嵌入]]

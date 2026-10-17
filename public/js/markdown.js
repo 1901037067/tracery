@@ -1,5 +1,5 @@
 /**
- * EVNote Markdown 引擎
+ * Tracery Markdown 引擎
  *  - renderMarkdown(md)      : Markdown → DOM（编辑器 / 嵌入 / 预览共用）
  *  - serializeHtml(rootEl)   : contenteditable DOM → Markdown（实时预览编辑器回写用）
  *  - domPointToMd(root,node,off) : DOM 光标位置 → Markdown 源码偏移（编辑操作定位用）

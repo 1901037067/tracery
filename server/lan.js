@@ -88,7 +88,7 @@ export function createLanShare({ getVaultRoot, getEngine, home, notify }) {
     const server = await startSyncServer({
       data: dataDir,
       port,
-      name: `EVNote · ${os.hostname()}`,
+      name: `Tracery · ${os.hostname()}`,
       pairCode: code,
       quiet: true,
     });
@@ -98,12 +98,12 @@ export function createLanShare({ getVaultRoot, getEngine, home, notify }) {
     udp.on('message', (msg, rinfo) => {
       try {
         const q = JSON.parse(String(msg));
-        if (q.t === 'evnote-discover' && String(q.code) === code) {
+        if (q.t === 'tracery-discover' && String(q.code) === code) {
           const reply = Buffer.from(JSON.stringify({
-            t: 'evnote-offer',
+            t: 'tracery-offer',
             code,
             port,
-            name: `EVNote · ${os.hostname()}`,
+            name: `Tracery · ${os.hostname()}`,
             ips: localIPs(),
           }));
           udp.send(reply, rinfo.port, rinfo.address);
@@ -176,7 +176,7 @@ export function createLanShare({ getVaultRoot, getEngine, home, notify }) {
       sock.on('message', (msg) => {
         try {
           const o = JSON.parse(String(msg));
-          if (o.t === 'evnote-offer' && String(o.code) === String(code)) {
+          if (o.t === 'tracery-offer' && String(o.code) === String(code)) {
             offers.set(o.name, o);
           }
         } catch { /* ignore */ }
@@ -184,7 +184,7 @@ export function createLanShare({ getVaultRoot, getEngine, home, notify }) {
 
       sock.bind(() => {
         try { sock.setBroadcast(true); } catch { /* ignore */ }
-        const q = Buffer.from(JSON.stringify({ t: 'evnote-discover', code: String(code) }));
+        const q = Buffer.from(JSON.stringify({ t: 'tracery-discover', code: String(code) }));
         const targets = ['127.0.0.1', ...broadcastAddrs()];
         const sendAll = () => {
           for (const p of DISCOVER_PORTS) {

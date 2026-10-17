@@ -16,12 +16,12 @@ import { execFileSync, spawnSync } from 'node:child_process';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const OUT = path.join(ROOT, 'dist', 'win-unpacked');
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
-const ZIP_NAME = `EVNote-${VERSION}-win32-x64.zip`;
+const ZIP_NAME = `Tracery-${VERSION}-win32-x64.zip`;
 const ZIP = path.join(ROOT, 'dist', ZIP_NAME);
 const ZIP_NEW = `${ZIP}.new.zip`;
 
-if (!fs.existsSync(path.join(OUT, 'EVNote.exe'))) {
-  console.error('✗ 找不到 dist/win-unpacked/EVNote.exe，先跑一次 npm run dist:dir');
+if (!fs.existsSync(path.join(OUT, 'Tracery.exe'))) {
+  console.error('✗ 找不到 dist/win-unpacked/Tracery.exe，先跑一次 npm run dist:dir');
   process.exit(1);
 }
 

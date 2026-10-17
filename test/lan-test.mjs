@@ -1,6 +1,6 @@
 /**
  * 局域网直连端到端测试：A 生成 6 位通行码 → B 输码发现并配对 → 双向同步 → 停止共享
- * 全程只跑两个 EVNote 实例，不需要外部同步服务端。
+ * 全程只跑两个 Tracery 实例，不需要外部同步服务端。
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -8,7 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const TMP = path.join(os.tmpdir(), 'evnote-lan-test');
+const TMP = path.join(os.tmpdir(), 'tracery-lan-test');
 const VAULT_A = path.join(TMP, 'vault-a');
 const VAULT_B = path.join(TMP, 'vault-b');
 const SYNC_PORT_A = '9564';
@@ -57,8 +57,8 @@ async function main() {
     procs.push(p);
     return p;
   };
-  start('A', ['server/server.js'], { PORT: SYNC_PORT_A, EVNOTE_HOME: path.join(TMP, 'home-a') });
-  start('B', ['server/server.js'], { PORT: SYNC_PORT_B, EVNOTE_HOME: path.join(TMP, 'home-b') });
+  start('A', ['server/server.js'], { PORT: SYNC_PORT_A, TRACERY_HOME: path.join(TMP, 'home-a') });
+  start('B', ['server/server.js'], { PORT: SYNC_PORT_B, TRACERY_HOME: path.join(TMP, 'home-b') });
 
   await waitFor(`${API_A}/api/state`);
   await waitFor(`${API_B}/api/state`);

@@ -1,4 +1,4 @@
-# EVNote 交接文档（Handoff）
+# Tracery 交接文档（Handoff）
 
 > 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
 > 最后更新：2026-10-17 15:27（对应代码状态：同步 v2 + 绘图 + 局域网直连 + 多标签 + 可调栏宽）
@@ -7,7 +7,7 @@
 
 ## 1. 一句话现状
 
-EVNote 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、图谱全屏、多标签页、可拖拽栏宽。测试 123/123，打包版可发布。
+Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、图谱全屏、多标签页、可拖拽栏宽。测试 125/125，打包版可发布。
 
 ## 2. 环境与常用命令
 
@@ -30,7 +30,7 @@ npm run test:lan             # 10  局域网直连
 npm run test:tabs            # 12  多标签/栏宽/绘图历史
 
 # 同步服务端（可选，常驻机器）
-npm run sync -- --data ./evnote-sync
+npm run sync -- --data ./tracery-sync
 
 # 打包（重要，见 §7）
 npm run dist:dir             # electron-builder 产出 dist/win-unpacked
@@ -66,7 +66,7 @@ electron/main.cjs       桌面壳：窗口按钮/拖拽区/选文件夹对话框
 test/*.mjs              九个测试套件（见 §2）
 ```
 
-约定：仓库根目录 `E:\08_project\ev_\evnote`；演示仓库 `demo-vault/`；配置在 `EVNOTE_HOME/evnote.config.json`（默认 `%APPDATA%/evnote`）；每仓库同步配置 `<vault>/.evnote/sync.json`；同步删除进 `<vault>/.evnote/trash/`；绘图笔画存 `附件/<名>.draw.json`（文件树隐藏但参与同步）。
+约定：仓库根目录 `E:\08_project\ev_\tracery`；演示仓库 `demo-vault/`；配置在 `TRACERY_HOME/tracery.config.json`（Electron 默认 `%APPDATA%/Tracery`）；每仓库同步配置 `<vault>/.tracery/sync.json`；同步删除进 `<vault>/.tracery/trash/`；绘图笔画存 `附件/<名>.draw.json`（文件树隐藏但参与同步）。
 
 ## 4. 已完成功能（截至 2026-10-17）
 
@@ -83,7 +83,7 @@ test/*.mjs              九个测试套件（见 §2）
 
 ## 5. 技术决策（别推翻，先读理由）
 
-1. **同步配置按仓库存 `.evnote/sync.json`**（不是全局 settings）：不同仓库绝不能共用一个同步目标，否则切仓库会把 A 灌进 B。
+1. **同步配置按仓库存 `.tracery/sync.json`**（不是全局 settings）：不同仓库绝不能共用一个同步目标，否则切仓库会把 A 灌进 B。
 2. **局域网直连 = 内嵌 sync-server + 本机引擎也连它**：主机自己也是客户端，零新协议，合并/冲突/回收站全部复用。
 3. **UDP 广播发现**（端口 47891-47893），码只用于配对换 token；探测地址时逐个 IP `GET /api/health` 选通的。
 4. **合并只对文本**（`.md/.markdown/.txt`），同段冲突一律退化为冲突副本——宁可多一份文件，不猜内容。

@@ -1,4 +1,4 @@
-/* EVNote 图谱视图（仿 Obsidian Graph View）— Canvas 力导向布局 */
+/* Tracery 图谱视图（仿 Obsidian Graph View）— Canvas 力导向布局 */
 export class ForceGraph {
   constructor(canvas, opts = {}) {
     this.canvas = canvas;

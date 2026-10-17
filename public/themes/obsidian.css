@@ -1,6 +1,6 @@
 /* ==========================================================================
-   EVNote 主题：Obsidian 风（致敬原版配色，可选皮肤）
-   在 evnote.config.json 里把 "themeName" 设为 "obsidian" 即可切换。
+   Tracery 主题：Obsidian 风（致敬原版配色，可选皮肤）
+   在 tracery.config.json 里把 "themeName" 设为 "obsidian" 即可切换。
    ========================================================================== */
 
 :root {
@@ -46,7 +46,7 @@
   --shadow-sheet: none;
   --shadow-float: 0 8px 32px rgba(0, 0, 0, 0.18);
 
-  --font-ui: "EVNote CJK Punct", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-ui: "Tracery CJK Punct", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-display: var(--font-ui);
   --font-mono: "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace;
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const TMP = path.join(os.tmpdir(), 'evnote-img-probe');
+const TMP = path.join(os.tmpdir(), 'tracery-img-probe');
 const VAULT = path.join(TMP, 'vault');
 const HOME = path.join(TMP, 'home');
 const PORT = 9571;
@@ -23,7 +23,7 @@ fs.writeFileSync(path.join(VAULT, '图.md'), [
   'md 带空格: ![](z_图片/测试 图.png)', '',
 ].join('\n'), 'utf8');
 
-const server = spawn(process.execPath, ['server/server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), EVNOTE_HOME: HOME }, stdio: 'pipe' });
+const server = spawn(process.execPath, ['server/server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME }, stdio: 'pipe' });
 server.stderr.on('data', d => process.stderr.write('srv: ' + d));
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 for (let i = 0; i < 40; i++) { try { if ((await fetch(`http://localhost:${PORT}/api/state`)).ok) break; } catch {} await sleep(250); }
@@ -47,7 +47,7 @@ const info = await page.evaluate(() => ({
   })),
   imgs: [...document.querySelectorAll('#editor-live img')].map(i => ({ src: i.getAttribute('src'), nat: `${i.naturalWidth}x${i.naturalHeight}` })),
   imgCount: document.querySelectorAll('#editor-live img').length,
-  md: window.__evnote.editor.md.slice(0, 200),
+  md: window.__tracery.editor.md.slice(0, 200),
 }));
 console.log(JSON.stringify(info, null, 1));
 console.log('errors:', JSON.stringify(errors));

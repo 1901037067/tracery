@@ -1,4 +1,4 @@
-/* EVNote 前端 API 封装 + WebSocket */
+/* Tracery 前端 API 封装 + WebSocket */
 const BASE = location.origin;
 
 async function api(path, opts = {}) {

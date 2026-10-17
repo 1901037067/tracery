@@ -9,7 +9,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const TMP = path.join(os.tmpdir(), 'evnote-draw-test');
+const TMP = path.join(os.tmpdir(), 'tracery-draw-test');
 const VAULT = path.join(TMP, 'vault');
 const HOME = path.join(TMP, 'home');
 const PORT = 9577;
@@ -39,7 +39,7 @@ async function main() {
 
   const server = spawn(process.execPath, ['server/server.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), EVNOTE_HOME: HOME },
+    env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.stderr.on('data', (d) => process.stderr.write('[srv] ' + d));

@@ -9,7 +9,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const TMP = path.join(os.tmpdir(), 'evnote-uiux');
+const TMP = path.join(os.tmpdir(), 'tracery-uiux');
 const VAULT = path.join(TMP, 'vault');
 const HOME = path.join(TMP, 'home');
 const PORT = 9575;
@@ -48,7 +48,7 @@ async function main() {
 
   const server = spawn(process.execPath, ['server/server.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(PORT), EVNOTE_HOME: HOME },
+    env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   server.stderr.on('data', (d) => process.stderr.write('[srv] ' + d));
@@ -82,7 +82,7 @@ async function main() {
       titlebarHasSettings: !!document.querySelector('.titlebar-right #btn-settings'),
     };
   });
-  check('左上角不再显示 EVNote 文字', layout.appName === null && !layout.leftText.includes('EVNote'), JSON.stringify(layout));
+  check('左上角不再显示 Tracery 文字', layout.appName === null && !layout.leftText.includes('Tracery'), JSON.stringify(layout));
   check('主题/仓库/设置移到左下角功能区', layout.themeInRibbon && !layout.titlebarHasSettings);
   check('新建按钮在左下角且为主色按钮', layout.plusIsBottom && layout.plusAccent);
   await page.screenshot({ path: path.join(SHOTS, 'ux-layout.png') });

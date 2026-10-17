@@ -1,6 +1,6 @@
 # 主题系统
 
-EVNote 的外观 = **一套 CSS 变量**。改主题只需要改这个文件里的变量值，不用碰布局和逻辑。
+Tracery 的外观 = **一套 CSS 变量**。改主题只需要改这个文件里的变量值，不用碰布局和逻辑。
 
 ```
 public/themes/
@@ -10,7 +10,7 @@ public/themes/
 
 ## 切换主题
 
-改 `evnote.config.json`：
+改 `tracery.config.json`：
 
 ```json
 {

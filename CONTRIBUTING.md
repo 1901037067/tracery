@@ -1,12 +1,12 @@
 # 贡献指南
 
-感谢你有兴趣参与 EVNote！这是一个学习向的开源项目，欢迎任何规模的贡献：报告 bug、改进文档、修一行注释、加一个功能。
+感谢你有兴趣参与 Tracery！这是一个学习向的开源项目，欢迎任何规模的贡献：报告 bug、改进文档、修一行注释、加一个功能。
 
 ## 开发环境
 
 ```bash
 git clone <your-fork>
-cd evnote
+cd tracery
 npm install
 npm start              # 浏览器模式：http://localhost:9520
 npm run start:electron # 桌面模式（与打包版一致）

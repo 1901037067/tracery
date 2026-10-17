@@ -101,7 +101,7 @@ new Worker(t, {type:"module"})                    → ESM Worker
 |---|---|
 | 用「本地服务端 = 主进程」分工，而不是再糊一个 Electron | 主进程职责=文件系统+索引+监听，用 Node HTTP 服务即可等价承载；浏览器作渲染进程 |
 | 链接解析：路径优先 → 全局文件名唯一匹配 | Obsidian 官方行为 + metadataCache 命名佐证其「按名索引」 |
-| 配置目录 `.evnote/`（仿 `.obsidian/`） | 文件系统约定 |
+| 配置目录 `.tracery/`（仿 `.obsidian/`） | 文件系统约定 |
 | 编辑器自研（contenteditable）而非接 CodeMirror | CM5 是渲染进程内的实现细节，属可替换层；复刻目标是行为而非实现 |
 | 图谱用力导向 Canvas 布局 | PixiJS 只是渲染器，布局算法才是可复刻的知识 |
 
@@ -113,11 +113,11 @@ new Worker(t, {type:"module"})                    → ESM Worker
 4. 网络端点提取噪声较大（压缩代码误报），已剔除；未发现稳定的可疑外联端点（仅 `/i18n/mapping.txt` 一类资源请求）。
 5. 分析仅针对本机副本，用于技术学习。
 
-## 8. 对 EVNote 的指导结果
+## 8. 对 Tracery 的指导结果
 
 复刻分工（详见项目 README「架构说明」）：
 
-| Obsidian | EVNote |
+| Obsidian | Tracery |
 |---|---|
 | 主进程 main.js（fs/path/zlib） | `server/server.js`（Vault 类：读写/索引/监听） |
 | IPC | HTTP API + WebSocket |
@@ -125,4 +125,4 @@ new Worker(t, {type:"module"})                    → ESM Worker
 | metadataCache | 服务端内存索引（links/tags/headings 三张表） |
 | CodeMirror Live Preview | contenteditable + 自研 Markdown 双向引擎 |
 | PixiJS 图谱 | Canvas 手写力导向布局 |
-| `.obsidian/` | `.evnote/` + `evnote.config.json` |
+| `.obsidian/` | `.tracery/` + `tracery.config.json` |

@@ -1,5 +1,5 @@
 /**
- * EVNote 同步引擎（v1：文件级 + 冲突副本）
+ * Tracery 同步引擎（v1：文件级 + 冲突副本）
  * ------------------------------------------------------------------
  * 跑在「主进程」一侧（Node 服务端），因为只有它能碰文件系统。
  * 浏览器端只负责配置界面和展示状态，永远不直接与同步服务端通信。
@@ -9,7 +9,7 @@
  *    只有本地改  → 上传
  *    只有远端改  → 下载
  *    两边都改    → 冲突：本地内容保留在原路径，远端内容写成「冲突副本」
- *    本地删除    → 提交删除（对方收到时文件进 .evnote/trash，不直接销毁）
+ *    本地删除    → 提交删除（对方收到时文件进 .tracery/trash，不直接销毁）
  *
  * 为什么 v1 不做自动合并：Markdown 的合并结果一旦预测错，用户很难发现。
  * 宁可多一个副本文件，也不静默改用户的字。diff3 三方合并留到 v2。
@@ -22,11 +22,32 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { mergeText, isMergeablePath } from './merge.js';
 
-const IGNORED_DIRS = new Set(['.evnote', '.obsidian', '.git', 'node_modules', '.trash']);
+const IGNORED_DIRS = new Set(['.tracery', '.evnote', '.obsidian', '.git', 'node_modules', '.trash']);
 const MAX_FILE = 100 * 1024 * 1024;   // 单文件上限 100MB
 const MAX_ATTEMPTS = 3;               // 提交时清单被抢占的重试次数
 const CHUNK = 1024 * 1024;            // 分块大小 1MB
-const CHUNK_THRESHOLD = Number(process.env.EVNOTE_CHUNK_THRESHOLD) || 4 * 1024 * 1024;
+const CHUNK_THRESHOLD = Number(process.env.TRACERY_CHUNK_THRESHOLD) || 4 * 1024 * 1024;
+
+/**
+ * 仓库配置目录：新名 .tracery；首次打开旧仓库时把 .evnote 整体迁过来。
+ * 为什么必须迁移而不是直接读旧名：.evnote 里有用户的 sync.json（配对 token）、
+ * sync-state.json（同步基准）和 trash/（回收站），硬切目录等于丢配对、丢回收站。
+ * 迁移失败（占用/权限）时返回旧目录路径，行为完全兼容，不阻塞启动。
+ */
+export function vaultConfigDir(root) {
+  const now = path.join(root, '.tracery');
+  const legacy = path.join(root, '.evnote');
+  if (!fs.existsSync(now) && fs.existsSync(legacy)) {
+    try {
+      fs.renameSync(legacy, now);
+      console.log(`[迁移] 仓库配置目录 ${legacy} → ${now}`);
+    } catch (e) {
+      console.warn(`[迁移失败] 继续兼容读取旧目录：${e.message}`);
+      return legacy;
+    }
+  }
+  return now;
+}
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
@@ -54,13 +75,13 @@ export class SyncEngine {
     this._cfgFor = null;
   }
 
-  /* ---------------- 配置（每个仓库一份，存在 <vault>/.evnote/sync.json） ----------------
+  /* ---------------- 配置（每个仓库一份，存在 <vault>/.tracery/sync.json） ----------------
    * 为什么不是全局：同步目标是「某个服务端的某个仓库」，不同笔记仓库绝不能共用一个同步配置，
-   * 否则切换仓库时会把 A 的内容灌进 B。仓库内的 .evnote 不参与同步，token 不会外泄。
+   * 否则切换仓库时会把 A 的内容灌进 B。仓库内的 .tracery 不参与同步，token 不会外泄。
    */
   _configFile() {
     const root = this.getVaultRoot();
-    return root ? path.join(root, '.evnote', 'sync.json') : null;
+    return root ? path.join(vaultConfigDir(root), 'sync.json') : null;
   }
 
   get cfg() {
@@ -132,7 +153,7 @@ export class SyncEngine {
     } catch (e) {
       throw new Error(`连不上同步服务端：${e.message}`);
     }
-    if (!health?.ok) throw new Error('这个地址不是 EVNote 同步服务端');
+    if (!health?.ok) throw new Error('这个地址不是 Tracery 同步服务端');
 
     const paired = await this._fetchJson('POST', url, '/api/pair', {
       auth: false,
@@ -450,7 +471,7 @@ export class SyncEngine {
   async _downloadBlob(root, rel, sha, size = 0) {
     const abs = path.join(root, rel);
     await fsp.mkdir(path.dirname(abs), { recursive: true });
-    const tmp = `${abs}.evnote-tmp`;
+    const tmp = `${abs}.tracery-tmp`;
     let got = 0;
     try { got = (await fsp.stat(tmp)).size; } catch { got = 0; }
     if (size && got > size) { await fsp.rm(tmp, { force: true }); got = 0; }
@@ -545,13 +566,13 @@ export class SyncEngine {
     }
   }
 
-  /** 远端删除时，本地文件移进 .evnote/trash 而不是直接删掉 */
+  /** 远端删除时，本地文件移进 .tracery/trash 而不是直接删掉 */
   _trashLocal(root, rel) {
     try {
       const abs = path.join(root, rel);
       if (!fs.existsSync(abs)) return;
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const dest = path.join(root, '.evnote', 'trash', stamp, rel);
+      const dest = path.join(vaultConfigDir(root), 'trash', stamp, rel);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.renameSync(abs, dest);
       this.noteWrite();
@@ -607,8 +628,8 @@ export class SyncEngine {
     return res.json().catch(() => ({}));
   }
 
-  /* ---------------- 状态文件（存在 .evnote 里，不参与同步） ---------------- */
-  _stateFile(root) { return root ? path.join(root, '.evnote', 'sync-state.json') : null; }
+  /* ---------------- 状态文件（存在 .tracery 里，不参与同步） ---------------- */
+  _stateFile(root) { return root ? path.join(vaultConfigDir(root), 'sync-state.json') : null; }
 
   async _loadState() {
     const root = this.getVaultRoot();

@@ -2,7 +2,7 @@
  * 同步端到端测试
  * ------------------------------------------------------------------
  * 真实跑三个进程：
- *   同步服务端（sync-server） + EVNote 实例 A + EVNote 实例 B
+ *   同步服务端（sync-server） + Tracery 实例 A + Tracery 实例 B
  * 验证：首次上传 / 首次下载 / 增量上传 / 增量下载 / 冲突副本 / 删除传播 / 鉴权
  *
  * 用临时目录，不碰仓库里的 demo-vault 和用户真实笔记。
@@ -15,7 +15,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const TMP = path.join(os.tmpdir(), 'evnote-sync-test');
+const TMP = path.join(os.tmpdir(), 'tracery-sync-test');
 const SYNC_PORT = 9700;
 const VAULT_A = path.join(TMP, 'vault-a');
 const VAULT_B = path.join(TMP, 'vault-b');
@@ -55,7 +55,7 @@ async function api(base, p, opts) {
 /** 从仓库内的同步配置取 token（status 接口故意不回传 token） */
 function readToken(vaultRoot) {
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(vaultRoot, '.evnote', 'sync.json'), 'utf8'));
+    const cfg = JSON.parse(fs.readFileSync(path.join(vaultRoot, '.tracery', 'sync.json'), 'utf8'));
     return cfg.token || '';
   } catch { return ''; }
 }
@@ -84,10 +84,10 @@ async function main() {
     return p;
   };
 
-  console.log('\n▶ 启动同步服务端与两个 EVNote 实例\n');
+  console.log('\n▶ 启动同步服务端与两个 Tracery 实例\n');
   start('sync', process.execPath, ['sync-server/index.js', '--port', String(SYNC_PORT), '--data', SYNC_DATA, '--name', 'TestSync', '--pair-code', PAIR_CODE]);
-  start('A', process.execPath, ['server/server.js'], { PORT: '9561', EVNOTE_HOME: HOME_A, EVNOTE_CHUNK_THRESHOLD: '1048576' });
-  start('B', process.execPath, ['server/server.js'], { PORT: '9562', EVNOTE_HOME: HOME_B, EVNOTE_CHUNK_THRESHOLD: '1048576' });
+  start('A', process.execPath, ['server/server.js'], { PORT: '9561', TRACERY_HOME: HOME_A, TRACERY_CHUNK_THRESHOLD: '1048576' });
+  start('B', process.execPath, ['server/server.js'], { PORT: '9562', TRACERY_HOME: HOME_B, TRACERY_CHUNK_THRESHOLD: '1048576' });
 
   await waitFor(`http://localhost:${SYNC_PORT}/api/health`, '同步服务端');
   await waitFor(`${API_A}/api/state`, '实例 A');
@@ -221,7 +221,7 @@ async function main() {
   const bDel = await api(API_B, '/api/sync/now', { method: 'POST', body: {} });
   check('删除从 A 传播到 B', !fs.existsSync(path.join(VAULT_B, '项目', '笔记乙.md')),
     `A删除=${aDel.result?.deleted} B下载=${bDel.result?.downloaded}`);
-  const trashDir = path.join(VAULT_B, '.evnote', 'trash');
+  const trashDir = path.join(VAULT_B, '.tracery', 'trash');
   let inTrash = false;
   if (fs.existsSync(trashDir)) {
     for (const d of fs.readdirSync(trashDir)) {

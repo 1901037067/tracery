@@ -1,5 +1,5 @@
 /* ==========================================================================
-   EVNote 布局与组件样式
+   Tracery 布局与组件样式
    设计语言：Apple / macOS —— 大圆角、浮层纸张、毛玻璃、发丝线、克制留白。
    主题色值全部来自 themes/*.css 的 CSS 变量，换皮肤只换主题文件。
    ========================================================================== */
@@ -11,7 +11,7 @@ html, body { height: 100%; }
 
 /* 中文标点专用字族：避免拉丁字体接管「。，、」导致字距忽宽忽窄 */
 @font-face {
-  font-family: "EVNote CJK Punct";
+  font-family: "Tracery CJK Punct";
   src: local("Microsoft YaHei"), local("PingFang SC"), local("Noto Sans CJK SC"),
     local("Source Han Sans SC"), local("Hiragino Sans GB");
   unicode-range: U+3000-303F, U+FE10-FE1F, U+FF00-FFEF;

@@ -54,7 +54,7 @@ function formHtml() {
     <div class="sync-intro">
       <div class="sync-intro-title">把笔记同步到你自己的服务器</div>
       <div class="sync-intro-desc">
-        在 NAS / 树莓派 / 任意一台机器上运行 <code>npx evnote-sync</code>，
+        在 NAS / 树莓派 / 任意一台机器上运行 <code>npx tracery-sync</code>，
         它会打印一个配对码。填到下面即可，数据不经过任何第三方。
       </div>
     </div>
@@ -82,7 +82,7 @@ function formHtml() {
         <li>把地址和配对码填到上面，点「连接并同步」；其他设备重复这一步即可。</li>
       </ol>
       <div class="sync-cmd">
-        <code>npx evnote-sync --data ./evnote-sync --name 我的同步盘</code>
+        <code>npx tracery-sync --data ./tracery-sync --name 我的同步盘</code>
         <button id="sync-copy-cmd" class="btn-ghost">复制</button>
       </div>
       <p class="set-note">
@@ -171,8 +171,8 @@ function connectedHtml() {
       <button id="sync-device-rename" class="btn-ghost">设备名称：${escapeHtml(s.deviceName || '未命名')}</button>
     </div>
     <p class="set-note" style="margin-top:12px">
-      同步状态保存在仓库的 <code>.evnote/sync-state.json</code>；远端删除的文件会进
-      <code>.evnote/trash/</code>，不会直接销毁。
+      同步状态保存在仓库的 <code>.tracery/sync-state.json</code>；远端删除的文件会进
+      <code>.tracery/trash/</code>，不会直接销毁。
     </p>`;
 }
 

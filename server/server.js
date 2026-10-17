@@ -1,5 +1,5 @@
 /**
- * EVNote 服务端 —— 对应 Obsidian 架构中的「主进程」职责：
+ * Tracery 服务端 —— 对应 Obsidian 架构中的「主进程」职责：
  *   vault 文件系统访问 / 文件监听 / 链接与标签索引（metadataCache）/ 配置持久化
  * 前端（渲染进程）只通过 HTTP API + WebSocket 与这里交互，不直接碰文件系统。
  */
@@ -9,19 +9,21 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { SyncEngine } from './sync.js';
+import { SyncEngine, vaultConfigDir } from './sync.js';
 import { createLanShare } from './lan.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
-// 打包进 Electron 后 asar 是只读的：EVNOTE_HOME 指向可写的用户数据目录
-const HOME = process.env.EVNOTE_HOME || ROOT;
-const CONFIG_FILE = path.join(HOME, 'evnote.config.json');
+// 打包进 Electron 后 asar 是只读的：TRACERY_HOME 指向可写的用户数据目录
+// （兼容旧环境变量名 EVNOTE_HOME：老脚本/便携启动器不用改）
+const HOME = process.env.TRACERY_HOME || process.env.EVNOTE_HOME || ROOT;
+const CONFIG_FILE = path.join(HOME, 'tracery.config.json');
+const LEGACY_CONFIG_FILE = path.join(HOME, 'evnote.config.json');
 const DEFAULT_VAULT = path.join(ROOT, 'demo-vault');
 const PORT = Number(process.env.PORT) || 9520;
 
-const IGNORED_DIRS = new Set(['.evnote', '.obsidian', '.git', 'node_modules', '.trash']);
+const IGNORED_DIRS = new Set(['.tracery', '.evnote', '.obsidian', '.git', 'node_modules', '.trash']);
 const TEXT_EXT = new Set(['.md', '.markdown', '.txt']);
 
 /* ---------------- 配置 ---------------- */
@@ -41,21 +43,27 @@ const DEFAULT_SETTINGS = {
   },
 };
 
+function normalizeConfig(cfg) {
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    ...(cfg.settings || {}),
+    sync: { ...DEFAULT_SETTINGS.sync, ...(cfg.settings?.sync || {}) },
+  };
+  // 兼容旧版顶层 theme / themeName
+  if (!cfg.settings && cfg.theme) settings.themeMode = cfg.theme === 'light' ? 'light' : 'dark';
+  if (!cfg.settings && cfg.themeName) settings.themeName = cfg.themeName;
+  return { currentVault: null, recentVaults: [], ...cfg, settings };
+}
 function loadConfig() {
-  try {
-    const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-    const settings = {
-      ...DEFAULT_SETTINGS,
-      ...(cfg.settings || {}),
-      sync: { ...DEFAULT_SETTINGS.sync, ...(cfg.settings?.sync || {}) },
-    };
-    // 兼容旧版顶层 theme / themeName
-    if (!cfg.settings && cfg.theme) settings.themeMode = cfg.theme === 'light' ? 'light' : 'dark';
-    if (!cfg.settings && cfg.themeName) settings.themeName = cfg.themeName;
-    return { currentVault: null, recentVaults: [], ...cfg, settings };
-  } catch {
-    return { currentVault: null, recentVaults: [], settings: { ...DEFAULT_SETTINGS, sync: { ...DEFAULT_SETTINGS.sync } } };
+  // 一次性迁移：旧版 evnote.config.json → tracery.config.json（保住用户的最近仓库与设置）
+  if (!fs.existsSync(CONFIG_FILE) && fs.existsSync(LEGACY_CONFIG_FILE)) {
+    try { fs.renameSync(LEGACY_CONFIG_FILE, CONFIG_FILE); }
+    catch { /* 迁不动就原地读旧文件，下面有回退 */ }
   }
+  for (const file of [CONFIG_FILE, LEGACY_CONFIG_FILE]) {
+    try { return normalizeConfig(JSON.parse(fs.readFileSync(file, 'utf8'))); } catch { /* 试下一个 */ }
+  }
+  return { currentVault: null, recentVaults: [], settings: { ...DEFAULT_SETTINGS, sync: { ...DEFAULT_SETTINGS.sync } } };
 }
 function saveConfig(cfg) {
   fs.mkdirSync(HOME, { recursive: true });
@@ -700,7 +708,7 @@ async function start() {
   let root = config.currentVault;
   if (!root || !fs.existsSync(root)) {
     root = resolveDefaultVault();
-    fs.mkdirSync(path.join(root, '.evnote'), { recursive: true });
+    fs.mkdirSync(vaultConfigDir(root), { recursive: true });
     config.currentVault = root;
   }
   // 保证当前仓库一定出现在「最近打开」里（首启动的演示仓库也能一键切回）
@@ -712,7 +720,7 @@ async function start() {
   syncEngine.startAuto();
 
   server.listen(PORT, () => {
-    console.log(`EVNote 已启动:  http://localhost:${PORT}`);
+    console.log(`Tracery 已启动:  http://localhost:${PORT}`);
     console.log(`当前仓库:      ${vault.root}`);
     console.log(`笔记数:        ${vault.notes.size}`);
     if (syncEngine.configured) console.log(`同步:          ${syncEngine.cfg.serverUrl}`);

@@ -1,6 +1,6 @@
 # Markdown 语法
 
-EVNote 的实时预览编辑器支持以下语法。边打字边渲染，和 Obsidian 的 Live Preview 体验一致。
+Tracery 的实时预览编辑器支持以下语法。边打字边渲染，和 Obsidian 的 Live Preview 体验一致。
 
 ## 基础格式
 
@@ -28,7 +28,7 @@ EVNote 的实时预览编辑器支持以下语法。边打字边渲染，和 Obs
 - [x] 搭建服务端（vault 管理 + 索引）
 - [x] 实现实时预览编辑器
 - [x] 双链与反链
-- [ ] 插件系统（见 [[EVNote 复刻计划]] 的「未实现」一节）
+- [ ] 插件系统（见 [[Tracery 复刻计划]] 的「未实现」一节）
 - [ ] 云同步
 
 ## 引用与 Callout
@@ -42,7 +42,7 @@ EVNote 的实时预览编辑器支持以下语法。边打字边渲染，和 Obs
 ## 代码块
 
 ```javascript
-// EVNote 的链接解析：先按路径，再按文件名唯一匹配
+// Tracery 的链接解析：先按路径，再按文件名唯一匹配
 function resolve(target) {
   if (notes.has(target + '.md')) return target + '.md';
   const hits = byName.get(target.toLowerCase());
@@ -52,7 +52,7 @@ function resolve(target) {
 
 ```python
 # Python 也支持
-print("Hello, EVNote!")
+print("Hello, Tracery!")
 ```
 
 ## 表格

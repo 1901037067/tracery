@@ -1,4 +1,4 @@
-# EVNote 复刻计划
+# Tracery 复刻计划
 
 > [!note] 项目背景
 > 本项目是一次 **REA（Reverse Engineer Anything）式逆向学习实践**：
@@ -7,14 +7,14 @@
 
 ## 架构对照
 
-| 环节 | Obsidian（逆向结论） | EVNote（复刻） |
+| 环节 | Obsidian（逆向结论） | Tracery（复刻） |
 |---|---|---|
 | 运行时 | Electron（主进程 + 渲染进程） | Node 服务端 + 浏览器客户端 |
 | 文件访问 | 主进程通过 vault adapter 读写 | `server/server.js` 独占文件系统 |
 | 索引 | 主进程 metadataCache | 服务端内存索引（链接/标签/标题） |
 | 文件监听 | 主进程监听 vault 变化 | `fs.watch` 递归监听 + WebSocket 推送 |
 | 编辑器 | CodeMirror（Live Preview） | contenteditable + 自研 Markdown 引擎 |
-| 配置 | `.obsidian/` 目录 | `.evnote/` 目录 + `evnote.config.json` |
+| 配置 | `.obsidian/` 目录 | `.tracery/` 目录 + `tracery.config.json` |
 
 ## 已实现
 

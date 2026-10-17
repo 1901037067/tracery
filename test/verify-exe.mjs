@@ -4,9 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import puppeteer from 'puppeteer-core';
 
-const BASE = process.env.EVNOTE_BASE || 'http://localhost:9540';
-const CDP = process.env.EVNOTE_CDP || 'http://localhost:9223';
-const TEST_VAULT = path.join(os.tmpdir(), 'evnote-test-vault');
+const BASE = process.env.TRACERY_BASE || 'http://localhost:9540';
+const CDP = process.env.TRACERY_CDP || 'http://localhost:9223';
+const TEST_VAULT = path.join(os.tmpdir(), 'tracery-test-vault');
 
 fs.rmSync(TEST_VAULT, { recursive: true, force: true });
 fs.cpSync('demo-vault', TEST_VAULT, { recursive: true });

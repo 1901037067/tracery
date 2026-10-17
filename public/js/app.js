@@ -1,5 +1,5 @@
 /**
- * EVNote 主控制器（对应 Obsidian 渲染进程）
+ * Tracery 主控制器（对应 Obsidian 渲染进程）
  * 负责：仓库/欢迎页、文件树、面板切换、命令面板、快捷键、
  *       编辑器装配、反链/大纲/标签面板、图谱、主题、WebSocket 同步
  */
@@ -17,6 +17,18 @@ import { openDraw } from './draw.js';
 
 const $ = (id) => document.getElementById(id);
 
+/**
+ * 读 localStorage：优先新键（tracery.*），回退旧键（evnote.*）。
+ * 2026-10 产品从 EVNote 改名 Tracery 时加的保护——
+ * 老用户的界面状态（折叠目录 / 栏宽 / 上次打开的笔记 / 标签页）不能因为改名归零。
+ */
+function lsGet(key) {
+  const v = localStorage.getItem(key);
+  if (v !== null) return v;
+  const legacy = key.replace(/^tracery\./, 'evnote.');
+  return legacy === key ? null : localStorage.getItem(legacy);
+}
+
 const state = {
   vault: null,
   tree: null,
@@ -24,7 +36,7 @@ const state = {
   tabs: [],                 // 打开的笔记（标签页）
   activeTab: -1,
   nameIndex: new Map(),      // 笔记名(小写) -> path，供 resolveLink 用
-  collapsed: new Set(JSON.parse(localStorage.getItem('evnote.collapsed') || '[]')),
+  collapsed: new Set(JSON.parse(lsGet('tracery.collapsed') || '[]')),
   graph: null,
   theme: 'dark',
   themeName: 'apple',
@@ -34,7 +46,7 @@ const state = {
 /* ================= 启动 ================= */
 async function boot() {
   // 调试/测试钩子
-  window.__evnote = { editor, state, Api, openNote, switchPanel };
+  window.__tracery = { editor, state, Api, openNote, switchPanel };
   const st = await Api.state();
   state.settings = st.settings || null;
   initSettings(st.settings || {});
@@ -155,7 +167,7 @@ async function enterApp(vault) {
   state.currentPath = null;
   $('vault-name').textContent = vault.name;
   $('vault-name').title = `${vault.root}\n点击切换 / 管理仓库`;
-  document.title = `${vault.name} — EVNote`;
+  document.title = `${vault.name} — Tracery`;
   await refreshTree();
   await refreshGraph();
   await refreshTags();
@@ -168,7 +180,7 @@ async function enterApp(vault) {
       state.activeTab = Math.min(state.activeTab < 0 ? 0 : state.activeTab, state.tabs.length - 1);
       await loadTab(state.tabs[state.activeTab]);
     } else {
-      const last = localStorage.getItem('evnote.lastNote');
+      const last = lsGet('tracery.lastNote');
       const target = last && hasNotePath(last) ? last : firstNotePath();
       if (target) await openNote(target, null, { newTab: true });
     }
@@ -301,7 +313,7 @@ function renderTreeNode(node, depth, isRoot = false) {
       e.stopPropagation();
       if (state.collapsed.has(d.name)) state.collapsed.delete(d.name);
       else state.collapsed.add(d.name);
-      localStorage.setItem('evnote.collapsed', JSON.stringify([...state.collapsed]));
+      localStorage.setItem('tracery.collapsed', JSON.stringify([...state.collapsed]));
       renderTree();
     };
     item.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showDirMenu(e, d.name); };
@@ -396,7 +408,7 @@ async function renameNote(f) {
     if (ti >= 0) state.tabs[ti] = newPath;
     if (state.currentPath === f.path) {
       state.currentPath = newPath;
-      localStorage.setItem('evnote.lastNote', newPath);
+      localStorage.setItem('tracery.lastNote', newPath);
       $('note-path').textContent = newPath;
     }
     await refreshTree(); refreshGraph(); refreshTags();
@@ -418,7 +430,7 @@ async function deleteNote(f) {
     if (ti >= 0) state.tabs.splice(ti, 1);
     if (state.currentPath === f.path) {
       state.currentPath = null;
-      localStorage.removeItem('evnote.lastNote');
+      localStorage.removeItem('tracery.lastNote');
       editor.load('', '');
       $('note-header').hidden = true;
       refreshRightPanels(null);
@@ -461,7 +473,7 @@ async function createFolderIn(dir) {
 }
 
 /* ================= 标签页（多开） ================= */
-function tabsKey() { return `evnote.tabs.${state.vault?.root || 'default'}`; }
+function tabsKey() { return `tracery.tabs.${state.vault?.root || 'default'}`; }
 
 function hasNotePath(p) {
   if (!state.tree) return false;
@@ -478,13 +490,13 @@ function hasNotePath(p) {
 function saveTabsState() {
   try {
     localStorage.setItem(tabsKey(), JSON.stringify({ tabs: state.tabs, active: state.activeTab }));
-    if (state.currentPath) localStorage.setItem('evnote.lastNote', state.currentPath);
+    if (state.currentPath) localStorage.setItem('tracery.lastNote', state.currentPath);
   } catch { /* 隐私模式下忽略 */ }
 }
 
 function loadTabsState() {
   try {
-    const raw = JSON.parse(localStorage.getItem(tabsKey()) || '{}');
+    const raw = JSON.parse(lsGet(tabsKey()) || '{}');
     state.tabs = (Array.isArray(raw.tabs) ? raw.tabs : []).filter((p) => hasNotePath(p));
     state.activeTab = Number.isInteger(raw.active)
       ? Math.min(Math.max(raw.active, 0), state.tabs.length - 1)
@@ -565,7 +577,7 @@ async function closeTab(i) {
   if (!state.tabs.length) {
     state.activeTab = -1;
     state.currentPath = null;
-    localStorage.removeItem('evnote.lastNote');
+    localStorage.removeItem('tracery.lastNote');
     editor.load('', '');
     $('note-header').hidden = true;
     refreshRightPanels(null);
@@ -985,11 +997,11 @@ function initResizers() {
 
   const apply = (el, key) => {
     if (!el) return;
-    const v = Number(localStorage.getItem(key));
+    const v = Number(lsGet(key));
     if (v >= MIN && v <= MAX) el.style.width = `${v}px`;
   };
-  apply(left, 'evnote.ui.sidebarW');
-  apply(right, 'evnote.ui.rightW');
+  apply(left, 'tracery.ui.sidebarW');
+  apply(right, 'tracery.ui.rightW');
 
   const bind = (handle, panel, key, def) => {
     if (!handle || !panel) return;
@@ -1019,8 +1031,8 @@ function initResizers() {
       localStorage.removeItem(key);
     });
   };
-  bind($('resizer-left'), left, 'evnote.ui.sidebarW', 272);
-  bind($('resizer-right'), right, 'evnote.ui.rightW', 296);
+  bind($('resizer-left'), left, 'tracery.ui.sidebarW', 272);
+  bind($('resizer-right'), right, 'tracery.ui.rightW', 296);
 }
 
 /* ================= 主题（由设置模块统一管理） ================= */
@@ -1092,7 +1104,7 @@ function bindGlobalEvents() {
     if (state.tree) walk(state.tree);
     if (state.collapsed.size < all.size) state.collapsed = all;
     else state.collapsed = new Set();
-    localStorage.setItem('evnote.collapsed', JSON.stringify([...state.collapsed]));
+    localStorage.setItem('tracery.collapsed', JSON.stringify([...state.collapsed]));
     renderTree();
   };
   $('btn-graph-reheat').onclick = () => graphView?._reheat();
@@ -1188,7 +1200,7 @@ function onWsMessage(msg) {
         state.currentPath = null;
         $('vault-name').textContent = s.vault.name;
         $('vault-name').title = `${s.vault.root}\n点击切换 / 管理仓库`;
-        document.title = `${s.vault.name} — EVNote`;
+        document.title = `${s.vault.name} — Tracery`;
         $('welcome').hidden = true;
         $('app').hidden = false;
       }

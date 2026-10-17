@@ -38,10 +38,10 @@ rea analyze-javascript-application obsidian.asar --format json
 
 关键发现（详见 `docs/OBSIDIAN_ANALYSIS.md`）：
 
-- 主进程职责 = vault 文件访问 + 索引 + 监听 → EVNote 的 `server/server.js`
-- 渲染进程职责 = 编辑器 + 图谱 + 面板 UI → EVNote 的 `public/`
-- 链接解析规则（路径优先、文件名唯一匹配）→ EVNote 服务端 `Vault.resolve()`
-- `.obsidian/` 配置目录约定 → EVNote 的 `.evnote/`
+- 主进程职责 = vault 文件访问 + 索引 + 监听 → Tracery 的 `server/server.js`
+- 渲染进程职责 = 编辑器 + 图谱 + 面板 UI → Tracery 的 `public/`
+- 链接解析规则（路径优先、文件名唯一匹配）→ Tracery 服务端 `Vault.resolve()`
+- `.obsidian/` 配置目录约定 → Tracery 的 `.tracery/`
 
 ## 学到的
 

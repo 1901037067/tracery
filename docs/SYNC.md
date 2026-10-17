@@ -1,4 +1,4 @@
-# EVNote 同步设计（v2）
+# Tracery 同步设计（v2）
 
 > 目标：**数据在自己手里**，同时保证「无论怎么冲突，都不丢用户的字」。
 > v2 在文件级同步之上加了三方文本合并与大文件分块续传；端到端加密在 v3。
@@ -7,7 +7,7 @@
 
 ```
  ┌────────────┐    HTTP     ┌──────────────┐    HTTP     ┌────────────┐
- │ 设备 A      │ ──────────▶ │  evnote-sync │ ◀────────── │ 设备 B      │
+ │ 设备 A      │ ──────────▶ │  tracery-sync │ ◀────────── │ 设备 B      │
  │ Node 服务端 │             │  （NAS 等）   │             │ Node 服务端 │
  │  └ 文件系统 │             └──────────────┘             └ 文件系统    │
  └────────────┘
@@ -38,7 +38,7 @@
 
 - `local`：当前仓库快照（sha256）
 - `remote`：服务端清单
-- `base`：上次同步成功时记录的 sha（存在仓库的 `.evnote/sync-state.json`）
+- `base`：上次同步成功时记录的 sha（存在仓库的 `.tracery/sync-state.json`）
 
 `base` 是关键——它回答「这个文件到底是谁改的」，而不是简单比较新旧时间。
 
@@ -100,15 +100,15 @@ POST /api/commit { baseVersion, changes: [{ path, sha, size, mtime } | { path, d
 | 上传 < 4MB | 一次 `PUT /api/blob/:sha` |
 | 上传 ≥ 4MB | `init` 建会话 → 1MB 分块 `PUT /api/upload/:id/:index` → `complete` 拼装校验 sha |
 | 断点续传 | 重新 `init` 时服务端返回已有块（或 `GET /api/upload/:id`），客户端只补缺失块；每块失败重试 3 次 |
-| 下载 | 服务端支持 `Range: bytes=`（206），客户端先写 `*.evnote-tmp`，中断后从已下载长度继续 |
+| 下载 | 服务端支持 `Range: bytes=`（206），客户端先写 `*.tracery-tmp`，中断后从已下载长度继续 |
 | 完整性 | 单块拼装完成后重算 sha256，与声明不符直接拒绝并清理会话 |
 
 上传会话存在 `<data>/<vaultId>/uploads/<id>/`，24 小时无活动自动清理。
 
 ## 6. 写入安全
 
-- 下载先写 `*.evnote-tmp` 再 `rename`，避免半截文件
-- 远端删除不直接 `unlink`，而是移到 `<vault>/.evnote/trash/<时间戳>/<原路径>`
+- 下载先写 `*.tracery-tmp` 再 `rename`，避免半截文件
+- 远端删除不直接 `unlink`，而是移到 `<vault>/.tracery/trash/<时间戳>/<原路径>`
 - 同步刚写完文件的 2.5 秒内，文件监听器的事件被忽略，防止「写盘 → 触发同步 → 再写盘」自激
 - 单文件上限 100MB（`server/sync.js` 的 `MAX_FILE`），超限跳过而不是把内存打爆
 

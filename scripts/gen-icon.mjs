@@ -1,4 +1,4 @@
-// 生成 EVNote 品牌图标：Apple 蓝渐变圆角方块 + 白色页面（无依赖）
+// 生成 Tracery 品牌图标：Apple 蓝渐变圆角方块 + 白色页面（无依赖）
 import zlib from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';

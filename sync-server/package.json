@@ -1,10 +1,10 @@
 {
-  "name": "evnote-sync",
+  "name": "tracery-sync",
   "version": "1.0.0",
-  "description": "EVNote 自托管同步服务端：内容寻址存储 + 版本化清单，零业务逻辑",
+  "description": "Tracery 自托管同步服务端：内容寻址存储 + 版本化清单，零业务逻辑",
   "type": "module",
   "bin": {
-    "evnote-sync": "index.js"
+    "tracery-sync": "index.js"
   },
   "files": [
     "index.js",
@@ -14,7 +14,7 @@
     "node": ">=18"
   },
   "keywords": [
-    "evnote",
+    "tracery",
     "sync",
     "markdown",
     "self-hosted"

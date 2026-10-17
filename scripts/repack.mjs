@@ -1,7 +1,7 @@
 /**
  * 重新打包 app.asar（绕过 electron-builder 在 Windows 上的 winCodeSign 符号链接问题）
  * 用法：node scripts/repack.mjs
- * 前提：dist/win-unpacked 已由 `npm run dist:dir` 生成过一次（含 EVNote.exe 与 Electron 运行时）
+ * 前提：dist/win-unpacked 已由 `npm run dist:dir` 生成过一次（含 Tracery.exe 与 Electron 运行时）
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,8 +13,8 @@ const STAGE = path.join(ROOT, 'dist', 'app-stage');
 const ASAR = path.join(OUT, 'resources', 'app.asar');
 const ASAR_BIN = path.join(ROOT, 'node_modules', '@electron', 'asar', 'bin', 'asar.js');
 
-if (!fs.existsSync(path.join(OUT, 'EVNote.exe'))) {
-  console.error('✗ 找不到 dist/win-unpacked/EVNote.exe，先跑一次 npm run dist:dir');
+if (!fs.existsSync(path.join(OUT, 'Tracery.exe'))) {
+  console.error('✗ 找不到 dist/win-unpacked/Tracery.exe，先跑一次 npm run dist:dir');
   process.exit(1);
 }
 

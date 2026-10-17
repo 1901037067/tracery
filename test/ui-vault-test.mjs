@@ -1,6 +1,6 @@
 /**
  * 界面修复验证：Windows 窗口按钮 / 主题图标 / 欢迎页浮层与仓库管理
- * 使用临时 EVNOTE_HOME + demo-vault，不触碰用户真实仓库。
+ * 使用临时 TRACERY_HOME + demo-vault，不触碰用户真实仓库。
  */
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
@@ -9,7 +9,7 @@ import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const PORT = 9551;
-const HOME = path.join(process.env.TEMP || '/tmp', 'evnote-uicheck-home');
+const HOME = path.join(process.env.TEMP || '/tmp', 'tracery-uicheck-home');
 const SHOTS = path.join(ROOT, 'test', 'screenshots');
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,7 +19,7 @@ fs.mkdirSync(HOME, { recursive: true });
 
 const server = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
   cwd: ROOT,
-  env: { ...process.env, PORT: String(PORT), EVNOTE_HOME: HOME },
+  env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME },
   stdio: 'pipe',
 });
 for (let i = 0; i < 40; i++) {
