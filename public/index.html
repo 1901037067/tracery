@@ -201,20 +201,6 @@
 
       <!-- 编辑区 -->
       <main class="editor-area" id="editor-area">
-        <div class="note-header" id="note-header" hidden>
-          <span class="note-path" id="note-path"></span>
-          <span class="note-header-actions">
-            <button class="mini-btn mode-btn" id="btn-mode" title="切换实时预览 / 源码模式 (Ctrl+E)">
-              <svg class="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
-                <path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>
-              </svg>
-              <svg class="ic-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>
-              </svg>
-              <span id="btn-mode-label">实时预览</span>
-            </button>
-          </span>
-        </div>
         <div class="editor-wrap">
           <div id="editor-live" class="editor markdown-body" contenteditable="true" spellcheck="false"></div>
           <textarea id="editor-source" class="editor-source" spellcheck="false" hidden></textarea>
@@ -222,7 +208,18 @@
         <div class="statusbar">
           <span id="status-words">0 词</span>
           <span id="status-saved"></span>
-          <span id="status-mode"></span>
+          <!-- 当前笔记路径的状态镜像：界面不再显示路径行（Tab 已显示文件名），
+               测试与调试通过它读取当前笔记；不渲染任何可见内容 -->
+          <span id="note-path" hidden aria-hidden="true"></span>
+          <button class="mini-btn mode-btn" id="btn-mode" title="切换实时预览 / 源码模式 (Ctrl+E)">
+            <svg class="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+              <path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>
+            </svg>
+            <svg class="ic-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>
+            </svg>
+            <span id="btn-mode-label">实时预览</span>
+          </button>
         </div>
       </main>
 

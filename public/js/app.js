@@ -439,7 +439,7 @@ async function deleteNote(f) {
       state.currentPath = null;
       localStorage.removeItem('tracery.lastNote');
       editor.load('', '');
-      $('note-header').hidden = true;
+      $('note-path').textContent = '';
       refreshRightPanels(null);
     }
     await refreshTree(); refreshGraph(); refreshTags();
@@ -548,7 +548,6 @@ async function loadTab(path, heading) {
   try {
     const { content } = await Api.note(path);
     state.currentPath = path;
-    $('note-header').hidden = false;
     $('note-path').textContent = path;
     editor.load(path, content);
     renderTree(); // 高亮
@@ -587,7 +586,7 @@ async function closeTab(i) {
     state.currentPath = null;
     localStorage.removeItem('tracery.lastNote');
     editor.load('', '');
-    $('note-header').hidden = true;
+    $('note-path').textContent = '';
     refreshRightPanels(null);
     renderTree();
     renderTabs();
@@ -963,7 +962,6 @@ const editor = new LiveEditor({
     const label = $('btn-mode-label');
     if (label) label.textContent = mode === 'live' ? '实时预览' : '源码';
     $('btn-mode').classList.toggle('is-source', mode === 'source');
-    $('status-mode').textContent = mode === 'live' ? '实时预览' : '源码';
   },
 });
 

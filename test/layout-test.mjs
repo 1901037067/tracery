@@ -107,6 +107,8 @@ const header = await page.evaluate(() => {
   const list = document.getElementById('tablist');
   const titlebar = document.querySelector('.titlebar');
   const noteHeader = document.getElementById('note-header');
+  const statusbar = document.querySelector('.statusbar');
+  const modeBtn = document.getElementById('btn-mode');
   const editorArea = document.getElementById('editor-area');
   const activeTab = document.querySelector('.tab.active');
   const winClose = document.getElementById('win-close');
@@ -114,6 +116,8 @@ const header = await page.evaluate(() => {
   const editorRect = editorArea.getBoundingClientRect();
   const tabRect = activeTab?.getBoundingClientRect();
   const winRect = winClose?.getBoundingClientRect();
+  const sbRect = statusbar.getBoundingClientRect();
+  const btnRect = modeBtn?.getBoundingClientRect();
   return {
     tabCount: document.querySelectorAll('.tab').length,
     titlebarH: titlebar.getBoundingClientRect().height,
@@ -122,7 +126,11 @@ const header = await page.evaluate(() => {
     tabCenterY: tabRect ? tabRect.top + tabRect.height / 2 : null,
     winCenterY: winRect ? winRect.top + winRect.height / 2 : null,
     tabRadius: activeTab ? getComputedStyle(activeTab).borderRadius : '',
-    noteHeaderH: noteHeader.getBoundingClientRect().height,
+    noteHeaderGone: !noteHeader,
+    editorFirstChild: editorArea.firstElementChild?.className || '',
+    modeBtnInStatusbar: !!modeBtn?.closest('.statusbar'),
+    modeBtnNearRight: btnRect ? (sbRect.right - btnRect.right) < 30 : false,
+    modeBtnVisible: btnRect ? btnRect.width > 0 && btnRect.height > 0 : false,
   };
 });
 check('至少两个标签（启动自开的 + 点击两篇）', header.tabCount >= 2, `tabs=${header.tabCount}`);
@@ -132,7 +140,10 @@ check('Tab 与窗口关闭按钮同一水平线（垂直中心差 < 6px）',
   header.tabCenterY != null && header.winCenterY != null && Math.abs(header.tabCenterY - header.winCenterY) < 6,
   `tab=${header.tabCenterY?.toFixed(1)} win=${header.winCenterY?.toFixed(1)}`);
 check('标题栏高度紧凑（30~50px）', header.titlebarH > 30 && header.titlebarH < 50, `${header.titlebarH.toFixed(1)}px`);
-check('笔记头仍紧凑（< 34px）', header.noteHeaderH < 34, `${header.noteHeaderH.toFixed(1)}px`);
+check('笔记头行已删除（界面不再显示文件名+模式那一行）', header.noteHeaderGone && header.editorFirstChild === 'editor-wrap', `firstChild=${header.editorFirstChild}`);
+check('模式切换按钮在状态栏、靠右、可见',
+  header.modeBtnInStatusbar && header.modeBtnNearRight && header.modeBtnVisible,
+  `inStatusbar=${header.modeBtnInStatusbar} nearRight=${header.modeBtnNearRight}`);
 check('活动标签圆角统一 7px', header.tabRadius === '7px', header.tabRadius);
 
 check('无渲染错误', errors.length === 0, errors.join(' | '));
