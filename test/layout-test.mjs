@@ -126,6 +126,12 @@ const header = await page.evaluate(() => {
     tabCenterY: tabRect ? tabRect.top + tabRect.height / 2 : null,
     winCenterY: winRect ? winRect.top + winRect.height / 2 : null,
     tabRadius: activeTab ? getComputedStyle(activeTab).borderRadius : '',
+    tabActiveBg: (() => {
+      if (!activeTab) return '';
+      const tabBg = getComputedStyle(activeTab).backgroundColor;
+      const paperBg = getComputedStyle(document.getElementById('editor-area')).backgroundColor;
+      return tabBg === paperBg ? 'sheet' : tabBg;
+    })(),
     noteHeaderGone: !noteHeader,
     editorFirstChild: editorArea.firstElementChild?.className || '',
     modeBtnInStatusbar: !!modeBtn?.closest('.statusbar'),
@@ -144,7 +150,9 @@ check('笔记头行已删除（界面不再显示文件名+模式那一行）', 
 check('模式切换按钮在状态栏、靠右、可见',
   header.modeBtnInStatusbar && header.modeBtnNearRight && header.modeBtnVisible,
   `inStatusbar=${header.modeBtnInStatusbar} nearRight=${header.modeBtnNearRight}`);
-check('活动标签圆角统一 7px', header.tabRadius === '7px', header.tabRadius);
+check('活动标签为分段样式（无圆角 + 垫纸色）',
+  header.tabRadius === '0px' && header.tabActiveBg === 'sheet',
+  `radius=${header.tabRadius} bg=${header.tabActiveBg}`);
 
 /* ================= 3. 图片查看 / 行号 / 折叠图标 ================= */
 

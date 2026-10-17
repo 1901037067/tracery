@@ -356,7 +356,8 @@ body.electron .electron-only { display: inline-flex !important; }
 .mode-btn .ic-code { display: none; }
 .mode-btn.is-source .ic-eye { display: none; }
 .mode-btn.is-source .ic-code { display: block; }
-.panel-body { flex: 1; overflow-y: auto; padding: 0 10px 16px; }
+/* 顶部 6px：给搜索框等首个控件的 focus 光晕留出空间（overflow 会裁掉 box-shadow） */
+.panel-body { flex: 1; overflow-y: auto; padding: 6px 10px 16px; }
 
 /* ============ 文件树 ============ */
 .tree-item {
@@ -1236,31 +1237,41 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
 .sync-help .set-note { font-size: 11.5px; }
 
 /* ============ 标签页（位于标题栏内，与窗口按钮同一行） ============ */
-/* 设计：VS Code / Obsidian「Tab 标题栏」模式——Tab 条即标题栏，
-   编辑区直接从笔记内容开始。标题栏是 Electron 拖拽区，标签必须显式 no-drag。 */
+/* 设计：Obsidian「Tab 标题栏」式分段——标签占满标题栏高度，段与段之间
+   一道上下留白的细竖线；活跃标签垫「纸」色成为凸起的一段。
+   拖拽口径：容器本身是拖拽区（空白处可拖窗口），只有 .tab 是 no-drag。 */
 .tablist {
   flex: 1; min-width: 0;
-  display: flex; align-items: center; gap: 2px;
+  display: flex; align-items: stretch;
+  align-self: stretch;
   overflow-x: auto; overflow-y: hidden;
   scrollbar-width: none;
-  -webkit-app-region: no-drag;
 }
 .tablist::-webkit-scrollbar { display: none; }
 /* display:flex 会压过 [hidden] 的 UA 规则，必须显式隐藏（否则无标签时中间空一条） */
 .tablist[hidden] { display: none; }
 .tab {
+  position: relative;
   display: flex; align-items: center; gap: 6px;
-  padding: 4px 8px 4px 10px;
-  border-radius: 7px;
-  max-width: 168px; min-width: 64px;
+  padding: 0 12px;
+  max-width: 180px; min-width: 72px;
   font-size: 12px; color: var(--text-secondary);
   cursor: default; user-select: none;
   -webkit-app-region: no-drag;
   transition: background 120ms linear, color 120ms linear;
 }
+/* 相邻标签之间的细竖线：上下各收 25%，比标签矮一截才不闷 */
+.tab + .tab::before {
+  content: '';
+  position: absolute; left: 0; top: 26%; bottom: 26%;
+  width: 1px;
+  background: var(--hairline);
+}
+/* 活跃标签垫了纸色，贴着它的两道竖线让位，让这一段读起来是完整的一块 */
+.tab.active::before, .tab.active + .tab::before { content: none; }
 .tab:hover { background: var(--bg-fill); color: var(--text-primary); }
 /* 活跃标签用「纸」的颜色：暗示这就是下面编辑区那张纸 */
-.tab.active { background: var(--bg-sheet); color: var(--text-primary); font-weight: 500; }
+.tab.active { background: var(--bg-sheet); color: var(--text-primary); font-weight: 550; }
 .tab-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-close {
   width: 16px; height: 16px; flex-shrink: 0;
