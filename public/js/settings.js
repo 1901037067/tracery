@@ -15,7 +15,27 @@ export const DEFAULT_SETTINGS = {
   editorWidth: 720,
   autosave: 900,
   startup: 'last',
+  // 附件管理：新图片/文件（粘贴、拖入、绘图）的落点
+  attachment: {
+    mode: 'folder',    // folder=指定文件夹 | note=跟随笔记所在目录 | root=仓库根目录
+    folder: '附件',
+  },
 };
+
+/**
+ * 计算新附件的落点（相对仓库根目录的目录，'' = 根目录）。
+ * 三种模式对应 Obsidian 的「新附件默认位置」：
+ *   folder — 指定文件夹（默认 附件/，也支持 附件/图片 这类子目录）
+ *   note   — 跟随笔记所在目录（ Obsidian 默认行为）
+ *   root   — 仓库根目录
+ * 放在 settings.js 是因为它由设置形状决定，editor/draw 都需要同一份逻辑。
+ */
+export function resolveAssetDir(settings, noteRel) {
+  const a = settings?.attachment || DEFAULT_SETTINGS.attachment;
+  if (a.mode === 'note') return noteRel ? noteRel.replace(/\/[^/]*$/, '') : '';
+  if (a.mode === 'root') return '';
+  return a.folder || '附件';
+}
 
 /** 强调色预设（亮/暗各一档，暗色更亮以保对比度） */
 export const ACCENTS = {
@@ -39,6 +59,11 @@ const THEME_LABEL = { apple: 'Apple 风', obsidian: 'Obsidian 风' };
 let settings = { ...DEFAULT_SETTINGS };
 let mediaQuery = null;
 let onSettingsApplied = null;
+
+/** HTML 属性/文本转义（设置面板模板里插用户可改的值，如附件文件夹名） */
+const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
 
 export const getSettings = () => ({ ...settings });
 
@@ -122,9 +147,26 @@ function persist(patch) {
   flushSettings();
 }
 
-/** 修改设置：立即生效 + 防抖落盘 */
+/** 点分键（如 attachment.folder）→ 嵌套补丁对象 */
+function patchByPath(key, value) {
+  if (!key.includes('.')) return { [key]: value };
+  const i = key.indexOf('.');
+  return { [key.slice(0, i)]: patchByPath(key.slice(i + 1), value) };
+}
+/** 按点分键读设置值 */
+function getByPath(key) {
+  return key.split('.').reduce((o, k) => (o == null ? o : o[k]), settings);
+}
+
+/** 修改设置：立即生效 + 防抖落盘（嵌套对象一层深合并，避免丢同组其他字段） */
 export function updateSettings(patch) {
-  settings = { ...settings, ...patch };
+  const next = { ...settings };
+  for (const [k, v] of Object.entries(patch)) {
+    next[k] = (v && typeof v === 'object' && !Array.isArray(v) && settings[k] && typeof settings[k] === 'object')
+      ? { ...settings[k], ...v }
+      : v;
+  }
+  settings = next;
   applySettings();
   persist(patch);
   renderActiveControls();
@@ -159,6 +201,7 @@ function build() {
         <div class="settings-nav-title">设置</div>
         <button data-pane="appearance" class="active">外观</button>
         <button data-pane="editor">编辑器</button>
+        <button data-pane="attachment">附件</button>
         <button data-pane="sync">同步</button>
         <button data-pane="general">通用</button>
         <button data-pane="about">关于</button>
@@ -182,6 +225,19 @@ function build() {
           ${ROW('正文宽度', `${settings.editorWidth} px`,
             `<input type="range" class="rng" data-key="editorWidth" min="560" max="1000" step="20" value="${settings.editorWidth}" />`)}
           ${ROW('自动保存', '停止输入后多久落盘', SEG('autosave', [[300, '0.3 秒'], [600, '0.6 秒'], [900, '0.9 秒'], [1500, '1.5 秒']], settings.autosave))}
+        </div>
+
+        <div class="settings-pane" data-pane="attachment">
+          <h2>附件</h2>
+          ${ROW('新附件位置', '粘贴、拖入的图片和绘图保存到哪里',
+            SEG('attachment.mode', [['folder', '指定文件夹'], ['note', '跟随笔记'], ['root', '仓库根目录']], settings.attachment.mode))}
+          ${ROW('附件文件夹', '可写子目录，如 附件/图片',
+            `<input type="text" class="txt" data-key="attachment.folder" spellcheck="false"
+                    value="${escHtml(settings.attachment.folder)}" placeholder="附件" />`)}
+          <p class="set-note">
+            粘贴图片（Ctrl+V）、拖入文件、内置绘图都按此规则落盘，并在光标处插入 <code>![[路径]]</code> 双链。
+            已有附件不会被移动；换设置只影响之后新增的文件。
+          </p>
         </div>
 
         <div class="settings-pane" data-pane="sync">
@@ -243,7 +299,7 @@ function bind(el) {
       if (btn.dataset.pane === 'sync') initSyncPane();   // 每次进来都取一次最新状态
     };
   }
-  // 分段控件
+  // 分段控件（支持 attachment.mode 这类点分键）
   for (const seg of el.querySelectorAll('.seg')) {
     seg.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-value]');
@@ -251,7 +307,13 @@ function bind(el) {
       const key = seg.dataset.key;
       const raw = b.dataset.value;
       const value = /^\d+$/.test(raw) ? Number(raw) : raw;
-      updateSettings({ [key]: value });
+      updateSettings(patchByPath(key, value));
+    });
+  }
+  // 文本输入（附件文件夹等）
+  for (const txt of el.querySelectorAll('input.txt[data-key]')) {
+    txt.addEventListener('change', () => {
+      updateSettings(patchByPath(txt.dataset.key, txt.value.trim()));
     });
   }
   // 色板
@@ -331,9 +393,9 @@ export function exportCurrentTheme() {
 function renderActiveControls() {
   if (!modalEl) return;
   for (const seg of modalEl.querySelectorAll('.seg')) {
-    const key = seg.dataset.key;
+    const current = getByPath(seg.dataset.key);
     for (const b of seg.querySelectorAll('button[data-value]')) {
-      b.classList.toggle('active', String(settings[key]) === b.dataset.value);
+      b.classList.toggle('active', String(current) === b.dataset.value);
     }
   }
   for (const sw of modalEl.querySelectorAll('.swatches')) {

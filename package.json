@@ -26,6 +26,8 @@
     "test:merge": "node test/merge-test.mjs",
     "test:draw": "node test/draw-test.mjs",
     "test:lan": "node test/lan-test.mjs",
+    "test:layout": "node test/layout-test.mjs",
+    "test:asset": "node test/asset-test.mjs",
     "test:tabs": "node test/tabs-test.mjs"
   },
   "dependencies": {

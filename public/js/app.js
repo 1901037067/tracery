@@ -920,6 +920,7 @@ const editor = new LiveEditor({
   },
   resolveFile: (name) => resolveVaultFile(name),
   onImageClick: (src, alt) => openLightbox(src, alt),
+  onAssetSaved: () => { refreshTree(); },   // 粘贴/拖入的附件立即出现在文件树
   confirmCreate: (name) => askConfirm({
     title: `创建「${name}」？`,
     desc: '这个链接指向的笔记还不存在，现在创建它。',
@@ -980,6 +981,7 @@ function initGraph() {
 function openDrawPanel() {
   if (!state.currentPath) { toast('先打开一篇笔记，绘图会插入到光标处'); return; }
   openDraw({
+    getNotePath: () => state.currentPath,   // 「跟随笔记」模式时决定绘图落点
     onInserted: async (path) => {
       await refreshTree();
       await refreshGraph();

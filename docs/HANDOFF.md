@@ -1,13 +1,13 @@
 # Tracery 交接文档（Handoff）
 
 > 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
-> 最后更新：2026-10-17 15:27（对应代码状态：同步 v2 + 绘图 + 局域网直连 + 多标签 + 可调栏宽）
+> 最后更新：2026-10-17 16:40（对应代码状态：Tracery 重命名 + 侧栏折叠修复 + 紧凑头栏 + 附件管理 + 粘贴/拖拽入库）
 
 ---
 
 ## 1. 一句话现状
 
-Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、图谱全屏、多标签页、可拖拽栏宽。测试 125/125，打包版可发布。
+Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、图谱全屏、多标签页、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）。测试 152/152，打包版可发布。
 
 ## 2. 环境与常用命令
 
@@ -27,6 +27,8 @@ npm run test:sync-ui         # 13  同步面板 + 部署说明 + 局域网区块
 npm run test:merge           # 10  三方合并单测
 npm run test:draw            # 12  绘图
 npm run test:lan             # 10  局域网直连
+npm run test:layout          # 12  侧栏折叠回归 / 紧凑头栏
+npm run test:asset           # 15  附件落点 / 粘贴拖拽 / 路径穿越
 npm run test:tabs            # 12  多标签/栏宽/绘图历史
 
 # 同步服务端（可选，常驻机器）
@@ -73,9 +75,12 @@ test/*.mjs              九个测试套件（见 §2）
 - 编辑器：实时预览、任务列表、Callout、表格、代码块、高亮、源码模式、自动保存 0.9s
 - 双链/反链/标签/全文搜索/命令面板/力导向图谱（全屏+缩放+适应）/大纲
 - 图片：`![[图]]` `![[目录/图]]` `![[图|400]]` `![](相对路径)` + 点击灯箱看大图
-- 内置绘图：`Ctrl+Shift+D` 或左下角笔图标；保存 PNG 到 `附件/` 并插入光标处
+- **附件管理**：粘贴 / 拖入图片与文档自动落盘并插入 `![[路径]]`；落点三档可配
+  （指定文件夹 / 跟随笔记目录 / 仓库根目录，设置 → 附件）；绘图也按此落盘
+- 内置绘图：`Ctrl+Shift+D` 或左下角笔图标；保存 PNG 到附件目录并插入光标处
 - 多标签页：树点击开新标签、`Ctrl+W`/`Ctrl+Tab`、持久化、外删自清理
-- 可拖拽栏宽：侧栏/右栏拖拽 + 双击复位 + 记忆
+- 可拖拽栏宽：侧栏/右栏拖拽 + 双击复位 + 记忆（折叠已兼容内联栏宽，见 §5-9）
+- 紧凑头栏：标签行 + 笔记头压成一条（合计 < 70px，中间无分隔线，活动标签下圆角为 0）
 - 主题：apple/obsidian × 亮暗，强调色/圆角/字号/行宽即时生效，可导出 CSS
 - 同步：NAS/服务器方式 + **局域网六位通行码直连**；自动三方合并、冲突副本、删除回收站、
   内容寻址去重、1MB 分块上传、Range 断点下载、自动同步开关/间隔/自动合并开关
@@ -91,6 +96,9 @@ test/*.mjs              九个测试套件（见 §2）
 6. **`dialog.js` 替代 prompt/confirm**：Electron 渲染进程不支持 `prompt()`（静默失效）。
 7. **主题是一套 CSS 变量**：改皮肤不动布局；按钮图标显隐要写 `#btn-theme .ic-moon`（0,2,0 才能压过 `.ribbon-btn svg`）。
 8. **图谱 fit() 按节点包围盒算 scale+pan**，不是 reset 到 1x（否则全屏后缩成一坨）。
+9. **侧栏折叠必须 `width: 0 !important`**：拖拽过栏宽后内联 `style.width` 会压过普通规则，折叠 silently 失效（layout-test 锁死这个场景）。
+10. **附件落点三层可配 + 服务端独立清洗**：客户端算目录只是「意图」，`/api/asset` 的 `dir` 与设置的 `attachment.folder` 都过 `sanitizeAssetDir`——含 `..`/空段/非法字符**整条拒绝**（400 或忽略补丁），不静默改写，把 bug 和恶意调用暴露出来。
+11. **粘贴/拖拽必须拦下来自己存**：不拦的话浏览器默认把图片塞进 contenteditable（data/blob URL，刷新即丢），拖文件甚至直接导航打开。
 
 ## 6. 已知坑（踩过的，直接抄结论）
 
@@ -104,6 +112,8 @@ test/*.mjs              九个测试套件（见 §2）
 | 用 `bash -e "…"` 写 JS，模板字符串/`$()` 被 shell 吃掉 | **改代码一律用 Edit/Write 工具**，不要用 bash -e 生成代码 |
 | `body.electron` 右侧要留窗口按钮位置 | `body.electron { padding-right: 0 }` + `.titlebar-right { align-self: stretch }` |
 | Windows 文件/目录名不能含 `:*?"<>\|` | 冲突副本/绘图文件名统一 `.replace(/[\\/:*?"<>|]/g,'-')` |
+| puppeteer 这个版本 `keyboard.press('Control+X')` 不解析组合串 | 修饰键单独 `down('Control')` / `press('X')` / `up('Control')` |
+| `new URL('..', import.meta.url).pathname` 在 Windows 是 `/E:/...` | 给 spawn 当 cwd 会 ENOENT，用 `fileURLToPath(new URL('..', import.meta.url))` |
 
 ## 7. 新对话怎么继续（按优先级）
 

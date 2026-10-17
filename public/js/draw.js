@@ -5,10 +5,12 @@
  * 换来的是一块能立刻用的白板：
  *   - 画笔 / 荧光笔 / 橡皮，8 色 + 3 档粗细
  *   - 撤销 / 重做 / 清空
- *   - 保存为 PNG 写进仓库 `附件/`，同时在笔记光标处插入 ![[...]]
+ *   - 保存为 PNG 写进仓库（目录由设置「附件 → 新附件位置」决定，默认 附件/），
+ *     同时在笔记光标处插入 ![[...]]
  *   - 笔画数据另存一份 .draw.json（以后做「重新编辑」不用重新画）
  */
 import { Api, toast } from './api.js';
+import { getSettings, resolveAssetDir } from './settings.js';
 
 const COLORS = [
   ['#1d1d1f', '墨黑'],
@@ -297,6 +299,7 @@ async function save() {
     const res = await Api.saveAsset({
       name: `绘图 ${stamp()}`,
       data: dataUrl,
+      dir: resolveAssetDir(getSettings(), opts.getNotePath?.()),
       drawing: JSON.stringify({ v: 1, width: W, height: H, strokes }),
     });
     await opts.onInserted?.(res.path);

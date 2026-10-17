@@ -36,6 +36,11 @@ const DEFAULT_SETTINGS = {
   editorWidth: 720,       // 正文最大宽度 px
   autosave: 900,          // 自动保存防抖 ms
   startup: 'last',        // last | empty
+  // 附件管理：新图片/文件（粘贴、拖入、绘图）的落点
+  attachment: {
+    mode: 'folder',       // folder=指定文件夹 | note=跟随笔记所在目录 | root=仓库根目录
+    folder: '附件',
+  },
   // 自托管同步（v1：文件级 + 冲突副本）
   sync: {
     serverUrl: '', token: '', vaultId: '', serverName: '', deviceName: '',
@@ -84,9 +89,35 @@ function mergeSettings(patch = {}) {
   if (Number.isFinite(patch.editorWidth)) s.editorWidth = Math.min(1000, Math.max(560, Math.round(patch.editorWidth)));
   if (Number.isFinite(patch.autosave)) s.autosave = Math.min(3000, Math.max(0, Math.round(patch.autosave)));
   if (['last', 'empty'].includes(patch.startup)) s.startup = patch.startup;
+  // 附件管理（嵌套对象，字段逐个校验）
+  if (patch.attachment && typeof patch.attachment === 'object') {
+    s.attachment = { ...DEFAULT_SETTINGS.attachment, ...(s.attachment || {}) };
+    const a = patch.attachment;
+    if (['folder', 'note', 'root'].includes(a.mode)) s.attachment.mode = a.mode;
+    if (typeof a.folder === 'string') {
+      // 与 /api/asset 同一套规则：含 .. / 空段 / 非法字符 → 整条补丁忽略，保持原值
+      const clean = sanitizeAssetDir(a.folder);
+      if (clean) s.attachment.folder = clean.slice(0, 60);
+    }
+  }
   config.settings = s;
   saveConfig(config);
   return s;
+}
+
+/**
+ * 清洗附件目录参数（/api/asset 的 body.dir 与设置里的 attachment.folder）：
+ * 反斜杠转正斜杠 → 去首尾斜杠 → 逐段校验。
+ * 空串 = 仓库根目录（合法）；含空段 / . / .. / Windows 非法字符 = 返回 null（调用方应拒绝）。
+ * 为什么是「拒绝」而不是「洗干净」：客户端的目录只会来自设置计算，出现 .. 说明是 bug
+ * 或恶意调用，静默改写会把文件写到用户没指定的地方，显性报错才能暴露问题。
+ */
+function sanitizeAssetDir(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  const segs = s.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').split('/');
+  if (segs.some((seg) => !seg || seg === '.' || seg === '..' || /[:*?"<>|]/.test(seg))) return null;
+  return segs.join('/').slice(0, 120);
 }
 
 let config = loadConfig();
@@ -543,21 +574,26 @@ const server = http.createServer(async (req, res) => {
       await vault.applyChange(rel);
       return sendJson(res, 200, { ok: true });
     }
-    // 保存图片类资源（绘图、截图粘贴）：base64 → 附件/xxx.png
+    // 保存资源文件（粘贴/拖入的图片和文档、绘图）：base64 → <dir>/xxx.ext
+    // dir 由客户端按「附件设置」算好；服务端独立清洗——API 调用方永远不可信
     if (p === '/api/asset' && req.method === 'POST') {
       const body = await readBody(req, 64 * 1024 * 1024);
-      const m = /^data:image\/(png|jpeg|webp);base64,([\s\S]+)$/i.exec(String(body.data || ''));
-      if (!m) return sendJson(res, 400, { error: '数据格式错误（需要 data:image/...;base64）' });
+      const MIME_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'application/pdf': 'pdf' };
+      const m = /^data:([^;,]+);base64,([\s\S]+)$/i.exec(String(body.data || ''));
+      const ext = m ? MIME_EXT[m[1].toLowerCase()] : null;
+      if (!m || !ext) return sendJson(res, 400, { error: '数据格式错误（支持 png/jpg/webp/gif/pdf 的 base64 data URL）' });
       const buf = Buffer.from(m[2], 'base64');
-      if (!buf.length) return sendJson(res, 400, { error: '图片内容为空' });
-      if (buf.length > 30 * 1024 * 1024) return sendJson(res, 413, { error: '图片超过 30MB' });
-      const ext = m[1].toLowerCase() === 'jpeg' ? 'jpg' : m[1].toLowerCase();
-      const dir = '附件';
-      const raw = String(body.name || '绘图').replace(/[\\/:*?"<>|]/g, '-').replace(/\.(png|jpe?g|webp)$/i, '').slice(0, 80) || '绘图';
-      let rel = `${dir}/${raw}.${ext}`;
+      if (!buf.length) return sendJson(res, 400, { error: '文件内容为空' });
+      if (buf.length > 30 * 1024 * 1024) return sendJson(res, 413, { error: '文件超过 30MB' });
+      // 缺省 附件（兼容旧客户端）；显式传 '' = 仓库根目录；非法值拒绝
+      const dir = body.dir === undefined ? '附件' : sanitizeAssetDir(body.dir);
+      if (dir === null) return sendJson(res, 400, { error: '附件目录不合法（不允许 .. 或绝对路径）' });
+      const raw = String(body.name || '绘图').replace(/[\\/:*?"<>|]/g, '-')
+        .replace(/\.(png|jpe?g|webp|gif|pdf|svg)$/i, '').slice(0, 80) || '绘图';
+      let rel = dir ? `${dir}/${raw}.${ext}` : `${raw}.${ext}`;
       let n = 2;
       while (fs.existsSync(path.join(vault.root, rel))) rel = `${dir}/${raw}-${n++}.${ext}`;
-      await fsp.mkdir(path.join(vault.root, dir), { recursive: true });
+      if (dir) await fsp.mkdir(path.join(vault.root, dir), { recursive: true });
       await fsp.writeFile(path.join(vault.root, rel), buf);
       const touched = [rel];
       // 绘图的笔画数据另存一份（便于以后重新编辑；不参与正文）

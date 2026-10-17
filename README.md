@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](/)
-[![Tests](https://img.shields.io/badge/tests-125%2F125%20passed-brightgreen)](test)
+[![Tests](https://img.shields.io/badge/tests-152%2F152%20passed-brightgreen)](test)
 
 一个文件夹就是一座仓库，`.md` 文件就是笔记，`[[双链]]` 把它们织成网络。
 **纯 Markdown 存储，完全兼容 Obsidian 仓库** —— 拿来就能用，随时能回去。
@@ -31,6 +31,7 @@ Obsidian 很好，但有四件事不舒服：同步 $4/月且服务端在海外�
 | 🕸️ 图谱视图 | 力导向布局，**支持全屏查看**、缩放、适应窗口、拖拽跳转 |
 | ✏️ 内置绘图 | 画笔 / 荧光笔 / 橡皮 / 撤销，画完直接插入笔记；笔画数据另存，后续可再编辑 |
 | 🖼️ 图片与附件 | `![[图片.png]]`、`![[图.png\|400]]`、`![](相对路径)`；**点图看大图**（滚轮缩放/拖动） |
+| 📎 附件管理 | 粘贴 / 拖入的图片和文档按设置落盘（指定文件夹 / 跟随笔记 / 仓库根目录），自动插入 `![[路径]]` 双链 |
 | 🔍 搜索与命令面板 | 全文检索；`Ctrl+P` 模糊跳转 + 执行命令 |
 | 🏷️ 标签 / 大纲 | `#标签` 自动收集；标题大纲跳转 |
 | 🎨 主题即配置 | 一套 CSS 变量，Apple 风 / Obsidian 风；设置面板调色并一键导出 |
@@ -128,6 +129,8 @@ npm run test:sync-ui    # 11 项：同步面板 / 部署说明
 npm run test:ux         # 16 项：布局 / 新建对话框 / 图片 / 图谱全屏
 npm run test:merge      # 10 项：三方合并边界（同段冲突、CRLF、相邻改动）
 npm run test:lan        # 10 项：局域网直连（通行码发现 / 配对 / 双向同步 / 停止）
+npm run test:layout      # 12 项：侧栏折叠回归 / 紧凑头栏（标签行 + 笔记头）
+npm run test:asset       # 15 项：附件三种落点 / 粘贴拖拽入库 / 路径穿越拦截
 npm run test:tabs       # 12 项：多标签页 / 栏宽拖拽 / 绘图历史
 npm run test:draw       # 12 项：绘图面板 / 撤销 / 保存 PNG / 插入笔记
 ```

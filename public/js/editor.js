@@ -6,8 +6,22 @@
  */
 import { renderMarkdown, serializeHtml, textOffsetOf, nodeAtTextOffset, domPointToMd, mdOffsetToDom, inlineToHtml, escapeHtml } from './markdown.js';
 import { Api, toast, debounce } from './api.js';
+import { getSettings, resolveAssetDir } from './settings.js';
 
 const escHtml = (s) => escapeHtml(s).replace(/'/g, '&#39;');
+
+/** 附件体积上限（与服务端 30MB 限制一致，先挡一道省得白传） */
+const MAX_ASSET = 30 * 1024 * 1024;
+const ASSET_EXT = /\.(png|jpe?g|webp|gif|pdf)$/i;
+
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error('读取文件失败'));
+    r.readAsDataURL(file);
+  });
+}
 
 export class LiveEditor {
   /**
@@ -82,6 +96,33 @@ export class LiveEditor {
       this._onKeydown(e);
     });
     el.addEventListener('blur', () => { this.composing = false; });
+
+    /* ---------- 图片粘贴 / 文件拖入：存成附件，光标处插入 ![[路径]] ----------
+     * 为什么必须拦下来：不拦的话浏览器默认行为是把图片塞进 contenteditable
+     * （data URL / blob URL），刷新即丢；拖入文件甚至会直接导航打开。
+     * 落点由设置里的「附件 → 新附件位置」决定，服务端还会再校验一次。 */
+    const onPasteAsset = (e) => {
+      const file = [...(e.clipboardData?.items || [])]
+        .filter((it) => it.kind === 'file').map((it) => it.getAsFile()).find(Boolean);
+      if (!file) return;
+      e.preventDefault();
+      this._saveAssetFile(file);
+    };
+    const onDropAsset = (e) => {
+      const files = [...(e.dataTransfer?.files || [])];
+      if (!files.length) return;
+      e.preventDefault();
+      for (const f of files) this._saveAssetFile(f);
+    };
+    const onDragOver = (e) => {
+      if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault();
+    };
+    el.addEventListener('paste', onPasteAsset);
+    el.addEventListener('drop', onDropAsset);
+    el.addEventListener('dragover', onDragOver);
+    this.sourceEl.addEventListener('paste', onPasteAsset);
+    this.sourceEl.addEventListener('drop', onDropAsset);
+    this.sourceEl.addEventListener('dragover', onDragOver);
 
     // 复选框
     el.addEventListener('click', (e) => {
@@ -396,6 +437,44 @@ export class LiveEditor {
     const lead = at === 0 ? '' : (this.md[at - 1] === '\n' ? '\n' : '\n\n');
     this._replaceRange(at, at, lead + text + '\n');
     this._placeCaret(at + lead.length + text.length + 1);
+  }
+
+  /**
+   * 把粘贴/拖入的文件存成仓库附件，并在光标处插入 ![[路径]]。
+   * 落点 = 设置里的附件位置（folder/note/root），服务端独立清洗兜底。
+   */
+  async _saveAssetFile(file) {
+    if (file.size > MAX_ASSET) { toast('文件超过 30MB，无法作为附件存入'); return; }
+    const isImage = file.type.startsWith('image/');
+    if (!isImage && !ASSET_EXT.test(file.name || '')) {
+      toast(`暂不支持的文件类型：${file.name || file.type || '未知'}`);
+      return;
+    }
+    let dataUrl;
+    try { dataUrl = await readAsDataUrl(file); } catch (e) { toast(e.message); return; }
+    // 截图/复制的图默认叫 image.png，一堆 image-2.png 很难认，换成带时间戳的名字
+    let name = file.name || '';
+    if (!name || /^image\.(png|jpe?g|gif|webp)$/i.test(name)) {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+      name = `粘贴的图片 ${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.${ext}`;
+    }
+    try {
+      const res = await Api.saveAsset({
+        data: dataUrl,
+        name,
+        dir: resolveAssetDir(getSettings(), this.path),
+      });
+      if (res?.ok) {
+        this.insertSnippet(`![[${res.path}]]`);
+        this.opts.onAssetSaved?.(res.path);
+      } else {
+        toast(res?.error || '附件保存失败');
+      }
+    } catch (e) {
+      toast(`附件保存失败：${e.message}`);
+    }
   }
 
   _placeCaret(mdOffset) {
