@@ -107,8 +107,8 @@ const afterEsc = await page.evaluate(() => ({
 }));
 check('Esc 可退出浮层并回到编辑器', !afterEsc.welcomeOpen && afterEsc.appVisible && afterEsc.editorVisible, JSON.stringify(afterEsc));
 
-// 5. 关闭按钮
-await page.evaluate(() => document.getElementById('btn-switch-vault').click());
+// 5. 关闭按钮（切换仓库入口统一收敛到左上角工作区名称）
+await page.evaluate(() => document.getElementById('vault-name').click());
 await sleep(400);
 await page.evaluate(() => document.getElementById('btn-welcome-close').click());
 await sleep(300);

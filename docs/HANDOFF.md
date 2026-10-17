@@ -85,6 +85,7 @@ test/*.mjs              九个测试套件（见 §2）
   （VS Code / Obsidian「Tab 标题栏」模式），编辑区直接从笔记头开始
 - 可拖拽栏宽：侧栏/右栏拖拽 + 双击复位 + 记忆（折叠已兼容内联栏宽，见 §5-9）
 - 折叠/展开全部按钮图标双状态（⤡/⤢，随折叠状态切换，参考 Obsidian）
+- 左侧功能区：文件/搜索/标签/绘图/图谱（绘图与面板同级）；**切换工作区唯一入口 = 左上角工作区名（带 ▾ 提示）**；左侧栏折叠按钮在工作区名右侧
 - 紧凑头栏：标签行 + 笔记头压成一条（合计 < 70px，中间无分隔线，活动标签下圆角为 0）
 - 主题：apple/obsidian × 亮暗，强调色/圆角/字号/行宽即时生效，可导出 CSS
 - 同步：NAS/服务器方式 + **局域网六位通行码直连**；自动三方合并、冲突副本、删除回收站、
@@ -109,6 +110,8 @@ test/*.mjs              九个测试套件（见 §2）
 14. **编辑器回车三件套**（2026-10-17 修，`test/enter-test.mjs` 锁死）：① 渲染器必须给「行尾空行」补一个 `<p><br></p>`（带源码偏移标记）——否则段尾回车插入的 `\n` 在 DOM 里不存在，下次输入序列化就被吃掉；② 序列化器必须把空段落产出空块——否则那个空行活不过一轮；③ `domPointToMd` 的 DOM 偏移必须与 `inlineMapOffset` 同口径（`<br>` 计 1，见 `domOffsetBrAware`）——否则含软换行的段落光标映射整体偏移，回车从字中间拆行。另：**`_placeCaret` 必须同步恢复光标**，包 `requestAnimationFrame` 会让下一个按键打进旧位置。
 15. **源码模式行号**：textarea 外层包 `.source-wrap`（行号槽 + wrap="off" 的 textarea），切模式隐藏的是 **wrap 不是 textarea**；槽与 textarea 的字号/行高/上 padding 必须严格同参才对得齐；实时预览模式不显示行号。
 16. **文件树点图片走灯箱**：图片扩展名（png/jpg/gif/webp/svg/bmp/avif）直接 `openLightbox(Api.fileUrl(path))`，不能再走 `openNote`（API 只认 .md，会报「笔记不存在」）。
+17. **标签多了不许挤压**：`.tab` 的 `min-width: 120px` 是底线（低于它标题变「00...」不可读），超出部分横向滚动 + 滚轮横滚 + 溢出侧 `mask-image` 渐隐（`data-overflow` 由 `updateTabOverflow()` 维护）。标签条空白区必须留在拖拽区里（no-drag 只挂 `.tab`）。
+18. **覆盖式滚动条与圆角**：Electron/Chromium 用覆盖式滚动条（不占布局、浮在滚动区边缘），`::-webkit-scrollbar-track{margin}` 对它无效——滚到顶部会和纸的圆角边框交叉。正确解法是给滚动容器（`.editor` / `.source-wrap`）让出 `margin: 10px 8px 10px 0`，把滚动区缩进直边里；padding 相应减 10px 保持正文位置不变。
 
 ## 6. 已知坑（踩过的，直接抄结论）
 

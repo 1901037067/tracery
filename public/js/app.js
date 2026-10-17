@@ -571,6 +571,19 @@ function renderTabs() {
   });
   const active = list.children[state.activeTab];
   active?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  updateTabOverflow();
+}
+
+/** 标签溢出时给可滚的一侧加渐隐（配合 CSS 的 mask），提示那边还有标签 */
+function updateTabOverflow() {
+  const list = $('tablist');
+  if (!list) return;
+  if (list.hidden) { list.removeAttribute('data-overflow'); return; }
+  const max = list.scrollWidth - list.clientWidth;
+  if (max <= 1) { list.removeAttribute('data-overflow'); return; }
+  const atStart = list.scrollLeft <= 1;
+  const atEnd = list.scrollLeft >= max - 1;
+  list.dataset.overflow = atStart ? 'end' : atEnd ? 'start' : 'both';
 }
 
 /** 把某篇笔记加载进当前标签（不改变标签列表） */
@@ -1120,8 +1133,18 @@ function bindGlobalEvents() {
   $('btn-theme').onclick = toggleTheme;
   $('btn-toggle-left').onclick = () => $('sidebar').classList.toggle('collapsed');
   $('btn-toggle-right').onclick = () => $('sidebar-right').classList.toggle('collapsed');
-  $('btn-switch-vault').onclick = () => openVaultPicker();
   $('vault-name').onclick = () => openVaultPicker();
+
+  // 标签条：滚轮横滚 + 溢出渐隐（标签多了不挤压，滚着看）
+  const tablist = $('tablist');
+  tablist.addEventListener('scroll', updateTabOverflow, { passive: true });
+  tablist.addEventListener('wheel', (e) => {
+    if (tablist.scrollWidth <= tablist.clientWidth) return;
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;   // 触摸板横滑交给浏览器
+    tablist.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
+  window.addEventListener('resize', updateTabOverflow);
 
   // 左侧功能区
   for (const btn of document.querySelectorAll('.ribbon-btn[data-panel]')) {

@@ -48,6 +48,10 @@ input, textarea { font-family: inherit; color: inherit; }
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); background-clip: content-box; }
 ::-webkit-scrollbar-track { background: transparent; }
+/* 阅读/编辑区的滚动条：轨道上下内收，thumb 不顶到纸的圆角
+   （否则滚到顶部时，滚动条会和容器的圆角边框交叉，看着很别扭） */
+.editor::-webkit-scrollbar-track,
+.editor-source::-webkit-scrollbar-track { margin: 14px 0; }
 
 /* ============ 欢迎页（浮层，可关闭） ============ */
 .welcome {
@@ -218,7 +222,7 @@ input, textarea { font-family: inherit; color: inherit; }
   user-select: none;
   flex-shrink: 0;
 }
-.titlebar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.titlebar-left { display: flex; align-items: center; gap: 10px; min-width: 0; margin-right: 14px; }
 .app-logo {
   width: 20px; height: 20px;
   border-radius: 6px;
@@ -233,12 +237,26 @@ input, textarea { font-family: inherit; color: inherit; }
 }
 .vault-name {
   color: var(--text-secondary); font-size: 12.5px;
-  padding: 3px 9px; border-radius: var(--r-full); background: var(--bg-fill);
+  padding: 3px 22px 3px 10px;   /* 右侧留给切换小三角 */
+  border-radius: var(--r-full); background: var(--bg-fill);
   max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-button.vault-name { -webkit-app-region: no-drag; }
+button.vault-name { -webkit-app-region: no-drag; position: relative; }
 button.vault-name:hover { background: var(--bg-fill-hover); color: var(--text-primary); }
+/* 小三角 = 「这里可以点，切换工作区」的提示 */
+button.vault-name::after {
+  content: '';
+  position: absolute; right: 9px; top: 50%;
+  margin-top: -2px;
+  width: 0; height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4.5px solid currentColor;
+  opacity: 0.55;
+  transition: transform var(--dur) var(--ease);
+}
+button.vault-name:hover::after { opacity: 0.85; }
 .titlebar-right { display: flex; align-items: center; gap: 4px; -webkit-app-region: no-drag; }
 
 /* Windows 窗口按钮：贴右上角，平直无圆角，关闭按钮悬停变红 */
@@ -486,7 +504,11 @@ body.electron .electron-only { display: inline-flex !important; }
 .editor-wrap { flex: 1; position: relative; min-height: 0; }
 .editor { position: absolute; inset: 0; overflow-y: auto; outline: none; }
 .editor {
-  padding: 36px 48px 40vh;
+  /* 上/右内缩 10/8px：Electron 的覆盖式滚动条浮在滚动区右缘，滚到顶部时
+     会压在纸的圆角边框上。让滚动区整体内缩，滚动条就落在直边里，不再交叉。
+     上边距 10 + padding 26 = 原来 36，正文位置不变 */
+  margin: 10px 8px 10px 0;
+  padding: 26px 48px 40vh;
   caret-color: var(--accent);
   line-height: 1.78;
   font-size: var(--editor-font-size, 16px);
@@ -494,12 +516,12 @@ body.electron .electron-only { display: inline-flex !important; }
 .editor > * { max-width: var(--editor-width, 720px); margin-left: auto; margin-right: auto; }
 
 /* ============ 源码模式（行号槽 + 等宽编辑区，实时预览模式不显示） ============ */
-.source-wrap { position: absolute; inset: 0; display: flex; min-width: 0; }
+.source-wrap { position: absolute; inset: 0; margin: 10px 8px 10px 0; display: flex; min-width: 0; }
 .source-gutter {
   flex-shrink: 0; width: 46px;
   overflow: hidden;
   /* 与 .editor-source 严格同参：字号/行高/上padding 一致，行号才对齐得齐 */
-  padding: 32px 12px 40vh 16px;
+  padding: 22px 12px 40vh 16px;
   font-family: var(--font-mono);
   font-size: 13.5px; line-height: 1.8;
   color: var(--text-tertiary);
@@ -510,7 +532,7 @@ body.electron .electron-only { display: inline-flex !important; }
 .editor-source {
   flex: 1; min-width: 0;
   overflow: auto; outline: none;
-  padding: 32px 40px 40vh;
+  padding: 22px 40px 40vh;
   border: none; resize: none;
   background: transparent;
   font-family: var(--font-mono);
@@ -1254,7 +1276,8 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
   position: relative;
   display: flex; align-items: center; gap: 6px;
   padding: 0 12px;
-  max-width: 180px; min-width: 72px;
+  /* 宁可横滚也不缩成「00...」：120px 保住可读性，超出部分滚动 + 边缘渐隐提示 */
+  max-width: 210px; min-width: 120px;
   font-size: 12px; color: var(--text-secondary);
   cursor: default; user-select: none;
   -webkit-app-region: no-drag;
@@ -1272,6 +1295,13 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
 .tab:hover { background: var(--bg-fill); color: var(--text-primary); }
 /* 活跃标签用「纸」的颜色：暗示这就是下面编辑区那张纸 */
 .tab.active { background: var(--bg-sheet); color: var(--text-primary); font-weight: 550; }
+
+/* 标签溢出：可滚的一侧渐隐，提示「还有标签在那边」 */
+.tablist[data-overflow="end"] { mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent); }
+.tablist[data-overflow="start"] { mask-image: linear-gradient(to right, transparent, #000 26px); }
+.tablist[data-overflow="both"] {
+  mask-image: linear-gradient(to right, transparent, #000 26px, #000 calc(100% - 26px), transparent);
+}
 .tab-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-close {
   width: 16px; height: 16px; flex-shrink: 0;

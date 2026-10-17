@@ -44,15 +44,15 @@
     <header class="titlebar">
       <div class="titlebar-left">
         <span class="app-logo"><img src="/icon.png" alt="Tracery" /></span>
-        <button class="vault-name" id="vault-name" title="切换 / 管理仓库"></button>
-      </div>
-      <div class="tablist" id="tablist" hidden></div>
-      <div class="titlebar-right">
+        <button class="vault-name" id="vault-name" title="点击切换 / 管理仓库"></button>
         <button id="btn-toggle-left" class="icon-btn" title="折叠左侧栏 (Ctrl+\)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
             <rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M9.5 5v14"/>
           </svg>
         </button>
+      </div>
+      <div class="tablist" id="tablist" hidden></div>
+      <div class="titlebar-right">
         <button id="btn-toggle-right" class="icon-btn" title="折叠右侧栏 (Ctrl+Shift+\)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
             <rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M14.5 5v14"/>
@@ -92,6 +92,12 @@
             <circle cx="8.2" cy="8.2" r="1.2"/>
           </svg>
         </button>
+        <button class="ribbon-btn" id="btn-draw" title="绘图：画示意图并插入笔记 (Ctrl+Shift+D)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20l1.2-4.2L15.4 5.6a2.2 2.2 0 0 1 3.1 3.1L8.2 18.8z"/>
+            <path d="M13.6 7.4l3 3"/>
+          </svg>
+        </button>
         <button class="ribbon-btn" data-panel="graph" title="图谱视图">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
             <circle cx="6" cy="17" r="2.4"/><circle cx="17.5" cy="16.5" r="2.4"/><circle cx="12" cy="6" r="2.4"/>
@@ -99,7 +105,7 @@
           </svg>
         </button>
         <div class="ribbon-spacer"></div>
-        <!-- 底部工具区：主题 / 仓库 / 设置 + 新建 -->
+        <!-- 底部工具区：主题 / 设置 + 新建 -->
         <button id="btn-theme" class="ribbon-btn" title="切换亮/暗主题">
           <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
             <circle cx="12" cy="12" r="4"/>
@@ -109,12 +115,6 @@
             <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.4 8.4 0 1 0 20 14.2z"/>
           </svg>
         </button>
-        <button id="btn-switch-vault" class="ribbon-btn" title="切换 / 管理仓库">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2.5h6.5A2.5 2.5 0 0 1 21 10v6.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z"/>
-            <path d="M9.5 13.2h5M12 10.7v5"/>
-          </svg>
-        </button>
         <button id="btn-settings" class="ribbon-btn" title="设置 (Ctrl+,)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3.2"/>
@@ -122,12 +122,6 @@
           </svg>
         </button>
         <div class="ribbon-divider"></div>
-        <button class="ribbon-btn" id="btn-draw" title="绘图：画示意图并插入笔记 (Ctrl+Shift+D)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 20l1.2-4.2L15.4 5.6a2.2 2.2 0 0 1 3.1 3.1L8.2 18.8z"/>
-            <path d="M13.6 7.4l3 3"/>
-          </svg>
-        </button>
         <button class="ribbon-btn accent" id="btn-new-note" title="新建笔记 (Ctrl+N)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
             <path d="M12 5v14M5 12h14"/>
