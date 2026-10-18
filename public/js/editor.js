@@ -285,8 +285,12 @@ export class LiveEditor {
       out.push({ n: lineNo, y: top - edRect.top + scrollTop + Math.max(0, ((h || 14) - 14) / 2) });
     };
 
-    for (const el of this.liveEl.children) {
+    const kids = [...this.liveEl.children];
+    for (const el of kids) {
       const tag = el.tagName;
+      // 文末「换行之后的那一行」：文件以 \n 结尾时渲染出来的空块，不是真正的源码行，
+      // 编号只会让最后多出一个幽灵数字（Obsidian 也不给它编号）。
+      if (el === kids[kids.length - 1] && !el.textContent.trim() && !el.classList.contains('md-blank')) continue;
 
       // 列表 / 表格：容器本身没有偏移标记，编号在 li / tr 上（要先于下面的判断）
       if (tag === 'UL' || tag === 'OL') {
@@ -314,9 +318,13 @@ export class LiveEditor {
       if (!start) continue;
 
       if (tag === 'PRE') {
-        // 块首行是 ``` 围栏，代码行从下一行开始
+        // 块首行是 ``` 围栏，代码行从下一行开始；代码块不折行，一行 = 一个源码行
         const code = el.querySelector('code') || el;
-        lineBoxes(code).forEach((box, i) => push(start + 1 + i, box.top, box.h));
+        const cs = getComputedStyle(code);
+        const lh = parseFloat(cs.lineHeight) || 20;
+        const top = code.getBoundingClientRect().top;
+        const lines2 = (code.textContent || '').split('\n').length;
+        for (let i = 0; i < lines2; i++) push(start + 1 + i, top + i * lh, lh);
         continue;
       }
       if (el.classList.contains('callout')) {
@@ -324,10 +332,10 @@ export class LiveEditor {
         const body = el.querySelector('.callout-body');
         const firstInner = body?.querySelector('[data-md-line-start]');
         const bodyStart = firstInner ? lineOf.get(Number(firstInner.dataset.mdLineStart)) : null;
-        if (body && bodyStart) lineBoxes(body).forEach((box, i) => push(bodyStart + i, box.top, box.h));
+        if (body && bodyStart) sourceLineTops(body).forEach((box, i) => push(bodyStart + i, box.top, box.h));
         continue;
       }
-      lineBoxes(el).forEach((box, i) => push(start + i, box.top, box.h));
+      sourceLineTops(el).forEach((box, i) => push(start + i, box.top, box.h));
     }
 
     out.sort((a, b) => a.y - b.y || a.n - b.n);
@@ -426,23 +434,9 @@ export class LiveEditor {
    *      光标的保存/恢复也走它，全局只剩一套坐标，才不会互相打架。
    */
   _saveCaret() {
-    const sel = window.getSelection();
-    if (!sel.rangeCount) return null;
-    const range = sel.getRangeAt(0);
-    if (!this.liveEl.contains(range.startContainer)) return null;
-    const md = this._caretOffset();
-    if (md == null) return null;
-    // 在空行/空块上刚打的字，序列化后会「往下挪一行」——段落之间必须补一个空行，
-    // 这一块在 md 里前移了一个 \n。光标偏移要跟着 +1，否则重建后少走一格
-    // （实测：空行上打 "123"，光标停在 "12" 后面，继续输入就插到中间）。
-    const host = range.startContainer.nodeType === Node.TEXT_NODE
-      ? range.startContainer.parentElement
-      : range.startContainer;
-    const leaf = host?.closest?.('[data-md-content-start]');
-    if (leaf && leaf.textContent.trim() && this.md[Number(leaf.dataset.mdContentStart)] === '\n') {
-      return md + 1;
-    }
-    return md;
+    // 序列化按「源码行是否紧挨着」决定补几个换行（见 serializeBlocks），
+    // 所以在空行上打的字仍然落在同一偏移上，不需要再做 +1 之类的补偿。
+    return this._caretOffset();
   }
 
   /** 光标的 Markdown 偏移（不做任何补偿，撤销栈用这个） */
@@ -649,9 +643,12 @@ export class LiveEditor {
     else if (quote) prefix = `${quote[1]}> `;
     else if (heading && relCaret >= line.length) prefix = ''; // 标题行尾回车 → 普通段落
 
+    // 回车 = 插入一个换行（跟 Obsidian / 普通文本编辑器一致）：
+    // 想让上下两段真正分开，回车两次就会出现空行。
+    // 不再自动补空行——那会让「回车后接着打」凭空多出源码里没有的行。
     const insert = (prefix ? '\n' + prefix : '\n');
     this._replaceRange(lr.offset, lr.offset, insert);
-    this._placeCaret(lr.offset + 1 + prefix.length);
+    this._placeCaret(lr.offset + insert.length);
     caretAdvance = prefix.length;
     return caretAdvance;
   }
@@ -1153,27 +1150,35 @@ export class LiveEditor {
 }
 
 /**
- * 元素内「每个视觉行」的顶部与行高。
- * Range.getClientRects() 一行一个 rect（软换行段落、代码块、引用都适用），
- * 同一行里多个内联元素会给出多个 rect，按 top 合并。
+ * 元素内「每个源码行」的顶部：按 <br> 切分，而不是按视觉行（自动换行）。
+ * 长句子折成三行仍然只是源码里的一行，行号只能给一次——按视觉行编号会
+ * 让行号越走越偏（标题折两行就被编成 1、2，后面全串位）。
  */
-function lineBoxes(el) {
+function sourceLineTops(el) {
   const cs = getComputedStyle(el);
-  const lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 14) * 1.6;
-  const out = [];
-  try {
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    for (const r of range.getClientRects()) {
-      if (r.height < 1) continue;
-      if (!out.length || r.top - out[out.length - 1].top > 4) {
-        out.push({ top: r.top, h: Math.max(r.height, lh) });
+  const lh = parseFloat(cs.lineHeight) || 24;
+  const tops = [];
+  let pending = true;
+  const rectTopOf = (node) => {
+    try {
+      const r = document.createRange();
+      if (node.nodeType === Node.TEXT_NODE) r.setStart(node, 0);
+      else r.selectNodeContents(node);
+      r.collapse(true);
+      return r.getClientRects()[0]?.top ?? null;
+    } catch { return null; }
+  };
+  const walk = (node) => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === Node.ELEMENT_NODE && child.tagName === 'BR') { pending = true; continue; }
+      if (pending) {
+        const top = rectTopOf(child);
+        if (top != null) { tops.push(top); pending = false; }
       }
+      if (child.nodeType === Node.ELEMENT_NODE) walk(child);
     }
-  } catch { /* 测量失败就退化成整块一行 */ }
-  if (!out.length) {
-    const b = el.getBoundingClientRect();
-    out.push({ top: b.top, h: lh });
-  }
-  return out;
+  };
+  walk(el);
+  if (!tops.length) tops.push(el.getBoundingClientRect().top);
+  return tops.map((top) => ({ top, h: lh }));
 }

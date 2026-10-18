@@ -118,10 +118,11 @@ check('点空行 → 光标落在空行里', c3.cls.includes('md-blank'), JSON.s
 await page.keyboard.type('123');
 await sleep(500);
 const c4 = await caret();
-check('空行打字 → 光标停在新段落字尾', c4.text === '123' && c4.off === 3, JSON.stringify(c4));
+check('空行打字 → 光标停在刚打的字后面', c4.off === 3 && c4.text.startsWith('123'), JSON.stringify(c4));
 await page.keyboard.type('456');
-check('续打接着写（不会插到字中间/别处）',
-  (await readNote(abs)) === '# 02_skills位置：\n\n123456\n\nE:\\02_software\\06_skill\n\n',
+// 关键契约（Obsidian 同款）：点空行打字，字就留在这一行，源码行数不变
+check('空行打字 → 行数不变（不多长出空行）',
+  (await readNote(abs)) === '# 02_skills位置：\n123456\nE:\\02_software\\06_skill\n',
   JSON.stringify(await readNote(abs)));
 
 /* ---------- ⑤ 空行上回车：光标留在空行，输入不进下一段 ---------- */
@@ -134,7 +135,7 @@ check('空行回车 → 光标仍停在一行空行上（不跳到下一段）',
   (c5.tag === 'P' || c5.tag === 'DIV') && !c5.text.trim(), JSON.stringify(c5));
 await page.keyboard.type('abc');
 check('回车后输入 → 落在新空行，正文不受影响',
-  (await readNote(abs)) === '# 02_skills位置：\n\nabc\n\nE:\\02_software\\06_skill\n\n',
+  (await readNote(abs)) === '# 02_skills位置：\n\nabc\nE:\\02_software\\06_skill\n',
   JSON.stringify(await readNote(abs)));
 
 /* ---------- ⑥ 点标题下方外边距：不许把字补进标题 ---------- */
@@ -161,7 +162,7 @@ const pt7 = await page.evaluate(() => {
 await page.mouse.click(pt7.x, pt7.y);
 await sleep(250);
 await page.keyboard.type('Y');
-check('连续空行 → 能点中并输入', (await readNote(abs)) === '# 标题\n\nY\n\n正文\n\n',
+check('连续空行 → 能点中并输入', (await readNote(abs)) === '# 标题\nY\n\n正文\n',
   `blank=${blankCount} h=${pt7.h} | ${JSON.stringify(await readNote(abs))}`);
 
 /* ---------- ⑧ 正文行内点击/输入不受影响 ---------- */
@@ -175,7 +176,7 @@ await page.mouse.click(mid.x, mid.y);
 await sleep(200);
 await page.keyboard.type('前');
 check('正文行首点击 → 字插在正确位置',
-  (await readNote(abs)) === '# 标题\n\n前短句\n\n下一段\n\n', JSON.stringify(await readNote(abs)));
+  (await readNote(abs)) === '# 标题\n\n前短句\n\n下一段\n', JSON.stringify(await readNote(abs)));
 
 check('无渲染错误', errors.length === 0, errors.join(' | '));
 

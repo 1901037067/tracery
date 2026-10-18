@@ -163,10 +163,14 @@ export function renderMarkdown(md, opts = {}) {
 
   const usedSlugs = new Map();
 
-  function tagLeaf(el, lineIdx, contentOffsetInLine) {
+  // endLineIdx：块占的最后一行（多行段落/代码块/引用）。序列化时靠
+  // 「下一块的行首 - 本块的行尾」算该补几个换行，只记第一行行尾会把块内的
+  // 其余行都算成空隙，凭空补出一串空行。
+  function tagLeaf(el, lineIdx, contentOffsetInLine, endLineIdx) {
     if (!tagOffsets || !el) return;
+    const endIdx = Math.min(lines.length - 1, endLineIdx == null ? lineIdx : endLineIdx);
     el.dataset.mdLineStart = String(lineStarts[lineIdx]);
-    el.dataset.mdLineEnd = String(lineEnd(lineIdx));
+    el.dataset.mdLineEnd = String(lineEnd(endIdx));
     if (contentOffsetInLine != null) {
       el.dataset.mdContentStart = String(lineStarts[lineIdx] + contentOffsetInLine);
     }
@@ -193,19 +197,21 @@ export function renderMarkdown(md, opts = {}) {
       const line = lines[i];
 
       if (/^\s*$/.test(line)) {
-        // 连续空行 ≥2 = 一个「空段落」（段尾回车造出来的）。必须渲染成可放光标的
-        // <p><br></p>，否则用户在段尾按回车后视觉上毫无变化（空行被跳过），
-        // 光标还会掉到别处。只吃前面的内容块、且后面还有内容时才补。
+        // 源码里的每一行空行都渲染成「一行」（.md-blank，可点、可放光标、可打字）。
+        // 早先是把连续空行合成一个占位段——结果光标分不清自己在第几个空行上，
+        // 回车后在空行上打字会落到上一行、并进上一段。一行一个才对得上源码。
+        // 空的占位段序列化时跳过，行数由相邻块的源码行号差补回来（见 serializeBlocks）。
         let j = i;
         while (j < stop && /^\s*$/.test(lines[j])) j++;
         if (out.length && j < stop) {
-          const p = document.createElement('p');
-          p.appendChild(document.createElement('br'));
-          tagLeaf(p, i, 0);
-          // 单个空行 = 段落分隔符：做成零高「占位段」——看不见、序列化时跳过，
-          // 但能接收光标。点段落间空白就落在这一行上，输入后它自然变成真段落。
-          if (j - i === 1) { p.className = 'md-blank'; p.dataset.mdBlank = '1'; }
-          out.push(p);
+          for (let k = i; k < j; k++) {
+            const p = document.createElement('p');
+            p.className = 'md-blank';
+            p.dataset.mdBlank = '1';
+            p.appendChild(document.createElement('br'));
+            tagLeaf(p, k, 0);
+            out.push(p);
+          }
         }
         i = j;
         continue;
@@ -231,7 +237,7 @@ export function renderMarkdown(md, opts = {}) {
           tag.textContent = lang;
           pre.appendChild(tag);
         }
-        tagLeaf(pre, openLine, fence[0].length + 1);
+        tagLeaf(pre, openLine, fence[0].length + 1, i - 1);
         out.push(pre);
         continue;
       }
@@ -265,7 +271,7 @@ export function renderMarkdown(md, opts = {}) {
           shiftOffsets(bodyFrag, lineStarts[quoteStart + 1] - 0);
           body.appendChild(bodyFrag);
           div.append(title, body);
-          tagLeaf(div, quoteStart, callout[0].length);
+          tagLeaf(div, quoteStart, callout[0].length, i - 1);
           out.push(div);
         } else {
           const bq = document.createElement('blockquote');
@@ -344,7 +350,7 @@ export function renderMarkdown(md, opts = {}) {
       }
       const p = document.createElement('p');
       p.innerHTML = inlineToHtml(buf.join('\n'), opts).replace(/\n/g, '<br>');
-      tagLeaf(p, startLine, 0);
+      tagLeaf(p, startLine, 0, i - 1);
       out.push(p);
     }
     return out;
@@ -469,10 +475,12 @@ export function renderMarkdown(md, opts = {}) {
   // 从尾部向前找最后一个非空行；它之后的连续空白段才是「行尾空行」
   let lastText = lines.length - 1;
   while (lastText >= 0 && /^\s*$/.test(lines[lastText])) lastText--;
-  if (lastText < lines.length - 1) {
+  for (let k = lastText + 1; k < lines.length; k++) {
+    // 行尾空行：一行一个，且**不能**带 md-blank（它要把结尾的换行数留下来，
+    // 见 serializeBlocks 的 '' 分支）；带标记是为了算出正确的新行数。
     const p = document.createElement('p');
     p.appendChild(document.createElement('br'));
-    tagLeaf(p, lastText + 1, 0);
+    tagLeaf(p, k, 0);
     frag.appendChild(p);
   }
   return frag;
@@ -536,46 +544,55 @@ function serializeInline(node) {
 
 function serializeBlocks(root) {
   const out = [];
+  // 每块的源码行区间 [lineStart, lineEnd]（渲染时打的标记）。拼接时靠它判断
+  // 「这两块在源码里是不是紧挨着（中间没有空行）」——是的话只加一个 \n。
+  const marks = [];
+  const markOf = (el) => {
+    const a = el?.dataset?.mdLineStart;
+    const b = el?.dataset?.mdLineEnd;
+    return a != null && b != null ? [Number(a), Number(b)] : null;
+  };
+  const push = (md, el) => { out.push(md); marks.push(markOf(el)); };
+
   for (const node of root.childNodes) {
     if (node.nodeType === Node.TEXT_NODE) {
       const t = node.textContent.trim();
-      if (t) out.push(t);
+      if (t) push(t);
       continue;
     }
     if (node.nodeType !== Node.ELEMENT_NODE) continue;
     const el = node;
     const tag = el.tagName;
     if (/^H[1-6]$/.test(tag)) {
-      out.push(`${'#'.repeat(Number(tag[1]))} ${serializeInline(el).trim()}`);
+      push(`${'#'.repeat(Number(tag[1]))} ${serializeInline(el).trim()}`, el);
     } else if (tag === 'P' || (tag === 'DIV' && !el.classList.contains('callout'))) {
       const raw = [...el.childNodes].map(serializeInline).join('');
       const md = raw.trim();
       // 段落分隔符占位段：空的直接跳过——它代表的就是那个单空行，
       // 不该产生新块（产生块会把 "A\n\nB" 写成 "A\n\n\n\nB"，每次都长）。
-      // 一旦用户往里打了字（md 非空），它就是正常段落，走下面的分支。
       if (el.dataset?.mdBlank && !md) continue;
       // 空段落（只有 <br> 或真的空）→ 空块：渲染器为「行尾空行」补的 <p><br></p>
       // 靠它活下来——丢了它，用户打回车造出的新行会在下次输入时被吞
-      if (md) out.push(md);
-      else if (raw === '' || raw === '\n') out.push('');
+      if (md) push(md, el);
+      else if (raw === '' || raw === '\n') push('', el);
     } else if (tag === 'UL' || tag === 'OL') {
-      out.push(serializeList(el, tag === 'OL'));
+      push(serializeList(el, tag === 'OL'), el);
     } else if (tag === 'BLOCKQUOTE') {
       const innerMd = serializeBlocks(el).trim();
-      if (innerMd) out.push(innerMd.split('\n').map((l) => `> ${l}`).join('\n'));
+      if (innerMd) push(innerMd.split('\n').map((l) => `> ${l}`).join('\n'), el);
     } else if (tag === 'PRE') {
       const code = el.querySelector('code');
       const lang = code?.className?.match(/language-(\w+)/)?.[1] || '';
-      out.push('```' + lang + '\n' + (code?.textContent || '') + '\n```');
+      push('```' + lang + '\n' + (code?.textContent || '') + '\n```', el);
     } else if (tag === 'HR') {
-      out.push('---');
+      push('---', el);
     } else if (tag === 'TABLE') {
       const rows = [...el.querySelectorAll('tr')];
       if (!rows.length) continue;
       const cellText = (td) => [...td.childNodes].map(serializeInline).join('').replace(/\|/g, '\\|').trim();
       const mdRows = rows.map((tr) => '| ' + [...tr.children].map(cellText).join(' | ') + ' |');
       mdRows.splice(1, 0, '| ' + [...rows[0].children].map(() => '---').join(' | ') + ' |');
-      out.push(mdRows.join('\n'));
+      push(mdRows.join('\n'), el);
     } else if (el.classList?.contains('callout')) {
       const type = el.dataset.type || 'note';
       const titleEl = el.querySelector(':scope > .callout-title');
@@ -583,20 +600,32 @@ function serializeBlocks(root) {
       const title = titleEl?.textContent === type ? '' : (titleEl?.textContent || '');
       const bodyMd = bodyEl ? serializeBlocks(bodyEl).trim() : '';
       const head = `> [!${type}]${title ? ' ' + title : ''}`;
-      out.push(bodyMd ? [head, ...bodyMd.split('\n').map((l) => `> ${l}`)].join('\n') : head);
+      push(bodyMd ? [head, ...bodyMd.split('\n').map((l) => `> ${l}`)].join('\n') : head, el);
     } else if (el.classList?.contains('embed')) {
-      out.push(`![[${el.dataset.target || ''}]]`);
+      push(`![[${el.dataset.target || ''}]]`, el);
     } else {
       const md = serializeInline(el).trim();
-      if (md) out.push(md);
+      if (md) push(md, el);
     }
   }
-  // 拼接要区分「中间空段落」：段落分隔 2 个换行 + 空段落自己 1 个 = 3 个换行
-  // （直接 join('\n\n') 会让空段落占 2 个换行，每轮 round-trip 都长一行，破坏不动点）
+
+  // 拼接规则：两块之间补几个换行，直接由**源码行号差**决定
+  //   gap = 本块行首偏移 - 上一块行尾偏移
+  //   空行 1 个 → gap=2 → '\n\n'；两行紧挨着 → gap=1 → '\n'
+  // 这样「点空行打字」时字就留在那一行（gap=1），不会平白多出两行空行；
+  // 「标题紧跟正文」这类源码本来就没空行的写法也能原样存回去。
+  // 拿不到行号标记的块（列表/表格/引用/嵌入）退化为段落分隔 '\n\n'。
   let md = '';
   out.forEach((b, i) => {
     if (i === 0) { md = b; return; }
-    if (out[i - 1] === '' && b !== '') { md += b; return; }
+    const prev = out[i - 1];
+    const pm = marks[i - 1];
+    const cm = marks[i];
+    if (pm && cm) {
+      const gap = cm[0] - pm[1];
+      if (gap >= 1) { md += '\n'.repeat(Math.min(gap, 12)) + b; return; }
+    }
+    if (prev === '' && b !== '') { md += b; return; }
     if (b === '' && i < out.length - 1) { md += '\n\n\n'; return; }
     md += '\n\n' + b;
   });

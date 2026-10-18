@@ -7,7 +7,7 @@
 
 ## 1. 一句话现状
 
-Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、PDF 应用内阅读器、图谱全屏、多标签页（Tab 栏即标题栏）、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）、文件树图片直阅、源码模式行号、编辑区右键菜单（仿 Obsidian 文本/图片两套）、回收站（删除可恢复）。测试 248/248，打包版可发布。
+Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、PDF 应用内阅读器、图谱全屏、多标签页（Tab 栏即标题栏）、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）、文件树图片直阅、源码模式行号、编辑区右键菜单（仿 Obsidian 文本/图片两套）、回收站（删除可恢复）。测试 249/249，打包版可发布。
 
 ## 2. 环境与常用命令
 
@@ -27,7 +27,7 @@ npm run test:sync-ui         # 13  同步面板 + 部署说明 + 局域网区块
 npm run test:merge           # 10  三方合并单测
 npm run test:roundtrip       # 7   Markdown 双向引擎属性测试（恒等/不动点/内容不丢/渲染确定性，含 300 篇模糊 + demo-vault 全量）
 npm run test:enter           # 10  编辑器回车行为回归（段尾/行中/连续回车、列表续行与退出、软换行段、段尾插空行）
-npm run test:gap             # 12  实时预览空行/落点回归（空行占一行高、点它不位移、打字/回车光标不跑偏）
+npm run test:gap             # 13  实时预览空行/落点回归（空行一行一个、点它打字不多长空行、光标不跑偏）
 npm run test:polish          # 18  撤销/重做、实时预览行号 + 设置开关、右键菜单紧凑化与去 emoji
 npm run test:menu            # 10  编辑区右键菜单（文字/图片）+ 文件树菜单 + PDF 阅读器 + 侧栏折叠
 npm run test:trash           # 10  回收站（删除入站/恢复/彻底删除/清空）
@@ -112,19 +112,23 @@ test/*.mjs              九个测试套件（见 §2）
 11. **粘贴/拖拽必须拦下来自己存**：不拦的话浏览器默认把图片塞进 contenteditable（data/blob URL，刷新即丢），拖文件甚至直接导航打开。
 12. **Tab 栏即标题栏**（VS Code / Obsidian「Tab 标题栏」模式）：标签搬进标题栏与窗口按钮同一行；标题栏永远可见（它是 Electron 拖拽区 + 窗口按钮的家），无标签时只隐藏 tablist。三个坑：① `.tablist{display:flex}` 会压过 `[hidden]` 的 UA 规则，必须显式 `.tablist[hidden]{display:none}`；② 标题栏是 `app-region:drag`，标签和控件必须显式 `no-drag` 否则点不动；③ 切仓库必须重置标签（按 vault root 存 localStorage）——UI 流程走 `enterApp`，WS `vault-opened` 也必须走同一条 `restoreTabsAfterVaultSwitch`，且要先 await 树刷新再 `loadTabsState`（`hasNotePath` 用旧树过滤会把上个仓库的标签带过来）。
 13. **round-trip 测试分两级契约**（`test/roundtrip-test.mjs`）：规范格式语料要求**恒等**（serialize(render(md))===md，对应「打开不编辑就保存不能动文件一个字节」）；任意怪格式只要求**不动点**（第二次 round-trip 起稳定，对应「正常化只许发生一次」）。已知的正常化（不动点容忍、恒等语料刻意避开）：`_em_`→`*em*`、`***`→`---`、`|---|---|`→`| --- |`、`*`/`+`列表符→`-`、有序列表重新从 1 编号、行首行尾空白、连续空行折叠、链接 title 丢弃、`[[x#y]]` 补显式别名。改 markdown.js 前后都必须跑这个套件。
-14. **编辑器回车三件套**（2026-10-17 修，`test/enter-test.mjs` 锁死）：① 渲染器必须给「行尾空行」补一个 `<p><br></p>`（带源码偏移标记）——否则段尾回车插入的 `\n` 在 DOM 里不存在，下次输入序列化就被吃掉；② 序列化器必须把空段落产出空块——否则那个空行活不过一轮；③ `domPointToMd` 的 DOM 偏移必须与 `inlineMapOffset` 同口径（`<br>` 计 1，见 `domOffsetBrAware`）——否则含软换行的段落光标映射整体偏移，回车从字中间拆行。另：**`_placeCaret` 必须同步恢复光标**，包 `requestAnimationFrame` 会让下一个按键打进旧位置。
+14. **编辑器回车 / 空行（2026-10-18 二次修正，按 Obsidian 语义）**：回车**只插一个换行**（列表/引用才带前缀），不再自动补空行——想真正分段就回车两次。曾经为了让「回车后接着打」有可见空行，回车会插 `\n\n`，结果用户在空行上打字时凭空多出两行（用户连报两次）。配套的三条：
+    ① 渲染器**一行空行一个占位段**（`.md-blank`，可点、可放光标、可打字），不再把连续空行合成一个——合成的话光标分不清自己在第几个空行上，回车后打字会并进上一段。
+    ② 序列化**按源码行号差补换行**：`gap = 本块 data-md-line-start − 上一块 data-md-line-end`，gap=1 补 `\n`、gap=2 补 `\n\n`，其余类推。所以空行上打的字留在原行（3 行还是 3 行），标题紧跟正文这种写法也能原样存回。
+    ③ 因此 `data-md-line-end` 必须记**块的最后一行**（多行段落 / 代码块 / callout 传 `endLineIdx`）——只记第一行行尾会把块内其余行算成空隙，一次输入能补出十几个空行。
+    `test:enter` + `test:gap` 锁死这套行为；改 markdown.js 的拼接逻辑必须两个都跑。
 15. **源码模式行号**：textarea 外层包 `.source-wrap`（行号槽 + wrap="off" 的 textarea），切模式隐藏的是 **wrap 不是 textarea**；槽与 textarea 的字号/行高/上 padding 必须严格同参才对得齐；实时预览模式不显示行号。
 16. **文件树点图片走灯箱**：图片扩展名（png/jpg/gif/webp/svg/bmp/avif）直接 `openLightbox(Api.fileUrl(path))`，不能再走 `openNote`（API 只认 .md，会报「笔记不存在」）。
 17. **标签多了不许挤压**：`.tab` 的 `min-width: 120px` 是底线（低于它标题变「00...」不可读），超出部分横向滚动 + 滚轮横滚 + 溢出侧 `mask-image` 渐隐（`data-overflow` 由 `updateTabOverflow()` 维护）。标签条空白区必须留在拖拽区里（no-drag 只挂 `.tab`）。
 18. **覆盖式滚动条与圆角**：Electron/Chromium 用覆盖式滚动条（不占布局、浮在滚动区边缘），`::-webkit-scrollbar-track{margin}` 对它无效——滚到顶部会和纸的圆角边框交叉。正确解法是给滚动容器（`.editor` / `.source-wrap`）让出 `margin: 10px 8px 10px 0`，把滚动区缩进直边里；padding 相应减 10px 保持正文位置不变。
 19. **编辑区右键菜单**：文本/图片两套（`showTextMenu` / `showImageMenu`）。两个关键坑：① 点菜单项会让 contenteditable 失焦、选区丢失——右键时把 Range 克隆下来（`editorSavedRange`），每个动作前 `restoreEditorSelection()` 再执行；② 在已选中的文字上右键，浏览器会先折叠选区——`mousedown` 里判断右键点是否落在选区 rect 内，是则 `preventDefault` 保住选区（Obsidian 同行为）。图片相关的路径解析走 `resolveVaultFile`，桌面能力（资源管理器定位/默认应用打开）走 `electronAPI.reveal/openPath`（main.cjs 校验绝对路径）。
 20. **编辑区容器贴底**：`.editor-area` 只留上/左右边距，`border-radius` 只圆上半部，底边与窗口相连——状态栏在纸内最底部。
-21. **中间空段落必须能渲染**：段尾回车（后面还有内容时）插入的 `\n` 会让段落之间出现 2 个空行；渲染器若继续跳过所有空行，用户按回车「毫无反应」且光标跳走（2026-10-17 用户报的第二个回车 bug）。规则：**连续空行 ≥2 且前后都有内容 → 渲染一个 `<p><br></p>`**；序列化时中间空段落占 `\n\n\n`（段落分隔 2 个 + 空行自己 1 个），直接 `join('\n\n')` 会让它占 2 个换行、每轮 round-trip 长一行、破坏不动点。单个空行（正常段落分隔）不补空段落，恒等语料因此不受影响。
+21. **空行是一等公民**：源码里每一行空行都渲染成一行 `.md-blank`（恒占一行高、可点击、可输入）。`serializeBlocks` 里空的占位段直接跳过，行数靠相邻块的 `data-md-line-start/end` 差值补回来（见 #14）。文末「换行之后的那一行」也要占位（不能带 md-blank），否则文件结尾的换行会被吃掉；但它**不参与行号编号**（否则末尾多一个幽灵数字）。
 22. **PDF 阅读器**：`.pdf-viewer` 浮层 + iframe 指向 `/api/file?path=...pdf`，靠 Chromium 自带 PDF 渲染；Electron 必须 `webPreferences.plugins = true`，否则是空白页。兜底按钮「用默认应用打开」。
 23. **文件树右键菜单**（Obsidian 式）：在新标签页中打开 / 创建副本 / 复制路径（绝对+相对）/ 默认应用打开 / 资源管理器定位 / 重命名 / 删除。`renameNote` 已泛化：非 .md 文件保留原扩展名（原来会把 pdf 改成 .md）。
 24. **面板切换必须按栏隔离**：`switchPanel` 原来用 `.sidebar .panel`，会连右栏（大纲/反链/标签）一起命中——切到「文件」时它们 id 不匹配、`active` 被摘掉，表现就是「右侧大纲莫名消失」。必须写 `#sidebar .panel`。右栏三块现在是常驻同屏，空块自动 `.hidden`（反链为空 / 笔记无标签时收起）。
 25. **回收站**：删除不再 `unlink`，文件移到 `TRACERY_HOME/trash/<仓库路径 sha1 前 12 位>/<id>__原名` + `index.json` 记原始相对路径。放数据目录而非仓库：不污染笔记目录、不进同步、文件树看不见。**跨盘要兜底**：仓库在 D:/E:、数据目录在 C:，`rename` 会抛 `EXDEV`，必须 `copyFile + unlink`。上限 200 项，超出自动清最旧的。恢复时重名自动加 ` (n)`。
-26. **单空行恒占一行高**（2026-10-18 重写）：单个空行 = 段落分隔符，渲染成 `<p class="md-blank">`（序列化跳过、文件不变）。它**必须恒定占一行高**（`min-height: 1.78em`），不能再是「零高 + 点中时 `.is-active` 撑开」：零高时那一行根本点不到，光标只能靠「点空隙上半/下半」的启发式去猜；点中又瞬间撑开会把下面的内容整体推一下（用户 2026-10-18 报的「点一下就变了、字还打错地方」）。相邻块的外边距用 `#editor-live > *:has(+ .md-blank)` 与 `.md-blank + *` 让位，净间距仍约等于一行，不会明显变松。**不要**退回零高，也不要把占位段做成「有内容的真段落」——序列化仍要跳过空的占位段（否则每点一次空隙就多一行，幽灵编辑）。`test/gap-test.mjs` 锁死这套行为。
+26. **空行恒占一行高、一行一个**（2026-10-18 第二次重写）：一行空行 = 一个 `<p class="md-blank">`（序列化跳过、文件不变），必须恒占一行高（`min-height: 1.78em`），不能是「零高 + 点中时撑开」。**连续空行也一行一个**——合成一个占位段的话，光标在 DOM 里分不清是第几个空行，回车后在空行上打字会落到上一行、并进上一段（用户 2026-10-18 报的「点第二行输入 123，莫名其妙多出两行」）。相邻块外边距用 `#editor-live > *:has(+ .md-blank)` / `.md-blank + *` 让位，视觉间距仍≈一行。`test/gap-test.mjs` 锁死。
 27. **代码高亮是渲染层的事**：`highlightCode()` 只在渲染时把代码切成 `tok-*` span，序列化仍走 `code.textContent`，所以 md 字节不受影响。改高亮规则只需动 `CODE_KEYWORDS` / 分支正则。
 28. **表格键位要抢在编辑器前面**：编辑器自己的 Tab 是「缩进」，表格 Tab 跳格必须用**捕获阶段**监听并 `stopPropagation()`，否则缩进逻辑先命中。回车加行是直接改 DOM 再 `dispatchEvent(new InputEvent('input'))`，让正常序列化流程接住。
 29. **右栏是三按钮切换**（大纲/反链/标签），`switchRightPanel()` 维护 `.rs-tab.active` + 面板 `.active`，选择记在 `tracery.rsTab`。别再改回常驻同屏——用户明确要求三按钮切换。
@@ -134,7 +138,7 @@ test/*.mjs              九个测试套件（见 §2）
 33. **版本历史**：保存前把旧内容写到 `TRACERY_HOME/history/<仓库哈希>/<相对路径>/<时间戳>.md`，每个文件留 20 个；`/api/history*` 提供列表/内容/恢复；UI 在命令面板「查看历史版本」，点行展开预览、点恢复先给当前内容再存一份快照。
 34. **光标坐标只准用一套（Markdown 偏移）**（2026-10-18 修）：`_saveCaret()` 必须返回 `domPointToMd()` 的 md 偏移，`_renderLive()` 重建 DOM 后用 `_restoreCaretMd()`（即 `mdOffsetToDom()`）还原。旧实现用「纯文本第几个字符」，当光标停在一个空块上（锚点是元素而不是文本节点）时 `textOffsetOf` 会返回整篇文本长度 → 重建后光标被甩到全文末尾（用户看到的「在空行打字，打完光标跑到下一段行尾，再输的字全进那一行」）。配套两条：① `domOffsetBrAware` 必须特判「锚点 === 块本身」（只累加前 offset 个子节点），否则空块里的 `<br>` 被算成 +1，回车/输入整体错位一格；② 在空行上刚打的字序列化后会往下挪一行（段落之间要补空行），`_saveCaret` 要跟着 +1，否则光标少走一格、字插进中间。`load()` 换文件前先清选区，别把上一篇的光标带过来。
 35. **撤销必须自己实现快照栈**（2026-10-18）：contenteditable 每次输入都 `innerHTML` 重建 DOM，浏览器原生 undo 栈跟着节点一起没了。`editor.history = [{md, caret}]` + `hIndex`：连续输入 520ms 静默合并成一步，结构操作（回车/缩进/加粗/插入片段）走 `_scheduleHistory(0)` 单独成一步；`undo()/redo()` 直接换 `md` 再 `_renderLive()` + `_restoreCaretMd()`，**不经过** `_replaceRange`（否则会再入历史）。快捷键 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y，右键菜单和命令面板也能进。三条容易踩的：① `load()` 里「内容一模一样」必须直接 return——自动保存后 WS 会把文件变更广播回来，再 `load()` 一次就会清空撤销栈（表现为「刚撤完就跳走」）；② 源码模式用 textarea 原生撤销，切回实时模式时 `_resetHistory()` 重新起栈；③ 撤销后再输入要砍掉 redo 尾巴（`history.length = hIndex + 1`）。
-36. **实时预览行号是测量出来的**：`_collectLineNumbers()` 遍历编辑区顶层块，用 `data-md-line-start`（源码字符偏移）换行号，块内用 `Range.getClientRects()` 拿每个视觉行（软换行段落、代码块逐行、表格按 tr、列表按 li）。数字画在 `.live-gutter` 覆盖层里，滚动只改 `translateY`。代码块首行是 ``` 围栏、预览里看不见，所以行号会从 `start+1` 开始（7 → 9 这种跳号是正常的）。开关：设置「编辑器 → 行号」（`lineNumbers`），源码槽与实时槽共用；**新增设置项记得同步 `server/server.js` 的 `DEFAULT_SETTINGS` 与 `mergeSettings` 白名单**，否则保存后被服务端丢掉、WS 再广播回来又把开关弹回默认（这个坑当场踩过一次）。
+36. **实时预览行号是测量出来的**：`_collectLineNumbers()` 遍历编辑区顶层块，用 `data-md-line-start`（源码字符偏移）换行号，块内**按 `<br>` 切分源码行**（`sourceLineTops`）——长句自动折行仍是同一行，只编一个号（按视觉行编号会让标题折成两行后全局串位）。代码块按行高逐行算，表格按 tr、列表按 li。数字画在 `.live-gutter` 覆盖层里，滚动只改 `translateY`。代码块首行是 ``` 围栏、预览里看不见，所以行号会从 `start+1` 开始（7 → 9 这种跳号是正常的）。开关：设置「编辑器 → 行号」（`lineNumbers`），源码槽与实时槽共用；**新增设置项记得同步 `server/server.js` 的 `DEFAULT_SETTINGS` 与 `mergeSettings` 白名单**，否则保存后被服务端丢掉、WS 再广播回来又把开关弹回默认（这个坑当场踩过一次）。
 37. **右键菜单不用 emoji**：图标统一走 `ICON`（16 格线性 SVG，`S()` 包一层），排版类选项用 `.mi-txt` 字型（H1/B/I/¶）。行高 24px、`gap: 8px`、分隔线 `--hairline-strong`——emoji 会把行撑到 44px，菜单长得离谱（22 项直接占满一屏）。
 
 38. **绘图白板（Excalidraw 风格，2026-10-18 重写）**：`draw.js` 是 canvas 2D 的场景图，不是「一堆笔画」。要点：

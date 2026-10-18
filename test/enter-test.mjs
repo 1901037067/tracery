@@ -99,15 +99,15 @@ await caretAtEndOf('p');
 await page.keyboard.type('abc');
 await page.keyboard.press('Enter');
 await page.keyboard.type('def');
-check('段尾回车后续打 → 新段落', (await readNote(abs)) === '# 测试\n\n第一段abc\n\ndef', JSON.stringify(await readNote(abs)));
+check('段尾回车后续打 → 新行接住输入（不吞字）', (await readNote(abs)) === '# 测试\n\n第一段abc\ndef\n', JSON.stringify(await readNote(abs)));
 
 /* ---------- ② 行中回车：在光标处拆行 ---------- */
 abs = await openNote('场景二.md', '# 测试\n\nabcdef\n');
 await caretAtTextOffset(2);
 await page.keyboard.press('Enter');
 await page.keyboard.type('X');
-// 末尾 \n\n：源文件行尾换行被保留成尾段空行（正确行为，见 round-trip 的正常化清单）
-check('行中回车 → 光标处拆行', (await readNote(abs)) === '# 测试\n\nab\nXcdef\n\n', JSON.stringify(await readNote(abs)));
+// 末尾只有一个 \n：文件本来就以换行结尾，序列化原样保留（不再多补一个）
+check('行中回车 → 光标处拆行', (await readNote(abs)) === '# 测试\n\nab\nXcdef\n', JSON.stringify(await readNote(abs)));
 
 /* ---------- ③ 连续回车：空行上继续回车，打字落在空行 ---------- */
 abs = await openNote('场景三.md', '# 测试\n\n甲乙丙\n');
@@ -115,7 +115,7 @@ await caretAtEndOf('p');
 await page.keyboard.press('Enter');
 await page.keyboard.press('Enter');
 await page.keyboard.type('Z');
-check('连续回车后打字 → 落在空行上', (await readNote(abs)) === '# 测试\n\n甲乙丙\n\nZ', JSON.stringify(await readNote(abs)));
+check('连续回车后打字 → 落在空行上', (await readNote(abs)) === '# 测试\n\n甲乙丙\n\nZ\n', JSON.stringify(await readNote(abs)));
 
 /* ---------- ④ 列表项回车：智能续行带前缀 ---------- */
 abs = await openNote('场景四.md', '# 测试\n\n- 甲\n');
@@ -136,22 +136,22 @@ abs = await openNote('场景六.md', '# 测试\n\n普通段\n第二行\n');
 await caretAtEndOf('p');
 await page.keyboard.press('Enter');
 await page.keyboard.type('X');
-check('软换行段落尾回车 → 不拆散原有行', (await readNote(abs)) === '# 测试\n\n普通段\n第二行\n\nX', JSON.stringify(await readNote(abs)));
+check('软换行段落尾回车 → 不拆散原有行', (await readNote(abs)) === '# 测试\n\n普通段\n第二行\nX\n', JSON.stringify(await readNote(abs)));
 
 /* ---------- ⑦ 含软换行的行中回车：拆在正确位置 ---------- */
 abs = await openNote('场景七.md', '# 测试\n\n甲乙丙丁\n');
 await caretAtTextOffset(2);
 await page.keyboard.press('Enter');
 await page.keyboard.type('X');
-check('软换行段落行中回车 → 拆在光标处', (await readNote(abs)) === '# 测试\n\n甲乙\nX丙丁\n\n', JSON.stringify(await readNote(abs)));
+check('软换行段落行中回车 → 拆在光标处', (await readNote(abs)) === '# 测试\n\n甲乙\nX丙丁\n', JSON.stringify(await readNote(abs)));
 
 /* ---------- ⑧ 段尾回车（后面还有内容）：必须产生可见空行，打字落进去 ---------- */
 abs = await openNote('场景八.md', '# 测试\n\n第一段\n\n第二段\n');
 await caretAtEndOf('p', '第一段');
 await page.keyboard.press('Enter');
 await page.keyboard.type('新行');
-check('段尾回车（后面有内容）→ 新空行接住输入',
-  (await readNote(abs)) === '# 测试\n\n第一段\n\n新行\n\n第二段\n\n',
+check('段尾回车（后面有内容）→ 新行接住输入',
+  (await readNote(abs)) === '# 测试\n\n第一段\n新行\n\n第二段\n',
   JSON.stringify(await readNote(abs)));
 
 /* ---------- ⑨ 点段落间空白：可以直接在那条空行上输入（变成新段落） ---------- */
@@ -172,8 +172,8 @@ const onBlank = await page.evaluate(() => {
   return !!el?.closest?.('.md-blank');
 });
 await page.keyboard.type('补字');
-check('点段落间空白 → 落在空行上，输入成为新段落',
-  onBlank && (await readNote(abs)) === '# 测试\n\n正文段落。\n\n补字\n\n## 小标题\n\n内容\n\n',
+check('点段落间空白 → 落在空行上，输入就留在那一行',
+  onBlank && (await readNote(abs)) === '# 测试\n\n正文段落。\n补字\n## 小标题\n\n内容\n',
   `blank=${onBlank} | ${JSON.stringify((await readNote(abs)).slice(0, 44))}`);
 
 check('无渲染错误', errors.length === 0, errors.join(' | '));

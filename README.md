@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](/)
-[![Tests](https://img.shields.io/badge/tests-248%2F248%20passed-brightgreen)](test)
+[![Tests](https://img.shields.io/badge/tests-249%2F249%20passed-brightgreen)](test)
 
 一个文件夹就是一座仓库，`.md` 文件就是笔记，`[[双链]]` 把它们织成网络。
 **纯 Markdown 存储，完全兼容 Obsidian 仓库** —— 拿来就能用，随时能回去。
@@ -130,7 +130,7 @@ npm run test:ux         # 16 项：布局 / 新建对话框 / 图片 / 图谱全
 npm run test:merge      # 10 项：三方合并边界（同段冲突、CRLF、相邻改动）
 npm run test:roundtrip  # 7 项：Markdown 双向引擎属性测试（恒等/不动点/内容不丢/渲染确定性 + 模糊 300 篇）
 npm run test:enter      # 10 项：编辑器回车行为回归（段尾/行中/连续回车、列表续行、软换行段、段尾插空行）
-npm run test:gap        # 12 项：实时预览空行/落点回归（空行占一行高、点它布局不跳、打字与回车后光标不跑偏）
+npm run test:gap        # 13 项：实时预览空行/落点回归（空行一行一个、点它打字不多长空行、光标不跑偏）
 npm run test:polish     # 18 项：撤销/重做（Ctrl+Z）、实时预览行号 + 设置开关、右键菜单紧凑化与去 emoji
 npm run test:menu       # 10 项：编辑区右键菜单（文字/图片）+ 文件树菜单 + PDF 阅读器 + 侧栏折叠
 npm run test:trash      # 10 项：回收站（删除入站/恢复/彻底删除/清空）
