@@ -664,6 +664,158 @@ backspace/ui/ux/sync/sync-ui/lan/merge）全绿。
 
 复跑：`npm run test:cmlab` + `npm run test:engine` + `npm run test:e2e`。
 
+### 7.9 P5 收尾交接（2026-10-18 · **只做调研盘点：未改代码 / 未跑测试 / 未提交产物**）
+
+本节是「本轮会话结束时」的交接快照：把 7.8 遗留的两件事（① 套件口径改写 ② 打包发布）做成
+**可直接执行的工单**，另外**新发现一个高风险缺口**（A）。下一轮照本节做即可，不必重新调研。
+
+#### A. ⚠️ 新发现：cm 默认路径在真实 app 里**没有任何 CM 样式**（建议列为下一轮第 0 步）
+
+**证据**（本轮只读，未改动任何文件）：
+
+- `public/css/style.css`、`public/themes/apple.css`、`public/themes/obsidian.css` 里**没有一条 `.cm-` 规则**
+  （`grep '\bcm-' public/**/*.css` 零命中）；全套 `.cm-lp-*` 的样式**只定义在 `public/cmlab.html`（第 38–74 行）**。
+- `public/js/cm/{engine,decorations,widgets}.js` 里**没有 `EditorView.theme`，也没有 style-mod**——
+  装饰与 widget 只产出 class 名（`decorations.js:232` `cm-lp-zero`、`widgets.js:75` `cm-lp-img`、
+  `widgets.js:155` `cm-lp-note`、`widgets.js:233` `cm-lp-cb` …）。
+- `public/index.html` 只加载 `themes/apple.css` + `css/style.css`，**没有引入 cmlab 的样式**。
+- 唯一已经生效的是 `#editor-live` 自带的 `editor markdown-body` 两个类（`index.html:236`）：
+  `.editor`（`style.css:669`）给了 CM 容器字号/行高/内边距，`.editor > *`（`style.css:679`）
+  给了它 `max-width:720px` 居中——所以正文观感「还过得去」。
+- **其余全无样式**：标题字号（`.cm-lp-h1/h2/h3`）、行内样式（粗/斜/删/高亮/行内代码/双链/标签颜色）、
+  引用与 Callout 底色、表格边框、图片框 + 右下角拖宽手柄、复选框间距、**行号槽外观**。
+  `test/screenshots/p4-cm-app.png` 里可以直接看到后果：行号槽是 CM 原生窄框、正文是默认小字号、
+  复选框没有与 `.markdown-body` 对齐的间距。
+
+**结论**：目前是「默认内核 = cm，但没有把 cmlab 的样式搬进 app」。这是 P5 里**优先级最高**的一项
+（比改测试更高）——否则就算把「cm 口径」的渲染断言改对了，外观仍然不达标。
+
+**建议做法**：
+
+1. 把 `cmlab.html` 的样式段（`.cm-editor` 基础 + 全套 `.cm-lp-*` + `.cm-lp-img`/`grip`/`cb`/`tbl`/`callout`/`note`）
+   抽成 `public/css/cm.css`（或并入 `style.css` 对应小节），**规则改用 app 的 CSS 变量**
+   （`--editor-font-size` / `--text-primary` / `--text-tertiary` / `--accent` / `--hairline` / `--r-md` / `--font-mono` …）
+   这样**明暗主题自动跟随**，不要再抄 cmlab 里那套写死的 `#fde68a` / `#7c3aed`。
+2. 收敛滚动：`.editor { overflow-y:auto }`（`style.css:668`）与 CM 内部 `.cm-scroller` 会形成双滚动条，
+   要改成一个（通常是外层不滚、交给 `.cm-scroller`，CM 才能做视口内渲染与滚动锚定）。
+3. `index.html` 加一条 `<link rel="stylesheet" href="/css/cm.css">`（放在 `style.css` 之后）。
+4. 验收：`npm run dev` 后**同一篇 demo-vault 笔记**在明/暗两主题下截图，与 `p4-cm-app.png` 对比，
+   确认标题层级、链接颜色、表格边框、图片框、行号槽都正常。
+
+#### B. `?engine=block` pin 清单（共 **17 处**，已定位到行）
+
+```
+asset-test.mjs:108   backspace-test.mjs:49   design-check.mjs:31   draw-test.mjs:61
+e2e.mjs:109          enter-test.mjs:49       features-test.mjs:46  gap-test.mjs:52
+img-probe.mjs:37     layout-test.mjs:49      menu-test.mjs:69      polish-test.mjs:46
+roundtrip-test.mjs:55 tabs-test.mjs:58       trash-test.mjs:47     ui-ux-test.mjs:68
+ui-vault-test.mjs:46
+```
+
+其余会开浏览器的套件：`engine-test.mjs:100` = `?engine=cm`（已是 cm）；
+`cmlab-test.mjs:54` = `cmlab.html`（纯探针页）；`sync-ui-test.mjs:72` = 同步服务页（与编辑内核无关）；
+`merge/sync/lan` 不开页面（纯 API）。→ **只有上面 17 个文件需要参数化**。
+
+#### C. 5 个优先文件：哪些断言「块级专用」、哪些「可改 cm 口径」
+
+cm 侧的可用断言面（先记牢，改写时只用这些）：
+
+| 断言面 | 说明 |
+|---|---|
+| `window.__editor.getContent()` | **权威文本**（cm 的 doc），`app.js:1692` 注入，两内核都有 |
+| `window.__editor.view` / `view.state` | 选区（`state.selection.main.head`）、`doc.lineAt`、`doc.lines` |
+| `window.__tracery.editor.getContent()` | 同上（`app.js:66`，块级时代就有的老钩子，两内核都在，**polish 的撤销断言可直接复用**） |
+| `.cm-line` | 每一行（`.md-blank` 的位置由「**文本为空的行**」取代） |
+| `.cm-lp-h1/h2/h3/h4-h6` | 标题行装饰 |
+| `.cm-lp-wikilink` / `.cm-lp-tag` | 双链 / 标签（**span，不是 `<a>`，没有 `dataset.target`**，点击走 `widgets.js` 的 `domEventHandlers`） |
+| `.cm-lp-cb`（`input.cm-lp-cb`） | 复选框 widget |
+| `.cm-lp-img`（+ `.embed-image` / `.embed-file` / `.cm-lp-img-grip`） | 图片 / 附件 widget |
+| `.cm-lp-callout` / `.cm-lp-callout-title` / `.cm-lp-callout-body` | Callout |
+| `.cm-lp-tr` / `.cm-lp-tr-head` / `.cm-lp-tbl` | 表格**行装饰**（不是 `<table>`/`<td>`） |
+| `.cm-lp-note` | `![[笔记]]` 嵌入卡片 |
+| `.cm-lineNumbers` / `.cm-gutterElement` | 行号槽（**过滤 CM 那个 `visibility:hidden` 的 `9999` 测量元素**，P0 发现 3） |
+
+**e2e.mjs（15 条）**——块级专用 4 处：
+
+- `#3` 渲染断言：`h1` / `a.wikilink` / `li.task-list-item input[type=checkbox]` / `.callout` / `pre code` / `table`
+  → 前 4 个换成 `.cm-lp-h1` / `.cm-lp-wikilink` / `input.cm-lp-cb` / `.cm-lp-callout`；
+  **`pre code` 与 `table` 在 cm 下没有对应元素**（代码就是普通行、表格是行装饰），
+  这两条改成「`.cm-lp-tr` 行数 ≥ 1」并把 `pre` 断言放宽/去掉。
+- `#4` 输入：用 `live.lastElementChild` + DOM Range 落光标 → 改 `page.click('#editor-live .cm-content')` +
+  `Ctrl+End` + `typeText`（`engine-test.mjs:147-149` 已是现成写法）。
+- `#5` 点双链：`a.wikilink[data-target]` → 按文本找 `.cm-lp-wikilink` 再 click。
+- `#11` 未解析双链 `.wikilink.unresolved` → **先确认 cm 侧有无对应的 unresolved 变体 class**
+  （`decorations.js` 的 wikilink 装饰）；没有就补上，或本条按引擎门控。
+- `#1/#2/#6–#10/#12` 与内核无关，原样保留。
+
+**enter-test.mjs（9 条）**——断言本身是**内容级**的（`readNote()` 读盘比 md），**只有「驱动」要改**：
+
+- 三个 helper `caretAtEndOf('p'|'li')` / `caretAtTextOffset()` 依赖 `#editor-live p/li` + DOM Range
+  → cm 下换成「**按 md 偏移放光标**」：`view.dispatch({ selection: EditorSelection.cursor(离线算出的 offset) })`
+  或 `Ctrl+End` + 方向键。
+- `⑨`「点段落间空白 → 落在空行、输入留在那一行」是**块级专用**（`.md-blank` + 几何点击）
+  → cm 下「空行就是一行」，改为点空的 `.cm-line`（或按偏移放光标），落盘断言不变。
+
+**gap-test.mjs（8 条）**——整篇围绕「`.md-blank` 占位段」，cm 下**前提消失**：
+
+- cm 等价物：`.md-blank` → **空的 `.cm-line`**；「点空行布局不跳」→ 可留作「行数/`scrollTop` 稳定」；
+  「光标落在空行」→ 读 `state.selection.main.head` 所在 `doc.line` 的文本是否为空。
+- 嫌成本高就**门控**：`if (ENGINE === 'block')` 做 ①③⑤⑦，cm 下只跑能成立的子集。
+
+**polish-test.mjs（15 条）**——改动最小：
+
+- ①③④⑤ 撤销/分步/redo 分支走 `window.__tracery.editor.getContent()`，**可直接复用**；
+  仅 ② 的 **`Ctrl+Shift+Z` 在 cm 下不触发**（7.8 结论 1）→ 改 `Ctrl+Y`。
+- ⑥ 行号：`.live-gutter .ln` → `.cm-lineNumbers .cm-gutterElement`（记得过滤 `9999` 测量元素）；
+  「文末空行也编号」在 cm 下天然成立，断言可保留。
+- ⑦ 行号开关：`.live-gutter.hidden` → `.cm-lineNumbers` 有无（`engine-test.mjs:190` 现成断言 off=0/on=1）。
+- ⑧ 菜单：文件树菜单与本项无关；`textMenu` 段把 `ed.querySelectorAll('p')` 换 `.cm-line`，
+  右键目标换 `.cm-content`。
+
+**menu-test.mjs（7 条）**——菜单项本身是本套件主要断言对象（与内核无关），只要**右键目标与选区**改对：
+
+- ① 文本菜单：`rightClickOn('#editor-live p:not(.md-blank)')` → `.cm-line`；「标题 1」「加粗」的执行体是
+  editor 方法（`setLinePrefix` / `wrapSelection`），**cm 已实现**。
+- ①b 加粗选区：现在用 `#editor-live h1:last-of-type` + DOM Range → 改成按 md 偏移设选区。
+- ② 图片菜单：`rightClickOn('#editor-live img')` → `.cm-lp-img img`；「移除图片」走
+  `editor.removeImageAt(el)`（`engine.js:261` 有 `closest('.cm-lp-img')`）——但**需先读 `app.js` 的
+  contextmenu 分支，确认图片判定能命中 `.cm-lp-img`**（否则要补一个分支）。
+- ③④⑤（侧栏折叠 / PDF 浮层 / 文件树菜单）与内核无关。
+
+#### D. 参数化配方（17 个套件统一照抄）
+
+```js
+const ENGINE_PARAM = process.env.TRACERY_TEST_ENGINE || 'block';   // 默认仍是 block（= 块级回归网）
+const IS_CM = ENGINE_PARAM === 'cm';
+await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil: 'networkidle0' });
+```
+
+- 建议新增 `test/_engine-helpers.mjs`，提供 5 个原子操作，避免 5 个套件各写一份：
+  `getMd(page)` / `setCaretAtOffset(page, offset)` / `setSelection(page, anchor, head)` /
+  `lineText(page, n)` / `clickLine(page, n)`；块级分支用 DOM + Range，cm 分支用 `view.dispatch`。
+- **跑法**（两条都要绿才算完成）：
+  `npm run test:enter`（默认 block）+ `$env:TRACERY_TEST_ENGINE='cm'; npm run test:enter`（cm）。
+- 跑 cm 口径时**注意 git 污染**：`test/screenshots/*.png` 会被重写、`demo-vault` 可能被写坏
+  （7.7 结论 6 的块级序列化 bug）——跑完 `git checkout -- <被改的文件>` 复原，别提交。
+
+#### E. 打包发布（沿用 7.8 结论 5，未解决）
+
+`npm run dist:dir` 在本机失败：electron-builder 解压 `winCodeSign` 缓存需要**创建符号链接的权限**
+（`Cannot create symbolic link … : 客户端没有所需的特权`）。**既有环境问题，非本次改动引入**。
+可按顺序试：① `$env:CSC_IDENTITY_AUTO_DISCOVERY='false'` 后重跑；② 让用户开启 Windows 开发者模式后重跑；
+③ 换了能建符号链接的环境再跑 `npm run dist:dir && npm run release`。仍失败就如实记录，别卡住。
+
+#### F. 建议执行顺序
+
+1. **A**：把 cmlab 的 CM 样式搬进 app（新建 `public/css/cm.css` + `index.html` 引一行 + 收敛滚动），
+   明暗主题各截一张图验收。
+2. 新建 `test/_engine-helpers.mjs`（D 的 5 个原子操作）。
+3. 改 **polish → menu → enter → gap → e2e**（由易到难），每改一个就跑**双引擎**两遍。
+4. 把剩余 12 个套件按 D 参数化（大多只改 goto 那一行 + 少量选择器）。
+5. 全量回归：`test:cmlab` / `test:engine` / `test:e2e` + 其余套件（默认 block 一遍、`TRACERY_TEST_ENGINE=cm` 一遍）。
+6. **E**：打包发布（具备权限的环境）。
+7. 结论写回本文件（7.10），并按第 8 节收尾。
+
 ---
 
 ## 8. 下个会话从这里开始
@@ -684,22 +836,30 @@ backspace/ui/ux/sync/sync-ui/lan/merge）全绿。
    全量套件绿，结论 7.7 含 6 个关键结论）；
    **P5（部分）✅ 完成（cm 默认路径功能覆盖补齐）**（app.js 加 `window.__editor` 钩子；engine-test 扩到 12 条：
    撤销重做/行号开关/Enter 续任务，全过；`dist:dir` 因本机符号链接权限受阻，见结论 5）
-4. **剩余（P5 收尾）**——① 用 `window.__editor` 把 `test/enter`、`test/gap`、`test/polish`、`test/menu`、`test/e2e`
-   的块级 DOM 断言改写成 cm 口径（或「双引擎各跑一遍」），让默认路径不再是「只有 engine-test 覆盖」；
-   ② 在具备符号链接权限（或开启 Windows 开发者模式）的环境跑 `npm run dist:dir` + `npm run release`
+4. **剩余（P5 收尾）—— 详细工单见 7.9，照它做即可，不必重新调研**：
+   ① **先补样式**（7.9-A，优先级最高）：cm 默认路径在真实 app 里没有 CM 样式（`.cm-lp-*` 只在 cmlab.html），
+   要把 cmlab 的样式搬进 `public/css/cm.css` 并改用 app 的 CSS 变量（明暗主题跟随）+ 收敛双滚动条；
+   ② 新增 `test/_engine-helpers.mjs`，把 17 个 pin `?engine=block` 的套件参数化成
+   `TRACERY_TEST_ENGINE`（默认 block 仍作回归网），并按 7.9-C 逐条改写块级断言（5 个优先套件：
+   polish → menu → enter → gap → e2e，双引擎各跑一遍）；
+   ③ 全量回归后在具备符号链接权限（或开启 Windows 开发者模式）的环境跑 `npm run dist:dir` + `npm run release`
+   （7.9-E）
 5. 发布后保留 `settings.editorEngine` 一键回退；后续小迭代（块级嵌入露源码、Callout 正文行内偏移、
    块级序列化 bug）见 7.4/7.5/7.7 边界
 
 ### 给用户的开场提示词（可直接粘贴）
 
 ```
-读 docs/EDITOR-MIGRATION.md（编辑区内核迁移交接），收尾 P5：把套件口径改写到 cm + 打包发布。
-现状：默认内核已是 cm（7.7）；engine-test 已覆盖 cm 默认路径 12 条断言（7.8，含 window.__editor 钩子）；
-块级套件仍 pin ?engine=block；dist:dir 在本机因符号链接权限失败。
-本轮：
-① 用 window.__editor（getContent()/view）把 test/enter / test/gap / test/polish / test/menu / test/e2e 的
-   块级 DOM 断言改写成 cm 口径，或让这些套件对两个引擎各跑一遍（TRACERY_TEST_ENGINE 环境变量切换）；
-② 全量套件回归（test:cmlab / test:engine / test:e2e + 其余 15 套）；
-③ 在具备符号链接权限的环境跑 npm run dist:dir + npm run release；
-④ 结论写回文档第 7 节（7.9）。
+读 docs/EDITOR-MIGRATION.md 的 7.9（本轮交接快照），收尾 P5。7.9 已经做完盘点，照着做即可，不用重新调研。
+现状：默认内核已是 cm（7.7）；cm 默认路径只有 test:engine 的 12 条冒烟覆盖（7.8）；
+17 个套件硬 pin ?engine=block；dist:dir 在本机因符号链接权限失败。
+本轮按 7.9-F 的顺序：
+① 先补样式（7.9-A，最高优先级）：真实 app 完全没有 CM 样式（全套 .cm-lp-* 只定义在 cmlab.html），
+   把 cmlab 的 CM 样式抽成 public/css/cm.css、改用 app 的 CSS 变量（明暗主题跟随）、
+   index.html 引入，并收敛 .editor 与 .cm-scroller 的双滚动条；
+② 新增 test/_engine-helpers.mjs，把 17 个 pin ?engine=block 的套件参数化成 TRACERY_TEST_ENGINE
+   （配方见 7.9-D，默认仍 block 作回归网）；
+③ 按 7.9-C 的逐条对照，改写 polish → menu → enter → gap → e2e 的块级断言，每个跑双引擎两遍；
+④ 全量回归；⑤ 具备符号链接权限的环境跑 npm run dist:dir + npm run release（7.9-E）；
+⑥ 结论写回文档第 7 节（7.10）并提交推送。
 ```
