@@ -233,8 +233,13 @@ async function main() {
       [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('任务'))?.click();
     });
     await sleep(900);
-    await page.click('#editor-live .cm-content');
-    await page.keyboard.press('End');
+    // 光标直接落到任务行末：.cm-content 下沿有 40vh 空白内边距（供滚过文末），
+    // 点击其几何中心会落进空白里的末行，Enter 就不再「续任务列表」了。
+    await page.evaluate(() => {
+      const ed = window.__editor;
+      ed.view.dispatch({ selection: { anchor: ed.view.state.doc.line(1).to } });
+      ed.view.focus();
+    });
     await page.keyboard.press('Enter');
     await sleep(500);
     const taskDoc = await page.evaluate(() => window.__editor.getContent());

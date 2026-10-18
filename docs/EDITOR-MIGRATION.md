@@ -816,6 +816,75 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
 6. **E**：打包发布（具备权限的环境）。
 7. 结论写回本文件（7.10），并按第 8 节收尾。
 
+### 7.10 P5 收尾 · 第一轮（2026-10-18 · **cm 样式补全 + 双内核测试基建 + 3 个真缺陷修复**）
+
+**范围约定**：本轮按 7.9-F 的顺序做，但只做到「样式 + 前 4 个套件」为止（用户到点收工，
+其余留到下一轮）。7.9-B 说的 17 个 pin 里，本轮只参数化了 polish/menu/enter/gap 四个，
+其余 12 个 + e2e 下一轮继续（见下面「剩余待办」）。
+
+**交付物**
+
+| 文件 | 内容 |
+|---|---|
+| `public/css/cm.css`（新增） | 从 `cmlab.html` 抽出整套 CM 样式：`.cm-editor/.cm-scroller/.cm-content/.cm-gutters` 基础 + 全套 `.cm-lp-*`（标题/行内/表格/Callout/图片框/复选框/笔记卡片）。**全部改用 app 的 CSS 变量**（`--text-*` / `--accent` / `--link` / `--tag` / `--mark` / `--bg-code` / `--hairline` / `--r-*` / `--font-*`），明暗主题自动跟随 |
+| `public/index.html` | `style.css` 之后加一行 `<link rel="stylesheet" href="/css/cm.css">` |
+| `test/_engine-helpers.mjs`（新增） | 双内核测试助手：`ENGINE` / `IS_CM` / `engineUrl` + 10 个原子操作（`getMd` / `setCaretAtOffset` / `setSelection` / `lineText` / `clickLine` / `caretAtEndOfText` / `gutterNumbers` / `gutterVisible` …） |
+| `test/polish-test.mjs`、`menu-test.mjs`、`enter-test.mjs`、`gap-test.mjs` | 按 7.9-D 参数化（`engineUrl`），块级专用断言按 7.9-C 逐条改写成 cm 口径或门控 |
+| `public/js/cm/engine.js` | 右键保选区（缺陷 ①） |
+| `public/js/cm/editing.js` | 空列表项/空引用回车退出（缺陷 ②） |
+| `test/screenshots/p5-cm-light.png` / `p5-cm-dark.png`（新增） | 7.9-A 的验收截图：同一篇 demo-vault 笔记（Markdown 语法）明/暗各一张 |
+
+**样式（7.9-A）的 3 个技术点**
+
+1. **滚动收敛**：`#editor-live:has(> .cm-editor) { overflow: hidden; padding: 0 }`——cm 模式下外层
+   不滚、不 padding，滚动全交 `.cm-scroller`（`:has()` 精确命中，块级内核不受影响）。
+   原 `.editor` 的 `padding: 26px 48px 40vh` 挪到 `.cm-content`，`40vh` 仍保留「滚过文末」的手感。
+2. **行号槽不能自己加 padding-top**：CM 的 gutter **会跟随** content 的 padding 定位
+   （实测：`.cm-content { padding-top: 26px }` 后，第 1 行的 gutter 元素 top 已经等于标题行 top）。
+   若再给 `.cm-gutters` 加 `padding-top: 26px`，行号会整体下移 26px（Δ=26 实测抓到的）。
+3. **`.cm-widgetBuffer` 会撑高行盒**（见缺陷 ③）。
+
+**实测**：`test:engine` 12/12 全过、无页面错误；`test:polish` / `test:menu` / `test:enter` / `test:gap`
+**双引擎各跑一遍全绿**（默认 block + `TRACERY_TEST_ENGINE=cm`）。
+
+**本轮抓到并修掉的 3 个真缺陷（都是 cm 与块级/Obsidian 的行为差）**
+
+1. **右键点在选区内会把 CM 选区收拢成光标**（`cm/engine.js`）：浏览器默认的 `mousedown` 会把
+   contenteditable 的插入点挪到点击处，CM 的 observer 随即把 `state` 选区降到点击点 → 右键菜单里
+   「加粗/斜体」这类 `wrapSelection` **全部落空**（实测加粗变成在光标处插了一对空 `****`）。
+   修法：`contentDOM` 上加 `mousedown`，`button===2` 且 `posAtCoords` 落在当前选区内 → `preventDefault`。
+   **注意**：判据要落在**选区内**才拦；点在选区的视觉起点（隐藏标记那一侧）会退回边界外，
+   测试里的点击坐标要用 `coordsAtPos` 取（`r.left + 12` 这种估算会命中边界外、拦不住）。
+2. **空列表项/空引用回车在 cm 里不退出列表**（`cm/editing.js`）：CM 内置
+   `insertNewlineContinueMarkup` 只在「列表首项」或「前一行是空行」时才去标记；像 `- 甲` 下面续出来的
+   空 `- ` 项它会**插一条空行把列表变成 loose list**，并不退出。已补与 `editor.js._handleEnter`
+   一致的分支：整行就是标记（`^\s*([-*+]|\d+\.)\s*$` / `^\s*>\s*$`）→ 清空该行。
+3. **`.cm-widgetBuffer` 撑高行盒**（`cm.css`）：CM 用 `.cm-widgetBuffer`（一个 `height: 1em` 的
+   inline `<img>`）标记「被 replace 掉的隐藏区间」的替换位。在 2em 的标题行上，1em=32px 的 img
+   把行高从 **57px 撑到 80px** → 光标进出标题时**整篇内容跳一下**（gap 套件 ② 抓到的就是这个）。
+   修法：`#editor-live .cm-widgetBuffer { height: 0 }`（这些区间视觉上就是零宽零高）。
+
+**并行记录的一条已知差异（不修，按引擎分别断言）**：块级内核在「续列表项」时会**多留一条文末空行**
+（`- 甲\n- 乙\n\n`，cm 是 `- 甲\n- 乙\n`）——按一次回车本该只多一行，块级多出的是序列化副作用。
+`test/enter` 第 ④ 条已按引擎分别给期望值。
+
+**剩余待办（下一轮）**
+
+1. **e2e + 其余 12 个套件**按 7.9-D 参数化：`asset / backspace / design-check / draw / features /
+   img-probe / layout / roundtrip / tabs / trash / ui-ux / ui-vault`。**注意 7.9-B 的「大多只改 goto」
+   偏乐观**：`backspace`（`.live-gutter` + `#editor-source` 的 value）、`features`（`.tok-*` + `pre code` +
+   `td`）、`layout`（源码模式的 `#editor-source`）、`ui-vault`（`#editor-live h1/h2/p`）、
+   `ui-ux`（`img.md-image`）这几条**硬依赖块级 DOM**，cm 下需要门控或等价改写；
+   其余（asset/design-check/draw/roundtrip/tabs/trash）与内核无关，改 goto 即可。
+2. e2e 的 4 处（7.9-C 已列）：渲染断言换 `.cm-lp-*`；输入驱动换 `page.click('.cm-content') + Ctrl+End`；
+   点双链换 `.cm-lp-wikilink`；#11 未解析双链**cm 侧没有 unresolved 变体类**（`decorations.js` 的
+   wikilink 装饰不带解析信息）→ 本轮未动，下一轮二选一：给 cm 补 unresolved 类，或该条按引擎门控。
+3. 全量双引擎回归；`npm run dist:dir` + `npm run release`（需符号链接权限，见 7.9-E）。
+4. 收尾后按第 8 节更新。
+
+复跑：`npm run test:engine` + `npm run test:polish` / `test:menu` / `test:enter` / `test:gap`
+（+ `$env:TRACERY_TEST_ENGINE='cm'` 各一遍）。
+
 ---
 
 ## 8. 下个会话从这里开始
@@ -836,13 +905,12 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
    全量套件绿，结论 7.7 含 6 个关键结论）；
    **P5（部分）✅ 完成（cm 默认路径功能覆盖补齐）**（app.js 加 `window.__editor` 钩子；engine-test 扩到 12 条：
    撤销重做/行号开关/Enter 续任务，全过；`dist:dir` 因本机符号链接权限受阻，见结论 5）
-4. **剩余（P5 收尾）—— 详细工单见 7.9，照它做即可，不必重新调研**：
-   ① **先补样式**（7.9-A，优先级最高）：cm 默认路径在真实 app 里没有 CM 样式（`.cm-lp-*` 只在 cmlab.html），
-   要把 cmlab 的样式搬进 `public/css/cm.css` 并改用 app 的 CSS 变量（明暗主题跟随）+ 收敛双滚动条；
-   ② 新增 `test/_engine-helpers.mjs`，把 17 个 pin `?engine=block` 的套件参数化成
-   `TRACERY_TEST_ENGINE`（默认 block 仍作回归网），并按 7.9-C 逐条改写块级断言（5 个优先套件：
-   polish → menu → enter → gap → e2e，双引擎各跑一遍）；
-   ③ 全量回归后在具备符号链接权限（或开启 Windows 开发者模式）的环境跑 `npm run dist:dir` + `npm run release`
+4. **剩余（P5 收尾）—— 详细工单见 7.9（未做完的部分以 7.10「剩余待办」为准）**：
+   ✅ ① **样式已补**（7.9-A）：`public/css/cm.css` + `index.html` 引入 + 滚动收敛，
+   明暗验收截图 `test/screenshots/p5-cm-{light,dark}.png`（结论见 7.10）；
+   ✅ ② `test/_engine-helpers.mjs` 已落地，**polish / menu / enter / gap 四个套件已参数化并双引擎全绿**；
+   ⏳ ③ 剩余：**e2e + 其余 12 个套件**参数化（有几条硬依赖块级 DOM，要门控或改写）；
+   全量回归后在具备符号链接权限（或开启 Windows 开发者模式）的环境跑 `npm run dist:dir` + `npm run release`
    （7.9-E）
 5. 发布后保留 `settings.editorEngine` 一键回退；后续小迭代（块级嵌入露源码、Callout 正文行内偏移、
    块级序列化 bug）见 7.4/7.5/7.7 边界

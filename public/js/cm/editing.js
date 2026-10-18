@@ -34,6 +34,17 @@ export const continueMarkupOrTask = ({ state, dispatch }) => {
   const r = state.selection.main;
   if (state.selection.ranges.length === 1 && r.empty) {
     const line = state.doc.lineAt(r.from);
+    // 空列表项 / 空引用回车 = 退出（对齐 editor.js._handleEnter 的既定行为）：
+    // CM 内置的 insertNewlineContinueMarkup 只在「列表首项」或「前一行是空行」时才去标记，
+    // 像 `- 甲` 下面续出来的空 `- ` 项它会插一条空行、把列表变成 loose list，并不退出。
+    if (/^\s*(?:[-*+]|\d+\.)\s*$/.test(line.text) || /^\s*>\s*$/.test(line.text)) {
+      dispatch(state.update({
+        changes: { from: line.from, to: line.to },
+        selection: EditorSelection.cursor(line.from),
+        scrollIntoView: true, userEvent: 'delete',
+      }));
+      return true;
+    }
     const m = TASK_ITEM_RE.exec(line.text);
     if (m) {
       const markupEnd = line.from + m[0].length;

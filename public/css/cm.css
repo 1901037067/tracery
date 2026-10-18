@@ -1,0 +1,209 @@
+/* ==========================================================================
+   Tracery · CodeMirror 6 内核样式（cm.css）
+   --------------------------------------------------------------------------
+   从探针页 public/cmlab.html 的样式段抽出，但**全部改用 app 的 CSS 变量**
+   （--text-primary / --accent / --link / --hairline / --r-* / --font-* …
+   来自 themes/*.css），因此明暗主题自动跟随，不再有写死的色值。
+
+   只在 cm 内核下生效：选择器统一挂在 #editor-live 下（块级内核不产生
+   .cm-* DOM，互不干扰）。装载顺序：style.css 之后（见 index.html）。
+   ========================================================================== */
+
+/* ---------- ① 挂载点与滚动收敛 ----------
+   块级内核里 .editor 是滚动容器（overflow-y:auto + 大 padding）；cm 内核的
+   滚动发生在 CM 内部的 .cm-scroller。两者同时滚会出**双滚动条**，并且会破坏
+   CM 的视口内渲染与滚动锚定。所以 cm 模式下：外层不滚、不 padding，滚动全交
+   .cm-scroller（:has() 精确命中，块级内核不受影响）。 */
+#editor-live:has(> .cm-editor) {
+  overflow: hidden;
+  padding: 0;
+}
+/* CM 根节点撑满挂载点；max-width/居中仍由 style.css 的 `.editor > *` 提供 */
+#editor-live > .cm-editor { height: 100%; }
+#editor-live .cm-editor.cm-focused { outline: none; }
+
+/* CM 用 .cm-widgetBuffer（一个 1em 高的 inline <img>）标记「被替换掉的隐藏区间」的位置。
+   它的高度会撑高行盒：在 2em 的标题行上实测让行高从 57px 变成 80px——光标进出标题时
+   整篇内容会跳一下（gap 套件 ② 抓到的正是这个）。这些隐藏区间视觉上就是零宽零高，压平它。 */
+#editor-live .cm-widgetBuffer { height: 0; }
+
+/* CM 默认 .cm-scroller 是 monospace + line-height 1.4；这里交还正文排版 */
+#editor-live .cm-scroller {
+  font-family: inherit;
+  line-height: inherit;
+}
+/* .cm-line 默认 padding: 0 2px 0 6px，与下面的内容内边距叠加后左边会多 6px */
+#editor-live .cm-line { padding: 0; }
+
+/* 正文内边距：上 26px 对齐块级 .editor、右 48px 留白、下 40vh 供滚过文末。
+   左侧 40px 与行号槽隔开（无行号时也保持同一缩进，写法与 .editor-source 一致）。 */
+#editor-live .cm-content {
+  padding: 26px 48px 40vh 40px;
+  caret-color: var(--accent);
+}
+
+/* 行号槽：透明底 + 发丝右线 + 单色小字（CM 默认主题给的是浅灰底 + 深灰字，
+   在暗色主题下会突兀，这里用 app 变量统一压掉） */
+#editor-live .cm-gutters {
+  background: transparent;
+  border-right: 1px solid var(--hairline);
+  border-left: none;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  user-select: none;
+}
+#editor-live .cm-lineNumbers .cm-gutterElement {
+  padding: 0 12px 0 16px;
+  min-width: 26px;
+}
+
+/* 光标：CM 默认黑色，改用强调色（块级 .editor 的 caret-color 同理） */
+#editor-live .cm-cursor,
+#editor-live .cm-dropCursor { border-left-color: var(--accent); }
+
+/* ---------- ② 行内样式装饰（public/js/cm/decorations.js 产出） ---------- */
+.cm-lp-bold { font-weight: 650; }
+.cm-lp-em { font-style: italic; }
+.cm-lp-del { text-decoration: line-through; color: var(--text-tertiary); }
+.cm-lp-mark { background: var(--mark); border-radius: 4px; }
+.cm-lp-code {
+  font-family: var(--font-mono);
+  font-size: 0.87em;
+  background: var(--bg-code);
+  color: var(--code-text);
+  border-radius: 5px;
+  padding: 0.16em 0.42em;
+}
+.cm-lp-wikilink {
+  color: var(--link);
+  cursor: pointer;
+  text-decoration: none;
+  border-radius: 4px;
+  transition: background var(--dur) var(--ease);
+}
+.cm-lp-wikilink:hover { background: var(--accent-soft); }
+.cm-lp-embed {
+  color: var(--link);
+  background: var(--accent-soft);
+  border-radius: 3px;
+  padding: 0 3px;
+  cursor: pointer;
+}
+.cm-lp-tag {
+  color: var(--tag);
+  background: var(--tag-soft);
+  border-radius: var(--r-full);
+  padding: 0.08em 0.55em;
+  font-size: 0.86em;
+  cursor: pointer;
+}
+.cm-lp-tag:hover { background: color-mix(in srgb, var(--tag) 22%, transparent); }
+.cm-lp-marker { color: var(--text-tertiary); }
+.cm-lp-fence { color: var(--text-tertiary); }
+.cm-lp-hr { border-top: 1px solid var(--hairline); }
+
+/* ---------- ③ 行级装饰：标题 ----------
+   字号/字重与块级 .markdown-body h1..h6 对齐（同一套视觉层级）。
+   CM 自带的 defaultHighlightStyle 会给 heading 加下划线（Obsidian 没有），
+   这里连同内部高亮 span 一起抹掉。 */
+[class*="cm-lp-h"] { text-decoration: none; }
+[class*="cm-lp-h"] * { text-decoration: none; }
+.cm-lp-h1 { font-family: var(--font-display); font-size: 2em; font-weight: 650; letter-spacing: -0.022em; }
+.cm-lp-h2 { font-family: var(--font-display); font-size: 1.52em; font-weight: 650; letter-spacing: -0.022em; }
+.cm-lp-h3 { font-family: var(--font-display); font-size: 1.26em; font-weight: 650; letter-spacing: -0.022em; }
+.cm-lp-h4 { font-family: var(--font-display); font-size: 1.1em; font-weight: 650; }
+.cm-lp-h5 { font-family: var(--font-display); font-size: 1em; font-weight: 650; }
+.cm-lp-h6 { font-family: var(--font-display); font-size: 0.94em; font-weight: 650; color: var(--text-secondary); }
+
+/* ---------- ④ 行级装饰：表格 ---------- */
+.cm-lp-tr { background: var(--bg-fill); }
+.cm-lp-tr-head {
+  background: var(--bg-fill);
+  border-top: 1px solid var(--hairline);
+  border-bottom: 2px solid var(--hairline-strong);
+  font-weight: 600;
+}
+
+/* 围栏/分隔行的整行收起占位（fenceHiding StateField 的 ZeroWidget） */
+.cm-lp-zero { height: 0; overflow: hidden; }
+
+/* ---------- ⑤ 块级 widget（public/js/cm/widgets.js 产出） ---------- */
+/* 图片 / 附件嵌入 */
+.cm-lp-img {
+  position: relative;
+  display: inline-block;
+  margin: 6px 0;
+  padding: 4px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-fill);
+}
+.cm-lp-img img { display: block; max-width: 100%; border-radius: 4px; }
+.cm-lp-img-grip {
+  position: absolute;
+  right: 2px; bottom: 2px;
+  width: 14px; height: 14px;
+  border-radius: 3px;
+  background: var(--accent);
+  opacity: 0.75;
+  cursor: nwse-resize;
+}
+.cm-lp-img-grip:hover { opacity: 1; }
+.cm-lp-img.embed-file {
+  border-style: solid;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+}
+.cm-lp-img-missing { color: var(--danger); font-size: 12px; }
+
+/* 复选框（任务列表） */
+#editor-live input.cm-lp-cb {
+  accent-color: var(--accent);
+  width: 16px; height: 16px;
+  margin: 0 5px 0 0;
+  vertical-align: -2px;
+  cursor: pointer;
+}
+
+/* Callout：底色与左侧色条按类型区分，与块级 .callout 的配色保持一致 */
+.cm-lp-callout {
+  border-left: 3px solid var(--accent);
+  background: var(--bg-fill);
+  padding-left: 8px;
+}
+.cm-lp-callout-title { font-weight: 650; }
+.cm-lp-callout-body { color: var(--text-secondary); }
+.cm-lp-callout-note { background: rgba(91, 141, 239, 0.10); border-left-color: #3b74d1; }
+.cm-lp-callout-tip { background: rgba(52, 199, 89, 0.10); border-left-color: #1f9d45; }
+.cm-lp-callout-warning { background: rgba(255, 159, 10, 0.12); border-left-color: #b26a00; }
+.cm-lp-callout-danger { background: rgba(255, 59, 48, 0.10); border-left-color: #d32b20; }
+.cm-lp-callout-info { background: rgba(50, 173, 230, 0.10); border-left-color: #1d7fa8; }
+.cm-lp-callout-example { background: rgba(175, 82, 222, 0.10); border-left-color: #8e44ad; }
+[data-theme="dark"] .cm-lp-callout-note { background: rgba(91, 141, 239, 0.14); border-left-color: #8fb5ff; }
+[data-theme="dark"] .cm-lp-callout-tip { background: rgba(52, 199, 89, 0.14); border-left-color: #6ce39a; }
+[data-theme="dark"] .cm-lp-callout-warning { background: rgba(255, 159, 10, 0.16); border-left-color: #ffc35c; }
+[data-theme="dark"] .cm-lp-callout-danger { background: rgba(255, 59, 48, 0.16); border-left-color: #ff8a80; }
+[data-theme="dark"] .cm-lp-callout-info { background: rgba(50, 173, 230, 0.16); border-left-color: #7dd3fc; }
+[data-theme="dark"] .cm-lp-callout-example { background: rgba(175, 82, 222, 0.16); border-left-color: #d8b4fe; }
+
+/* 笔记嵌入卡片 ![[笔记]]（P4 引擎适配器） */
+.cm-lp-note {
+  border-radius: var(--r-md);
+  margin: 6px 0;
+  padding: 14px 18px;
+  background: var(--bg-fill);
+}
+.cm-lp-note-title {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.cm-lp-note-body { font-size: 0.92em; }
+.cm-lp-note-body > *:first-child { margin-top: 0; }
+.cm-lp-note-body > *:last-child { margin-bottom: 0; }
+.cm-lp-note-loading { color: var(--text-tertiary); font-size: 12px; }

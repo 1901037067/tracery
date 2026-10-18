@@ -68,6 +68,18 @@ export class CmEditor {
       parent: this.liveEl,
       state: EditorState.create({ doc: '', extensions: this._extensions() }),
     });
+
+    // 右键落在「已有选区」内时保住选区（块级内核同款诉求）：
+    // 浏览器默认的 mousedown 会把 contenteditable 的插入点挪到点击处，CM 的 observer
+    // 随即把 state 选区收拢成光标 → 右键菜单里的「加粗/斜体」等 wrapSelection 全部落空。
+    // 这里在右键且点中选区内时阻止默认，让 CM 的选区原样留给菜单动作。
+    this.view.contentDOM.addEventListener('mousedown', (e) => {
+      if (e.button !== 2) return;
+      const sel = this.view.state.selection.main;
+      if (sel.empty) return;
+      const pos = this.view.posAtCoords({ x: e.clientX, y: e.clientY });
+      if (pos != null && pos >= sel.from && pos <= sel.to) e.preventDefault();
+    });
   }
 
   /* ---------- 扩展装配 ---------- */
