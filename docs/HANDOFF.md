@@ -1,7 +1,10 @@
 # Tracery 交接文档（Handoff）
 
 > 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
-> 最后更新：2026-10-17 20:10（对应代码状态：Tracery 重命名 + 侧栏折叠修复 + 附件管理 + 粘贴/拖拽入库 + Tab 栏搬入标题栏 + 笔记头行删除 + Markdown round-trip 属性测试 + 回车 bug 修复 + 图片直阅/行号/折叠图标）
+> 最后更新：2026-10-18 15:10（对应代码状态：v1.1.0 — 绘图白板重写 / 撤销重做 / 实时预览行号 / 右键菜单紧凑化 / 空行与回车按 Obsidian 语义重做）
+>
+> **⚠️ 下一阶段（已排期）：编辑区内核从「块级实时预览」迁到「行级 CodeMirror 6」**
+> 详见 **`docs/EDITOR-MIGRATION.md`**（目标验收表 / 两条路线 / P0~P5 分阶段 / 必须保留的 API 与 DOM 契约 / 已知坑的处置）。开工前先读那份，别直接在 `editor.js` 上继续打补丁。
 
 ---
 
@@ -147,6 +150,8 @@ test/*.mjs              九个测试套件（见 §2）
    ③ **交互**：pointerdown 分派到 pan / select（缩放柄→resize、命中→move、空白→marquee）/ erase / text / create 五种 drag 模式；形状画完自动切回选择工具并选中它（Excalidraw 默认 lock=off 的手感）。选中时改样式 = 直接改选中元素（`styleForSelected`），并 `adoptSelectionStyle()` 让面板回显。
    ④ **撤销**用整个 `elements` 数组快照，`snapshot()` 里做了 JSON 去重；**文字元素必须在 commitText 时才入历史**——创建时入历史会把「空文本」存进去，撤销时刚打的字全没（踩过）。
    ⑤ 保存：`exportPng()` 只截内容包围盒 + 28px 留白、白底、2 倍超采样；场景存 `{v:2, elements}`。代码块 ```` ``` ```` 围栏这种「源码有、预览没有」的行同理适用于行号跳号。
+
+39. **编辑区内核要换（下一步，别在旧内核上继续堆补丁）**：现在的「块级实时预览」是 `md 唯一真源 + 整篇重建 DOM + 字符偏移光标`，用户已明确要求往 Obsidian 的**行级模型**靠。迁移方案、验收表、分阶段计划、以及「换内核时必须原样保留的 API / DOM / 测试契约」都写在 **`docs/EDITOR-MIGRATION.md`**。一句话：引 CodeMirror 6 做 doc+装饰，`markdown.js` 的 `renderMarkdown/serializeHtml` 保留给导出/嵌入/预览用，`editor.js` 只换内部实现、对外 API 不变。**开工先做 P0 探针页**（`public/cmlab.html`），验证 IME / 行号 / 3000 行性能 / widget 高度变化，再决定全量迁移。
 
 
 ## 6. 已知坑（踩过的，直接抄结论）
