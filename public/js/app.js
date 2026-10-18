@@ -5,6 +5,7 @@
  */
 import { Api, toast, debounce, fuzzyMatch, connectWs } from './api.js';
 import { LiveEditor } from './editor.js';
+import { CmEditor } from './cm/engine.js';
 import { ForceGraph } from './graph.js';
 import {
   initSettings, updateSettings, getSettings, openSettings, close as closeSettings,
@@ -1595,8 +1596,18 @@ function highlightPalette(i) {
   items[paletteIndex].scrollIntoView({ block: 'nearest' });
 }
 
-/* ================= 编辑器装配 ================= */
-const editor = new LiveEditor({
+/* ================= 编辑器装配 =================
+ * 双内核：block（旧块级 contenteditable）/ cm（CodeMirror 6 行级）。
+ * 选择顺序：URL `?engine=cm|block` 覆盖 → 设置 `editorEngine` → 默认 block。
+ * 两个内核实现同一套方法契约（docs/EDITOR-MIGRATION.md 第 5 节），
+ * 所以下面的回调与后文所有 editor.xxx() 调用对二者通用；
+ * cm 额外需要 fileUrl / loadNote / saveAsset（块级内核自带这些，忽略即可）。 */
+const engineOverride = new URLSearchParams(location.search).get('engine');
+const ENGINE = (engineOverride === 'cm' || engineOverride === 'block')
+  ? engineOverride
+  : (getSettings().editorEngine || 'block');
+
+const editor = new (ENGINE === 'cm' ? CmEditor : LiveEditor)({
   liveEl: $('editor-live'),
   sourceEl: $('editor-source'),
   gutterEl: $('source-gutter'),
@@ -1606,6 +1617,31 @@ const editor = new LiveEditor({
     return state.nameIndex.get(clean.toLowerCase()) || null;
   },
   resolveFile: (name) => resolveVaultFile(name),
+  fileUrl: (path) => Api.fileUrl(path),
+  // ![[笔记]] 嵌入卡片的内容解析（与 editor.js 的 _renderEmbed 同口径：截 3000 字）
+  loadNote: async (name) => {
+    const p = resolveVaultFile(name);
+    if (!p) return null;
+    try { const { content } = await Api.note(p); return (content || '').slice(0, 3000); } catch { return null; }
+  },
+  // 附件落盘（与 editor.js 的 _saveAssetFile 同口径；CM 内核把 File 递出来，这里存好后回插）
+  saveAsset: async (file) => {
+    if (file.size > 30 * 1024 * 1024) { toast('文件超过 30MB，无法作为附件存入'); return { ok: false }; }
+    let dataUrl;
+    try {
+      dataUrl = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = () => rej(new Error('读取文件失败'));
+        r.readAsDataURL(file);
+      });
+    } catch (e) { toast(e.message); return { ok: false }; }
+    try {
+      const res = await Api.saveAsset({ data: dataUrl, name: file.name, dir: resolveAssetDir(getSettings(), editor.path) });
+      if (!res?.ok) toast(res?.error || '附件保存失败');
+      return res || { ok: false };
+    } catch (e) { toast(`附件保存失败：${e.message}`); return { ok: false }; }
+  },
   onImageClick: (src, alt) => openLightbox(src, alt),
   onAssetSaved: () => { refreshTree(); },   // 粘贴/拖入的附件立即出现在文件树
   confirmCreate: (name) => askConfirm({
@@ -1644,6 +1680,14 @@ const editor = new LiveEditor({
     $('btn-mode').classList.toggle('is-source', mode === 'source');
   },
 });
+
+// cm 内核的 DOM 收尾：#editor-live 变成 CM 挂载点（CM 自带 contenteditable，
+// 外层容器不能再可编辑）；源码 textarea 不再使用，直接隐藏。
+if (ENGINE === 'cm') {
+  $('editor-live').contentEditable = 'false';
+  const sw = $('source-wrap');
+  if (sw) sw.hidden = true;
+}
 
 // 表格里：Tab / Shift+Tab 在单元格间跳，回车在当前行下方加一行（仿 Obsidian）
 // 用捕获阶段：编辑器自己的 Tab 是「缩进」，必须抢在它前面，并阻止冒泡

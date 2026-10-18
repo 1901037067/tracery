@@ -200,7 +200,7 @@ Obsidian 的「source」就是实时预览编辑视图，「preview」才是阅�
 - 双链/标签的 hover 预览、点击跳转（复用 `editor.js` 的 `_schedulePreview` / `_openWikilink`）
 - 复选框：`Decoration.replace` + widget checkbox，pointerdown 时改 doc
 
-### P4 接回 app.js（1 天）—— 🔶 **第一步「CM 引擎适配器」✅ 完成（2026-10-18），接线(p4-b)待做；结论见 7.5**
+### P4 接回 app.js（1 天）—— 🔶 **P4-1「引擎适配器」✅ + P4-b1「引擎开关接线」✅（默认仍 block）；默认切 cm 待 P4-b2；结论见 7.5 / 7.6**
 - **已做（P4-1）**：`public/js/cm/engine.js` 的 `CmEditor` 实现下方全部契约方法（探针 ⑧ 23 条全过），
   业务依赖全注入、零业务 import；`![[笔记]]` 嵌入卡片也已落地
 - **待做（P4-b）**：
@@ -270,6 +270,7 @@ undo()  redo()  canUndo()  canRedo()   dirty(属性)
 npm run dev                 # 启动服务（默认 9520）
 npm run test:e2e            # 功能回归
 npm run test:cmlab          # CM6 探针（P0–P4：IME/行号/滚动/widget/history/装饰/行内编辑/块级widget/引擎适配器）
+npm run test:engine         # CM 内核真实 app 冒烟（?engine=cm：挂载/渲染/输入落盘/切模式）
 npm run test:roundtrip      # Markdown 往返（换内核后要改成「text ↔ 装饰」等价性）
 npm run test:enter          # 回车行为（换内核后重写）
 npm run test:gap            # 空行/落点（换内核后大部分断言作废）
@@ -529,6 +530,51 @@ Ctrl+B/I/S 包裹选区（`**…**`/`*…*`/`~~…~~`）、Ctrl+B 无选区插�
 
 复跑：`npm run test:cmlab`（8 项探针 + IME 全绿）。
 
+### 7.6 P4-b1 结论（2026-10-18 · 引擎开关接线，**默认仍 block**，基线未动）
+
+**范围约定**：P4-b 全量 = 默认切 cm + 改 DOM 契约 + 重写块级测试。本轮先做「**可切换**」这一层：
+接线 + 真实 app 冒烟测试通过，但**默认仍是 `block`**，所以 18 套件基线（`test:e2e` 15/15）原样绿。
+把默认切到 `cm` 与测试迁移（P5 的一部分）留到 P4-b2。
+
+**交付物**
+
+| 文件 | 内容 |
+|---|---|
+| `public/js/settings.js` | 新增 `editorEngine: 'block'`（默认块级）+ 设置面板「编辑器 → 编辑内核」分段开关（块级 / CM6），一键切回 |
+| `public/js/app.js` | 编辑器改**工厂**：`?engine=cm\|block` 覆盖 → 设置 `editorEngine` → 默认 block；opts 补 `fileUrl/loadNote/saveAsset`（cm 用，块级忽略）；cm 模式收尾（`#editor-live` 置 `contentEditable=false`、隐藏 `#source-wrap`） |
+| `public/index.html` | 补 `<!-- IMPORTMAP -->` 标记并注入 CM vendor importmap（**接线第一坑**，见结论 1） |
+| `test/engine-test.mjs` + `package.json` | 新增 `npm run test:engine`：真实 app 冒烟（`?engine=cm` → 挂载 CM、开笔记、真实键盘输入、自动保存校验、切模式、无页面错误） |
+
+**实测**：`npm run test:engine` **7/7 全过、无页面错误**（CM 挂载、块级 DOM 不出现、标题行装饰 7 条、
+键盘输入落盘、源码模式装饰 0→切回 5、切模式 doc 不变）；`npm run test:e2e` **15/15 仍绿**（默认 block 未回归）。
+
+**P4-b 的 6 个关键结论：**
+
+1. **主页面缺 importmap 是接线的第一坑**：`app.js` 一旦 `import CmEditor`，就会连带 import
+   `@codemirror/*` 等**裸导入名**；`public/index.html` 之前没有 importmap → 模块解析失败 →
+   **整个 app 不启动（白屏，`#app` 一直 hidden）**。修法：给 index.html 加 `IMPORTMAP:BEGIN/END` 标记，
+   跑 `node scripts/build-cmvendor.mjs --html public/index.html` 注入（cmlab 早就有，主页面漏了）。
+   —— 这是「换内核」最容易在地一步就挂掉的地方。
+2. **双内核用「工厂 + 同一套 opts」共存**：`LiveEditor` 与 `CmEditor` 方法契约一致（第 5 节），
+   所以 app.js 的回调与后文所有 `editor.xxx()` 调用**零改动**即可对二者通用；
+   cm 额外需要的 `fileUrl/loadNote/saveAsset` 直接多传几个 key，块级内核忽略未知 opts。
+3. **cm 模式的 DOM 收尾**：`#editor-live` 必须置 `contentEditable=false`（CM 自带 contenteditable，
+   外层容器再可编辑会出现嵌套 contenteditable）；`#source-wrap` 直接隐藏（不再有独立 textarea）。
+4. **默认留 `block`**：切默认会让 `test:enter`/`test:gap`/`test:polish` 里依赖块级 DOM 的断言全红，
+   与「不破坏基线」冲突。所以开关默认 block，cm 通过设置项或 `?engine=cm` 开启（重载笔记生效）。
+5. **app.js 里监听 `#editor-live` 的块级专用 handler 在 cm 下基本无害**：表格 Tab/Enter（找 `td/th`）、
+   点空行落光标（找 `.md-blank`）、右键保住选区——在 cm 的 DOM 下选择器命中不到，**都早退**，不报错。
+   实测冒烟无 pageerror。唯一功能回归：**「编辑器滚动关闭链接预览」会失效**（cm 的滚动发生在内部
+   `.cm-scroller`，`#editor-live` 收不到 scroll）——记入 P4-b2 待办。
+6. **`loadNote`/`saveAsset` 与 editor.js 同口径复刻**（note 截 3000 字；附件 30MB 上限 +
+   FileReader → `Api.saveAsset({data,name,dir})`）。这段逻辑目前两处各一份，P5 可提到 editor.js 共用。
+
+**P4-b2 待办（下一轮）**：① 默认切 `cm`；② 重写 `test/enter`、`test/gap`、`test/polish` 里依赖块级 DOM 的断言；
+③ 修 cm 下的小回归（`#editor-live` 滚动关预览 → 改挂 `.cm-scroller`；右键菜单「移除图片」的图片判定 →
+识别 `.cm-lp-img`）；④ 可选：把 app.js 里块级专用 handler 用 `ENGINE` 判定显式包起来（现在靠选择器早退，够用但不显式）。
+
+复跑：`npm run test:cmlab` + `npm run test:engine` + `npm run test:e2e`。
+
 ---
 
 ## 8. 下个会话从这里开始
@@ -541,23 +587,22 @@ Ctrl+B/I/S 包裹选区（`**…**`/`*…*`/`~~…~~`）、Ctrl+B 无选区插�
    **P3 ✅ 完成（无服务端依赖子集）**（`cm/widgets.js`：图片嵌入+拖宽、复选框、Callout、表格边框、
    双链/标签事件，探针第 ⑦ 项 17 条断言全过，结论 7.4，含 7 个关键结论）；
    **P4-1 ✅ 完成（CM 引擎适配器，未接线）**（`cm/engine.js`：`CmEditor` 实现第 5.2 节全部方法契约 +
-   `![[笔记]]` 嵌入卡片，探针第 ⑧ 项 23 条断言全过，结论 7.5，含 6 个关键结论）
-4. **下一步：P4-b 接线**——① `editor.js` 的 `LiveEditor` 内部换成 `CmEditor`（保留类名/方法/构造参数，
-   把 `Api.saveAsset`/`Api.note`/`Api.fileUrl` 包一层注入引擎）；② 改 app.js 的 DOM 契约（见 5.3）：
-   `#editor-live` 变 CM 挂载点、源码模式不再隐藏 CM、删掉 `#editor-source`/`.source-wrap`；
-   ③ 加 `settings.editorEngine='block'|'cm'` 回退开关；④ 可选修「块级嵌入恒定显示 → 露源码」
-   （P4 结论 6）。**注意 P4-1 已确认引擎契约可用，接线时逻辑零改动，改动集中在 DOM/选择器与测试**
-5. P4-b 完成后 → P5 测试迁移（重写 `test/enter`、`test/gap`、`test/polish` 中依赖块级 DOM 的断言，见第 6 节）
-   → 全量 18 套件回归 → `npm run dist:dir` + `npm run release`
+   `![[笔记]]` 嵌入卡片，探针第 ⑧ 项 23 条断言全过，结论 7.5，含 6 个关键结论）；
+   **P4-b1 ✅ 完成（引擎开关接线，默认仍 block）**（settings `editorEngine` + app.js 工厂 + index.html
+   importmap；新增 `npm run test:engine` 真实 app 冒烟 7/7 全过，`test:e2e` 15/15 未回归，结论 7.6）
+4. **下一步：P4-b2 收尾**——① 把默认切到 `cm`；② 重写 `test/enter`、`test/gap`、`test/polish` 里依赖块级
+   DOM 的断言（第 6 节）；③ 修 cm 下小回归（`#editor-live` 滚动关预览 → 挂 `.cm-scroller`；右键菜单
+   图片判定识别 `.cm-lp-img`）；④ 可选用 `ENGINE` 显式隔离块级专用 handler
+5. P4-b2 完成后 → 全量 18 套件回归 → `npm run dist:dir` + `npm run release`；保留 `settings.editorEngine` 一键回退
 
 ### 给用户的开场提示词（可直接粘贴）
 
 ```
-读 docs/EDITOR-MIGRATION.md（编辑区内核迁移交接），开始 P4-b：把 LiveEditor 接回 CM 内核。
-CmEditor（public/js/cm/engine.js）已验证第 5.2 节契约（探针⑧全过，结论 7.5），本轮做接线：
-① editor.js 的 LiveEditor 内部换成 CmEditor，把 Api.saveAsset / Api.note / Api.fileUrl 包一层注入；
-② 同步改 app.js 的 DOM 契约（5.3）：#editor-live 变 CM 挂载点、源码模式不再隐藏 CM、删 #editor-source 与 .source-wrap；
-③ 加 settings.editorEngine='block'|'cm' 回退开关，默认 'cm'；
-④ 重写 test/enter / test/gap / test/polish 里依赖块级 DOM 的断言；
-跑 npm run test:cmlab + 全量 18 套件回归，结论写回文档第 7 节（7.6）。
+读 docs/EDITOR-MIGRATION.md（编辑区内核迁移交接），开始 P4-b2：把编辑内核默认切到 CM。
+现状：settings.editorEngine 开关与 app.js 工厂已就绪（默认 block），`npm run test:engine` 真实 app 冒烟已过（结论 7.6）。
+本轮：
+① settings.editorEngine 默认改 'cm'；
+② 重写 test/enter / test/gap / test/polish 里依赖块级 DOM（.md-blank、#editor-live p、li、.live-gutter .ln）的断言，改成 CM 口径；
+③ 修 cm 下小回归：#editor-live 滚动关链接预览改挂 .cm-scroller；右键菜单图片判定改识别 .cm-lp-img；
+④ 跑 npm run test:cmlab + test:engine + test:e2e + 全量 18 套件回归，结论写回文档第 7 节（7.7）。
 ```
