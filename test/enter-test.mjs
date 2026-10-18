@@ -154,6 +154,27 @@ check('段尾回车（后面有内容）→ 新空行接住输入',
   (await readNote(abs)) === '# 测试\n\n第一段\n\n新行\n\n第二段\n\n',
   JSON.stringify(await readNote(abs)));
 
+/* ---------- ⑨ 点段落间空白：光标落在上一段末尾，不能跑进标题里 ---------- */
+abs = await openNote('场景九.md', '# 测试\n\n正文段落。\n\n## 小标题\n\n内容\n');
+const gapPt = await page.evaluate(() => {
+  const p = [...document.querySelectorAll('#editor-live p')].find((x) => x.textContent.includes('正文段落'));
+  const h = [...document.querySelectorAll('#editor-live h2')].find((x) => x.textContent.includes('小标题'));
+  const pr = p.getBoundingClientRect();
+  const hr = h.getBoundingClientRect();
+  return { x: pr.left + 120, y: (pr.bottom + hr.top) / 2 - 3 };   // 空隙上半
+});
+await page.mouse.click(gapPt.x, gapPt.y);
+await sleep(300);
+const gapCaret = await page.evaluate(() => {
+  const s = getSelection();
+  const pe = s.anchorNode?.nodeType === 1 ? s.anchorNode : s.anchorNode?.parentElement;
+  return pe?.textContent?.slice(0, 20) || '';
+});
+await page.keyboard.type('补字');
+check('点段落间空白 → 光标落在上一段末尾',
+  gapCaret.includes('正文段落') && (await readNote(abs)) === '# 测试\n\n正文段落。补字\n\n## 小标题\n\n内容\n\n',
+  `${gapCaret} | ${JSON.stringify((await readNote(abs)).slice(0, 40))}`);
+
 check('无渲染错误', errors.length === 0, errors.join(' | '));
 
 await browser.close();

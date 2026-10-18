@@ -289,6 +289,9 @@ body.electron .win-controls { align-self: stretch; align-items: stretch; margin-
 }
 .icon-btn:hover { background: var(--bg-fill-hover); color: var(--text-primary); }
 .icon-btn:active { transform: scale(0.96); }
+/* 该侧栏处于折叠状态：按钮亮起，提示「这里有东西被收起来了」 */
+.icon-btn.is-off { color: var(--accent); background: var(--accent-soft); }
+.icon-btn.is-off:hover { color: var(--accent); background: var(--accent-soft); }
 .icon-btn svg { width: 17px; height: 17px; display: block; }
 
 /* 亮/暗主题图标：暗色只显示月亮，亮色只显示太阳

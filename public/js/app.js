@@ -1216,6 +1216,56 @@ const editor = new LiveEditor({
 // 编辑区右键菜单：文字 / 图片两套（仿 Obsidian）
 $('editor-live').addEventListener('contextmenu', onEditorContextMenu);
 $('editor-source').addEventListener('contextmenu', onEditorContextMenu);
+
+/**
+ * 点段落之间的空白（含文档末尾空白）时的光标落点。
+ * 单空行是段落分隔符，渲染模型里没有实体行（源码模式才有），浏览器默认会把
+ * 光标塞进最近的一个文字节点——实测点正文和标题之间，光标跑进标题，一打字就
+ * 改到标题上。这里改成确定性落点：点空隙上半 → 上一段末尾，下半 → 下一段开头。
+ */
+$('editor-live').addEventListener('mousedown', (e) => {
+  if (e.button !== 0 || e.target !== e.currentTarget) return;
+  const root = e.currentTarget;
+  const blocks = [...root.children].filter((el) => el.offsetHeight > 0);
+  if (!blocks.length) return;
+  let prev = null;
+  let next = null;
+  for (const el of blocks) {
+    const r = el.getBoundingClientRect();
+    if (r.bottom <= e.clientY) prev = el;
+    else if (r.top >= e.clientY && !next) next = el;
+  }
+  let target = null;
+  let atEnd = true;
+  if (prev && next) {
+    const gapMid = (prev.getBoundingClientRect().bottom + next.getBoundingClientRect().top) / 2;
+    atEnd = e.clientY <= gapMid;
+    target = atEnd ? prev : next;
+  } else if (prev) { target = prev; }
+  else if (next) { target = next; atEnd = false; }
+  if (!target || !placeCaretInBlock(target, atEnd)) return;
+  e.preventDefault();
+  root.focus();
+});
+
+/** 把光标放到块的末尾（atEnd）或开头 */
+function placeCaretInBlock(block, atEnd) {
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  let first = null;
+  let last = null;
+  let t;
+  while ((t = walker.nextNode())) { if (!first) first = t; last = t; }
+  if (!first) return false;
+  const node = atEnd ? last : first;
+  const range = document.createRange();
+  range.setStart(node, atEnd ? node.textContent.length : 0);
+  range.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return true;
+}
+
 // 在已选中的文字上右键时保住选区（否则浏览器先折叠选区，「加粗选中文字」就变成插入空标记）
 $('editor-live').addEventListener('mousedown', (e) => {
   if (e.button !== 2) return;
@@ -1350,6 +1400,15 @@ function bindGlobalEvents() {
   $('btn-theme').onclick = toggleTheme;
   $('btn-toggle-left').onclick = () => $('sidebar').classList.toggle('collapsed');
   $('btn-toggle-right').onclick = () => $('sidebar-right').classList.toggle('collapsed');
+  // 折叠状态要看得出来：右栏被折叠时（大纲「消失」了）按钮必须亮起提示，
+  // 否则用户会以为面板出 bug 了
+  const syncSidebarToggles = () => {
+    $('btn-toggle-left').classList.toggle('is-off', $('sidebar').classList.contains('collapsed'));
+    $('btn-toggle-right').classList.toggle('is-off', $('sidebar-right').classList.contains('collapsed'));
+  };
+  new MutationObserver(syncSidebarToggles).observe($('sidebar'), { attributes: true, attributeFilter: ['class'] });
+  new MutationObserver(syncSidebarToggles).observe($('sidebar-right'), { attributes: true, attributeFilter: ['class'] });
+  syncSidebarToggles();
   $('vault-name').onclick = () => openVaultPicker();
 
   // 标签条：滚轮横滚 + 溢出渐隐（标签多了不挤压，滚着看）
