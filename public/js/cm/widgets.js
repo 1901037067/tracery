@@ -20,11 +20,14 @@
  * 与块级模型的业务解耦：本模块不认路径、不认附件库，图片 URL / 是否图片都由调用方注入的
  * `resolveImage(name)` / `isImage(name)` 决定；P4 接 editor.js 的 resolveFile + Api.fileUrl。
  */
-import { RangeSetBuilder, StateField } from '@codemirror/state';
+import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import { parseCached } from './decorations.js';
+import { renderMarkdown } from '../markdown.js';
 
 const DEFAULT_IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+/** 附件类扩展名（非图片也算附件 → 文件条，而不是笔记嵌入卡片） */
+const DEFAULT_ASSET_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|pdf|mp4|mp3|wav|zip|docx?|xlsx?|pptx?|txt|csv)$/i;
 const EMBED_LINE_RE = /^!\[\[([^\]]+)\]\]$/;   // 整行就是一个嵌入
 const TASK_MARK_RE = /^(\s*[-*+]\s+)\[([ xX])\]/;
 const QUOTE_MARK_RE = /^(\s*>\s?)/;
@@ -44,23 +47,25 @@ function cursorLines(state) {
   return set;
 }
 
-/** 解析嵌入 raw（`名字|宽度` 里的内容）→ { name, width, isImage, src } */
+/** 解析嵌入 raw（`名字|宽度` 里的内容）→ { name, width, isImage, isAsset, src } */
 function parseEmbed(raw, opts) {
   const name = raw.split('|')[0].replace(/#.*$/, '').trim();
   const alias = raw.split('|')[1];
   const width = Number.parseInt(alias, 10);
   const isImage = (opts.isImage ?? ((n) => DEFAULT_IMG_RE.test(n)))(name);
+  const isAsset = (opts.isAsset ?? ((n) => DEFAULT_ASSET_RE.test(n)))(name);
   const src = opts.resolveImage?.(name) ?? null;
-  return { name, width: Number.isFinite(width) && width > 0 ? width : 0, isImage, src };
+  return { name, width: Number.isFinite(width) && width > 0 ? width : 0, isImage, isAsset, src };
 }
 
 /* ================= ① 图片嵌入 widget（块级，StateField） ================= */
 
 class ImageEmbedWidget extends WidgetType {
-  constructor(embed, from) {
+  constructor(embed, from, onImageClick) {
     super();
     this.embed = embed;
     this.from = from;
+    this.onImageClick = onImageClick || null;
   }
   eq(o) { return o.from === this.from && o.embed.raw === this.embed.raw && o.embed.src === this.embed.src; }
   get estimatedHeight() { return this.embed.isImage ? (this.embed.width ? Math.min(this.embed.width * 0.62, 900) : 240) : 36; }
@@ -70,6 +75,7 @@ class ImageEmbedWidget extends WidgetType {
     fig.className = 'cm-lp-img' + (isImage ? ' embed-image' : ' embed-file');
     fig.contentEditable = 'false';
     fig.dataset.name = name;
+    fig.dataset.from = String(this.from);   // 供 setImageWidth / removeImageAt 定位
     if (!isImage) { fig.textContent = `📎 ${name}`; return fig; }
     if (!src) { fig.innerHTML = `<div class="cm-lp-img-missing">图片不存在：<code>${name}</code></div>`; return fig; }
     const img = document.createElement('img');
@@ -101,11 +107,12 @@ class ImageEmbedWidget extends WidgetType {
     });
     grip.addEventListener('dblclick', (e) => { e.stopPropagation(); img.style.width = ''; setEmbedWidth(view, this.from, 0); });
     grip.addEventListener('click', (e) => e.stopPropagation());
+    // 点图片本体 → 灯箱（对齐 editor.js 的 onImageClick）
+    fig.addEventListener('click', (e) => { e.stopPropagation(); this.onImageClick?.(src, name); });
     fig.append(img, grip);
     return fig;
   }
-  // 不实现 ignoreEvent（默认 false）：点击图片本体交给 CM → 光标落到该行 → 露出原始语法可编辑；
-  // 拖宽手柄自己 stopPropagation，不让 CM 抢走指针事件。
+  // 不实现 ignoreEvent（默认 false）；拖宽手柄自己 stopPropagation，不让 CM 抢走指针事件。
 }
 
 /** 改写某行嵌入的宽度（0 = 去掉尺寸），走 doc 事务。与 editor.js setImageWidth 同口径。 */
@@ -121,34 +128,99 @@ export function setEmbedWidth(view, pos, width) {
   return true;
 }
 
-function buildImageDecos(state, opts) {
-  const { blocks } = parseCached(state);
-  const b = new RangeSetBuilder();
-  for (const blk of blocks) {
-    if (blk.type !== 'paragraph' || blk.line !== blk.endLine) continue;
-    const m = EMBED_LINE_RE.exec(blk.text.trim());
-    if (!m) continue;
-    const line = docLine(state, blk.line);
-    const embed = { raw: m[1], ...parseEmbed(m[1], opts) };
-    // 块级 replace 的 range 用 [line.from, line.to)：整行收起成 widget（P1 坑 4）
-    if (line.from < line.to) {
-      b.addRange(line.from, line.to, Decoration.replace({ widget: new ImageEmbedWidget(embed, line.from), block: true }));
+/* ---------- 笔记嵌入卡片（异步解析，走 StateEffect） ----------
+ * `![[笔记名]]`（非附件扩展名）→ 卡片。内容解析是异步的（P4 接 Api.note），所以：
+ *   ① 用 StateEffect `noteLoaded` 把「名字 → markdown」塞进 `noteCache` StateField；
+ *   ② 嵌入 StateField 在收到该 effect 时重建装饰 → 新 widget（eq 带上 md）→ DOM 重渲染；
+ *   ③ 首次渲染没有内容时显示「加载中…」并触发一次解析（模块级 pending 去重）。 */
+const noteLoaded = StateEffect.define();
+
+export const noteCache = StateField.define({
+  create: () => new Map(),
+  update(map, tr) {
+    let next = map;
+    for (const e of tr.effects) {
+      if (e.is(noteLoaded)) { next = new Map(next); next.set(e.value.name, e.value.md); }
     }
+    return next;
+  },
+});
+
+class NoteEmbedWidget extends WidgetType {
+  constructor({ name, from, md }) { super(); this.name = name; this.from = from; this.md = md; }
+  eq(o) { return o.name === this.name && o.from === this.from && o.md === this.md; }
+  get estimatedHeight() { return 140; }
+  toDOM(view) {
+    const box = document.createElement('div');
+    box.className = 'cm-lp-note';
+    box.contentEditable = 'false';
+    box.dataset.name = this.name;
+    box.dataset.from = String(this.from);
+    if (this.md == null) {
+      box.innerHTML = `<div class="cm-lp-note-loading">加载中… ${this.name}</div>`;
+      this.load?.(view);      // 首次渲染时触发解析（load 由 embedWidgets 注入）
+      return box;
+    }
+    const head = document.createElement('div');
+    head.className = 'cm-lp-note-title';
+    head.textContent = `📄 ${this.name}`;
+    const body = document.createElement('div');
+    body.className = 'cm-lp-note-body';
+    body.appendChild(renderMarkdown(this.md, { tagOffsets: false }));
+    box.append(head, body);
+    return box;
   }
-  return b.finish();
+  ignoreEvent() { return true; }   // 卡片内容只读（要编辑请点开原笔记）
 }
 
-/** 图片嵌入装饰（块级，必须 StateField）。
+/** 图片 / 附件 / 笔记卡片三合一的嵌入装饰（块级，必须 StateField）。
  *  注意：块级 widget **不套用「光标行显示原始语法」规则**——StateField 的选区重建
  *  在 CM6 里不会像 ViewPlugin 那样即时反映到 DOM（实测：create 时默认光标在第 1 行，
  *  会让该行图片被跳过且其后选区重建也不刷新）。块级嵌入恒定显示，保证确定性。 */
-export function imageEmbeds(opts = {}) {
-  return StateField.define({
-    create: (state) => buildImageDecos(state, opts),
-    update: (value, tr) => (tr.docChanged ? buildImageDecos(tr.state, opts) : value),
+export function embedWidgets(opts = {}) {
+  const pending = new Set();
+  const load = (view, name) => {
+    if (pending.has(name) || !opts.loadNote) return;
+    pending.add(name);
+    Promise.resolve(opts.loadNote(name))
+      .then((md) => { pending.delete(name); if (md != null && view.dom.isConnected) view.dispatch({ effects: noteLoaded.of({ name, md }) }); })
+      .catch(() => pending.delete(name));
+  };
+  const build = (state) => {
+    const { blocks } = parseCached(state);
+    const cache = state.field(noteCache, false) || null;
+    const b = new RangeSetBuilder();
+    for (const blk of blocks) {
+      if (blk.type !== 'paragraph' || blk.line !== blk.endLine) continue;
+      const m = EMBED_LINE_RE.exec(blk.text.trim());
+      if (!m) continue;
+      const emb = parseEmbed(m[1], opts);
+      const line = docLine(state, blk.line);
+      if (line.from >= line.to) continue;
+      let widget;
+      if (emb.isImage || emb.isAsset) {
+        widget = new ImageEmbedWidget({ raw: m[1], ...emb }, line.from, opts.onImageClick);
+      } else if (opts.loadNote) {
+        widget = new NoteEmbedWidget({ name: emb.name, from: line.from, md: cache?.get(emb.name) ?? null });
+        widget.load = (view) => load(view, emb.name);
+      } else {
+        continue;                    // 既不认附件、又没有解析器 → 保留原始语法
+      }
+      // 块级 replace 的 range 用 [line.from, line.to)：整行收起成 widget（P1 坑 4）
+      b.addRange(line.from, line.to, Decoration.replace({ widget, block: true }));
+    }
+    return b.finish();
+  };
+  const embeds = StateField.define({
+    create: (state) => build(state),
+    update: (value, tr) => ((tr.docChanged || tr.effects.some((e) => e.is(noteLoaded))) ? build(tr.state) : value),
     provide: (f) => EditorView.decorations.from(f),
   });
+  return [noteCache, embeds];
 }
+
+/* 兼容旧名（P3 探针与文档用它）：现由 embedWidgets 统一处理图片/附件/笔记 */
+export const imageEmbeds = embedWidgets;
 
 /* ================= ② 复选框 widget（行内替换，ViewPlugin） ================= */
 
@@ -279,10 +351,10 @@ export function linkEvents({ onOpenWikilink, onHoverWikilink, onTagClick } = {})
 
 /* ================= 装配 ================= */
 
-/** P3 扩展集合。opts: { resolveImage(name)->url|null, isImage(name)->bool, onOpenWikilink, onHoverWikilink, onTagClick } */
+/** P3 扩展集合。opts: { resolveImage(name)->url|null, isImage, isAsset, loadNote(name)->md|Promise, onOpenWikilink, onHoverWikilink, onTagClick } */
 export function widgetExtensions(opts = {}) {
   return [
-    imageEmbeds(opts),
+    ...embedWidgets(opts),
     widgetsPlugin(),
     linkEvents(opts),
   ];

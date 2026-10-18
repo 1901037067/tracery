@@ -28,12 +28,11 @@
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.primary:hover { opacity: .9; color: #fff; }
   .hint { color: var(--muted); font-size: 12px; }
-  #cm {
-    height: 520px; border: 1px solid var(--border); border-radius: 8px;
-    background: var(--panel); overflow: hidden; font-size: 14px;
-  }
-  #cm .cm-editor { height: 100%; }
-  #cm .cm-scroller { font-family: var(--mono); line-height: 1.65; }
+  #cm, #cm2 { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); overflow: hidden; font-size: 14px; }
+  #cm { height: 520px; }
+  #cm2 { height: 220px; }
+  #cm .cm-editor, #cm2 .cm-editor { height: 100%; }
+  #cm .cm-scroller, #cm2 .cm-scroller { font-family: var(--mono); line-height: 1.65; }
   /* 实时预览装饰（public/js/cm/decorations.js 生成，P1）——与 Obsidian 同款：
      光标行显示原始语法，离开即隐藏（hide 装饰）；列表标记常显但 muted */
   .cm-lp-h1 { font-size: 1.5em; font-weight: 700; }
@@ -68,6 +67,11 @@
   .cm-lp-callout-body { color: #374151; }
   .cm-lp-tbl { border-bottom: 1px solid var(--border); background: #fafafa; font-family: var(--mono); }
   .cm-lp-tbl-head { border-top: 1px solid var(--border); border-bottom: 2px solid #cbd5e1; background: #f3f4f6; font-weight: 600; }
+  /* 笔记嵌入卡片（P4 引擎适配器） */
+  .cm-lp-note { border: 1px solid var(--border); border-left: 4px solid #0ea5e9; border-radius: 6px; padding: 6px 10px; margin: 6px 0; background: #f8fafc; }
+  .cm-lp-note-title { font-weight: 600; font-size: 12.5px; color: #0f172a; margin-bottom: 4px; }
+  .cm-lp-note-body { font-size: 13px; color: #334155; }
+  .cm-lp-note-loading { color: var(--muted); font-size: 12px; }
   .probe-collapse, .probe-grow {
     border: 1px solid var(--border); border-left: 4px solid var(--accent);
     border-radius: 6px; padding: 8px 12px; margin: 4px 0; background: #faf5ff;
@@ -121,7 +125,7 @@
 <body>
 <header>
   <h1>CM6 探针 · cmlab</h1>
-  <p>编辑区内核迁移探针：P0 输入法组词 / 行号 / 3000 行滚动 / widget 高度变化滚动稳定性 / history；P1 装饰渲染；P2 行内编辑（Enter 续列表、Tab、Ctrl+B/I/S/K、粘贴拖入拦截）；P3 块级 widget（图片嵌入+拖宽、复选框、Callout、表格边框、双链/标签事件）。本页不依赖现有编辑区代码。</p>
+  <p>编辑区内核迁移探针：P0 输入法/行号/滚动/widget 高度/history；P1 装饰渲染；P2 行内编辑；P3 块级 widget；P4 引擎适配器（CmEditor 对 LiveEditor 契约 + ![[笔记]] 卡片）。本页不依赖现有编辑区代码。</p>
 </header>
 <div class="wrap">
   <div class="bar">
@@ -134,6 +138,7 @@
     <span class="hint" id="overall"></span>
   </div>
   <div id="cm"></div>
+  <div id="cm2"></div>
   <div id="results">
     <h2>探针结果 <span id="results-status" class="tag wait">未运行</span></h2>
     <table>

@@ -12,6 +12,7 @@
  *   6. 行内编辑（P2）：Enter 续列表/任务列表、Tab 缩进、Ctrl+B/I/S/K、
  *      粘贴/拖入附件在 domEventHandlers 里拦掉
  *   7. 块级 widget（P3）：图片嵌入 + 拖宽、复选框、Callout 行装饰、表格边框、双链/标签事件
+ *   8. 引擎适配器（P4）：CmEditor 对 LiveEditor 方法契约的端到端验证（#cm2 + 注入桩）+ ![[笔记]] 卡片
  *
  * 结果同时渲染到页面表格并暴露在 window.__probe.results。
  */
@@ -23,6 +24,7 @@ import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { livePreviewPlugin, fenceHiding } from './cm/decorations.js';
 import { editingExtensions } from './cm/editing.js';
 import { widgetExtensions } from './cm/widgets.js';
+import { CmEditor } from './cm/engine.js';
 
 /* ================= 文档生成（确定性，3000 行中文 md） ================= */
 
@@ -920,6 +922,187 @@ async function probeWidgets() {
   };
 }
 
+/* ================= 探针 8：CM 引擎适配器（P4） =================
+ * 用 CmEditor（cm/engine.js）跑一遍 LiveEditor 第 5.2 节的方法契约 + P4 的 ![[笔记]] 嵌入卡片。
+ * 全部依赖走注入桩（无服务端、无 app.js），第二个挂载点 #cm2；不影响主探针视图与 IME 探针。 */
+
+const ENGINE_FIXTURE = [
+  '# 标题甲',
+  '',
+  '正文段落，含 [[双链X]] 与 #标签Y 。',
+  '',
+  '![[pics/demo.png|320]]',
+  '',
+  '![[另一篇笔记]]',
+  '',
+  '',
+].join('\n') + '\n';
+
+async function probeEngine() {
+  const checks = {}, metrics = {};
+  const ok = (name, cond, detail) => { checks[name] = !!cond; metrics[name] = (cond ? '✅' : '❌') + (detail !== undefined ? ` (${detail})` : ''); return !!cond; };
+
+  const log = { save: [], dirty: [], mode: [], nav: [], preview: [], tag: [], img: [], assetSaved: [], assetUnhandled: [] };
+  const engine = new CmEditor({
+    liveEl: document.getElementById('cm2'),
+    resolveLink: (t) => `笔记/${t}.md`,
+    resolveFile: (name) => (/\.(png|jpe?g|gif|webp|svg|pdf)$/i.test(name) ? `附件/${name}` : null),
+    fileUrl: (p) => `/files/${p}`,
+    loadNote: (name) => Promise.resolve(`# ${name}\n\n来自「${name}」的嵌入正文。`),
+    saveAsset: async (file) => ({ ok: true, path: `附件/${file.name}` }),   // 替代 Api.saveAsset
+    onImageClick: (src, alt) => log.img.push([src, alt]),
+    onNavigate: (p) => log.nav.push(p),
+    onPreviewWikilink: (t) => log.preview.push(t),
+    onTagClick: (t) => log.tag.push(t),
+    onSave: (p, c) => log.save.push([p, c.length]),
+    onDirtyChange: (d) => log.dirty.push(d),
+    onModeChange: (m) => log.mode.push(m),
+    onAssetSaved: (p) => log.assetSaved.push(p),
+    onAssetUnhandled: (f) => log.assetUnhandled.push(f.name),
+  });
+  window.__probe.engine = engine;
+
+  /* ① load / getContent */
+  engine.load('笔记/测试.md', ENGINE_FIXTURE);
+  await nextFrames(3);
+  ok('load/getContent 一致', engine.getContent() === ENGINE_FIXTURE && engine.view.state.doc.toString() === ENGINE_FIXTURE);
+  ok('load 后 dirty=false', engine.dirty === false && log.dirty.includes(false));
+
+  /* ② 编辑 → md 同步 / dirty / onChange */
+  engine.view.dispatch({ changes: { from: 0, insert: 'X' } });
+  await nextFrames(2);
+  ok('编辑后 md 同步且 dirty=true', engine.getContent().startsWith('X# 标题甲') && engine.dirty === true);
+  engine.view.dispatch({ changes: { from: 0, to: 1, insert: '' } });
+  await nextFrames(2);
+
+  /* ③ insertSnippet：首尾补空行 */
+  engine.view.dispatch({ selection: EditorSelection.cursor(0) });
+  engine.insertSnippet('模板内容');
+  await nextFrames(2);
+  ok('insertSnippet 首尾补换行', engine.getContent().startsWith('模板内容\n# 标题甲'));
+
+  /* ④ wrapSelection：有选区包裹 / 无选区插标记对 */
+  engine.view.dispatch({ selection: EditorSelection.range(0, 4) });
+  engine.wrapSelection('**', '**');
+  await nextFrames(2);
+  const wSel = engine.view.state.selection.main;
+  ok('wrapSelection 包裹选区', engine.getContent().startsWith('**模板内容**') && engine.view.state.sliceDoc(wSel.from, wSel.to) === '模板内容');
+  engine.view.dispatch({ selection: EditorSelection.cursor(0) });
+  engine.wrapSelection('*', '*');
+  await nextFrames(2);
+  ok('wrapSelection 无选区插标记对', engine.getContent().startsWith('****模板内容'));
+
+  /* ⑤ setLinePrefix */
+  const tIdx = engine.getContent().split('\n').findIndex((l) => l.includes('正文段落'));
+  engine.view.dispatch({ selection: EditorSelection.cursor(engine.view.state.doc.line(tIdx + 1).from) });
+  engine.setLinePrefix('## ');
+  await nextFrames(2);
+  ok('setLinePrefix 改写当前行', engine.view.state.doc.line(tIdx + 1).text.startsWith('## 正文段落'));
+
+  /* ⑥ selectAll */
+  engine.selectAll();
+  await nextFrames(1);
+  const sAll = engine.view.state.selection.main;
+  ok('selectAll 覆盖全文', sAll.from === 0 && sAll.to === engine.view.state.doc.length);
+
+  /* ⑦ undo / redo / canUndo / canRedo */
+  const beforeUndo = engine.getContent();
+  engine.undo();
+  await nextFrames(2);
+  ok('undo 生效且 canRedo=true', engine.getContent() !== beforeUndo && engine.canRedo());
+  engine.redo();
+  await nextFrames(2);
+  ok('redo 还原', engine.getContent() === beforeUndo);
+  ok('canUndo 有历史', engine.canUndo());
+
+  /* ⑧ setLineNumbers（compartment，必须 dispatch 生效） */
+  const gutter = () => engine.view.dom.querySelectorAll('.cm-lineNumbers .cm-gutterElement').length;
+  const g0 = gutter();
+  engine.setLineNumbers(false);
+  await nextFrames(2);
+  const gOff = gutter();
+  engine.setLineNumbers(true);
+  await nextFrames(2);
+  const gOn = gutter();
+  ok('行号开关(compartment)', g0 > 0 && gOff === 0 && gOn > 0, `${g0}→${gOff}→${gOn}`);
+
+  /* ⑨ setMode：源码=关装饰，live=恢复（同一份 doc） */
+  const hasH1 = () => !!engine.view.dom.querySelector('.cm-lp-h1');
+  const live1 = hasH1();
+  engine.setMode('source');
+  await nextFrames(3);
+  const src1 = hasH1();
+  engine.setMode('live');
+  await nextFrames(3);
+  const back1 = hasH1();
+  ok('setMode 切扩展集(装饰开关)', live1 && !src1 && back1 && log.mode.join(',') === 'source,live', `live=${live1} src=${src1} back=${back1}`);
+
+  /* ⑩ 图片嵌入 + onImageClick + setImageWidth + removeImageAt */
+  const imgSrc = engine.view.dom.querySelector('.cm-lp-img.embed-image img')?.getAttribute('src');
+  ok('引擎图片嵌入 widget', imgSrc === '/files/附件/pics/demo.png', String(imgSrc));
+  const fig1 = engine.view.dom.querySelector('.cm-lp-img.embed-image');
+  if (fig1) fig1.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await nextFrames(1);
+  ok('点图片回调 onImageClick', log.img.length > 0 && log.img[0][0] === '/files/附件/pics/demo.png', JSON.stringify(log.img));
+  const fig2 = engine.view.dom.querySelector('.cm-lp-img.embed-image');
+  engine.setImageWidth(fig2, 400);
+  await nextFrames(3);
+  ok('setImageWidth 写回 doc', engine.getContent().includes('![[pics/demo.png|400]]'));
+  engine.removeImageAt(engine.view.dom.querySelector('.cm-lp-img.embed-image'));
+  await nextFrames(3);
+  ok('removeImageAt 删除标记', !engine.getContent().includes('![[pics/demo.png'));
+
+  /* ⑪ ![[笔记]] 嵌入卡片（异步解析 → noteCache → 重渲染） */
+  await nextFrames(10);
+  const noteBody = engine.view.dom.querySelector('.cm-lp-note .cm-lp-note-body');
+  ok('笔记嵌入卡片异步渲染', !!noteBody && noteBody.textContent.includes('另一篇笔记'),
+    noteBody ? JSON.stringify(noteBody.textContent.slice(0, 40)) : '未渲染');
+
+  /* ⑫ 链接事件：双链点击 → onNavigate；标签点击 → onTagClick */
+  engine.view.dispatch({ selection: EditorSelection.cursor(0) });   // 光标离开链接行，让行内 span 出现
+  await nextFrames(3);
+  log.nav.length = 0; log.tag.length = 0;
+  const wl = engine.view.dom.querySelector('.cm-lp-wikilink');
+  const tg = engine.view.dom.querySelector('.cm-lp-tag');
+  if (wl) wl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  if (tg) tg.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await nextFrames(1);
+  ok('双链点击→onNavigate', log.nav.some((p) => p === '笔记/双链X.md'), JSON.stringify(log.nav));
+  ok('标签点击→onTagClick', log.tag.length > 0, JSON.stringify(log.tag));
+
+  /* ⑬ 附件拦截 → saveAsset → 回插 ![[path]]（引擎的 _onAssetFile，对齐 onAssetSaved） */
+  const dt = new DataTransfer();
+  dt.items.add(new File([new Uint8Array([1, 2, 3])], 'probe-paste.png', { type: 'image/png' }));
+  const pev = new Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(pev, 'clipboardData', { value: dt });
+  engine.view.contentDOM.dispatchEvent(pev);
+  await nextFrames(5);
+  ok('引擎附件拦截→saveAsset→回插', pev.defaultPrevented && engine.getContent().includes('![[附件/probe-paste.png]]') && log.assetSaved.includes('附件/probe-paste.png'), JSON.stringify(log.assetSaved));
+
+  /* ⑭ flush 落盘并清 dirty */
+  engine.view.dispatch({ changes: { from: 0, insert: 'Z' } });
+  await nextFrames(2);
+  let flushed = null;
+  engine.opts.onSave = (p, c) => { flushed = [p, c.length]; };
+  await engine.flush();
+  ok('flush 落盘且清 dirty', !!flushed && flushed[0] === '笔记/测试.md' && engine.dirty === false, JSON.stringify(flushed));
+
+  /* ⑮ scrollToHeading */
+  engine.scrollToHeading('标题甲');
+  await nextFrames(1);
+  const atHead = engine.view.state.doc.lineAt(engine.view.state.selection.main.head).text;
+  ok('scrollToHeading 命中标题', atHead.includes('标题甲'), JSON.stringify(atHead));
+
+  const allOk = Object.values(checks).every(Boolean);
+  return {
+    ok: allOk,
+    metrics: { ...metrics, linkLog: JSON.stringify(log) },
+    notes: allOk
+      ? ['CmEditor 契约（load/getContent/flush/setMode/insertSnippet/wrapSelection/setLinePrefix/selectAll/undo/行号/图片/笔记卡片）全过']
+      : ['有断言失败，见上方 ❌ 项'],
+  };
+}
+
 /* ================= 运行编排 ================= */
 
 function renderResults() {
@@ -948,6 +1131,7 @@ async function runAll() {
     '⑤ 装饰渲染(P1)': probeDecorations,
     '⑥ 行内编辑(P2)': probeEditing,
     '⑦ 块级widget(P3)': probeWidgets,
+    '⑧ 引擎适配器(P4)': probeEngine,
   })) {
     try {
       results[name] = await fn();
