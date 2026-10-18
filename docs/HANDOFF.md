@@ -1,10 +1,11 @@
 # Tracery 交接文档（Handoff）
 
 > 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
-> 最后更新：2026-10-18 15:10（对应代码状态：v1.1.0 — 绘图白板重写 / 撤销重做 / 实时预览行号 / 右键菜单紧凑化 / 空行与回车按 Obsidian 语义重做）
+> 最后更新：2026-10-18 20:00（对应代码状态：v1.1.0 — 绘图白板重写 / 撤销重做 / 实时预览行号 / 右键菜单紧凑化 / 空行与回车按 Obsidian 语义重做 / **CM6 迁移 P0 探针 + P1 只读装饰完成** / 跨行删除模型层修复）
 >
-> **⚠️ 下一阶段（已排期）：编辑区内核从「块级实时预览」迁到「行级 CodeMirror 6」**
-> 详见 **`docs/EDITOR-MIGRATION.md`**（目标验收表 / 两条路线 / P0~P5 分阶段 / 必须保留的 API 与 DOM 契约 / 已知坑的处置）。开工前先读那份，别直接在 `editor.js` 上继续打补丁。
+> **⚠️ 迁移进行中：编辑区内核从「块级实时预览」迁到「行级 CodeMirror 6」**
+> 详见 **`docs/EDITOR-MIGRATION.md`**（目标验收表 / 两条路线 / P0~P5 分阶段 / 必须保留的 API 与 DOM 契约 / 已知坑的处置）。
+> **P0 已完成**（探针 5/5，结论 7.1）、**P1 已完成**（parse/render 拆分 + `cm/decorations.js`，结论 7.2）；**下一步 P2 行内编辑**（开工提示词在文档第 8 节）。
 
 ---
 
@@ -153,6 +154,14 @@ test/*.mjs              九个测试套件（见 §2）
 
 39. **编辑区内核要换（下一步，别在旧内核上继续堆补丁）**：现在的「块级实时预览」是 `md 唯一真源 + 整篇重建 DOM + 字符偏移光标`，用户已明确要求往 Obsidian 的**行级模型**靠。迁移方案、验收表、分阶段计划、以及「换内核时必须原样保留的 API / DOM / 测试契约」都写在 **`docs/EDITOR-MIGRATION.md`**。一句话：引 CodeMirror 6 做 doc+装饰，`markdown.js` 的 `renderMarkdown/serializeHtml` 保留给导出/嵌入/预览用，`editor.js` 只换内部实现、对外 API 不变。**开工先做 P0 探针页**（`public/cmlab.html`），验证 IME / 行号 / 3000 行性能 / widget 高度变化，再决定全量迁移。
 
+
+---
+
+## 5b. 2026-10-18 晚补充决策（接 #39）
+
+40. **文末空行也编号**（更正 #21 的旧结论）：#21 说「文末换行之后那一行不参与行号编号，否则多一个幽灵数字」——**错了**。Obsidian（CM6）口径：行数 = 换行数 + 1，文末空行有号。用户实测「段落 + 5 个 \n」Obsidian 显示 1-6、Tracery 只显示 1-5。已修：`_collectLineNumbers` 不再跳过文末空行，polish-test 有回归。同源考证：Obsidian 用 CM6 原生 `lineNumbers()`（见 EDITOR-MIGRATION.md 第 3 节附考证）。
+41. **跨行删除必须走模型层 + DOM 结构安全网**（2026-10-18 用户实测的严重 bug）：行首连续 Backspace 会把 1-7 行在**视觉上**合并，但行号槽 2-8 残留成死区、Ctrl+Z 无可撤销、切源码模式内容完好——删除只发生在 DOM 层没进模型。根因：序列化按 `data-md-line-*` 旧 offset 做 gap 补换行，会把浏览器原生块合并的结构原样重建 → md 不变 → `_onInput` 跳过重渲染。修法两层：① 键盘层拦截——行首 Backspace（删上一个 \n + 本行标记前缀）、行尾 Delete（删下一个 \n + 下一行前缀）、跨块选区删除（按 md 范围删）、列表/标题内容起点 Backspace（outdent 去标记），全部 `_replaceRange` 走模型；② `_onInput` 安全网——「md 没变但 `_domSig()`（所有带 offset 标记元素的签名）变了」就强制重渲染，DOM 永远恢复成模型的样子。回归：`npm run test:backspace`（19 项）。已知边界：引用块行首、代码块/表格内的行合并在块级模型里位置不可表示，不拦，靠安全网兜底（CM6 迁移后天然解决）。
+42. **P1 只读渲染完成：CM6 装饰层与块级渲染共用一份解析**（2026-10-18 晚）：`markdown.js` 拆出 `parseMarkdown(md) → 块 AST`（带 lineStart/lineEnd/contentStart 与各类型数据），`renderMarkdown = render(parse)` 行为逐字不变（roundtrip 22 篇不动点 + 300 篇模糊 + gap/enter/polish 全绿）；新建 `public/js/cm/decorations.js`——`livePreviewPlugin`（ViewPlugin：标题行装饰、行内样式+标记隐藏、列表标记、引用/分割线/表格行、光标行规则）+ `fenceHiding`（StateField：围栏行与表格分隔行整行收起）。cmlab 探针页接入真装饰器，新增第 ⑤ 项 10 条断言（全过）。**9 个坑**写在 `EDITOR-MIGRATION.md` 7.2 节，最要命的三个：装饰生成器里一个非法 range 会让 CM6 **整体禁用**该插件（全部装饰消失，需 build 层 try/catch + 逐条校验 from/to）；AST 行号 0-based 与 `doc.line()` 1-based 混用会整体挂歪一行；正则扫描器拒绝重叠匹配后必须回退 `lastIndex`，否则 `**粗**` 内部的假匹配会吃掉后面的真匹配。下一阶段 P2 的开工提示词见迁移文档第 8 节。
 
 ## 6. 已知坑（踩过的，直接抄结论）
 

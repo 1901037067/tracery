@@ -1,6 +1,6 @@
 {
   "name": "tracery",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Tracery · 仓库型 Markdown 笔记软件（Obsidian 复刻学习版）— 基于 REA 逆向分析 Obsidian 架构后用 Web 技术栈复刻",
   "type": "module",
   "license": "MIT",
@@ -22,6 +22,7 @@
     "dist": "electron-builder --win portable",
     "dist:dir": "electron-builder --dir",
     "repack": "node scripts/repack.mjs",
+    "build:cmvendor": "node scripts/build-cmvendor.mjs",
     "release": "node scripts/release.mjs",
     "test:merge": "node test/merge-test.mjs",
     "test:enter": "node test/enter-test.mjs",
@@ -35,14 +36,21 @@
     "test:lan": "node test/lan-test.mjs",
     "test:layout": "node test/layout-test.mjs",
     "test:asset": "node test/asset-test.mjs",
-    "test:tabs": "node test/tabs-test.mjs"
+    "test:tabs": "node test/tabs-test.mjs",
+    "test:cmlab": "node test/cmlab-test.mjs",
+    "test:backspace": "node test/backspace-test.mjs"
   },
   "dependencies": {
     "node-diff3": "^3.2.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.14",
     "@electron/packager": "^18.4.4",
+    "@lezer/markdown": "^1.8.0",
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
     "puppeteer-core": "^23.11.1"

@@ -1,0 +1,26 @@
+{
+  "imports": {
+    "@codemirror/state": "/vendor/cm/@codemirror/state/index.js",
+    "@codemirror/view": "/vendor/cm/@codemirror/view/index.js",
+    "@codemirror/commands": "/vendor/cm/@codemirror/commands/index.js",
+    "@codemirror/lang-markdown": "/vendor/cm/@codemirror/lang-markdown/index.js",
+    "@lezer/markdown": "/vendor/cm/@lezer/markdown/index.js",
+    "@marijn/find-cluster-break": "/vendor/cm/@marijn/find-cluster-break/index.js",
+    "crelt": "/vendor/cm/crelt/index.js",
+    "style-mod": "/vendor/cm/style-mod/index.js",
+    "w3c-keyname": "/vendor/cm/w3c-keyname/index.js",
+    "@codemirror/language": "/vendor/cm/@codemirror/language/index.js",
+    "@lezer/common": "/vendor/cm/@lezer/common/index.js",
+    "@codemirror/autocomplete": "/vendor/cm/@codemirror/autocomplete/index.js",
+    "@codemirror/lang-html": "/vendor/cm/@codemirror/lang-html/index.js",
+    "@lezer/highlight": "/vendor/cm/@lezer/highlight/index.js",
+    "@codemirror/streamparser": "/vendor/cm/@codemirror/streamparser/index.js",
+    "@lezer/lr": "/vendor/cm/@lezer/lr/index.js",
+    "@codemirror/lang-css": "/vendor/cm/@codemirror/lang-css/index.js",
+    "@codemirror/lang-javascript": "/vendor/cm/@codemirror/lang-javascript/index.js",
+    "@lezer/html": "/vendor/cm/@lezer/html/index.js",
+    "@lezer/css": "/vendor/cm/@lezer/css/index.js",
+    "@codemirror/lint": "/vendor/cm/@codemirror/lint/index.js",
+    "@lezer/javascript": "/vendor/cm/@lezer/javascript/index.js"
+  }
+}

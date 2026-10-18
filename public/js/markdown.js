@@ -143,7 +143,18 @@ export function inlineToHtml(text, opts = {}) {
   return s;
 }
 
-/* ================= 块级渲染 ================= */
+/* ================= 块级解析（数据层） =================
+ * 分两层，解析只有一份：
+ *   parseMarkdown(md) → 块描述符数组（纯数据，自带源码偏移）
+ *   renderMarkdown(md, opts) → 用描述符建 DOM（编辑器 / 嵌入 / 预览共用）
+ * 描述符的 lineStart / lineEnd / contentStart 就是原先打在 DOM 上的
+ * data-md-line-start / data-md-line-end / data-md-content-start；
+ * 装饰生成器（public/js/cm/decorations.js）消费同一份解析结果，
+ * 渲染和装饰不会各自为政。
+ *
+ * 2026-10-18 拆分注意：这是**纯代码搬运**，所有偏移公式（含引用体的常量平移、
+ * 列表续言的塌缩平移）与原实现逐字一致——先行为不变，让 roundtrip/gap/enter/
+ * polish/e2e 当护栏，再谈清理历史遗留。 */
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const FENCE_RE = /^\s*```(\w*)\s*$/;
 const HR_RE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
@@ -151,339 +162,445 @@ const LIST_RE = /^(\s*)([-*+]|\d+\.)\s+(.*)$/;
 const CALLOUT_RE = /^\s*>\s*\[!(\w+)\]\s*(.*)$/;
 const QUOTE_PREFIX_RE = /^(\s*>\s?)/;
 
-export function renderMarkdown(md, opts = {}) {
-  const frag = document.createDocumentFragment();
-  const lines = String(md).replace(/\r\n?/g, '\n').split('\n');
-  const tagOffsets = opts.tagOffsets !== false; // 嵌入/预览渲染时关闭（其 md 来源不同）
+/** 子文档（引用体 / 列表续言）的行起点表 */
+function subLineStarts(text) {
+  const lines = text.split('\n');
+  const starts = [0];
+  for (let i = 0; i < lines.length - 1; i++) starts.push(starts[i] + lines[i].length + 1);
+  return { lines, starts };
+}
 
-  // 每行在源码中的起始偏移
+/** 把一组块描述符的偏移整体加一个常量（对应旧实现的 shiftOffsets）。
+ *  通用深遍历：块、列表项、表格单元格——凡是带 lineStart/lineEnd/contentStart
+ *  三元组的节点都平移，对应旧实现 querySelectorAll('[data-md-content-start]')
+ *  覆盖所有后代元素（含 li / th / td）。 */
+function shiftBlocks(node, delta) {
+  if (Array.isArray(node)) { for (const n of node) shiftBlocks(n, delta); return; }
+  if (!node || typeof node !== 'object') return;
+  if (typeof node.lineStart === 'number') {
+    node.lineStart += delta;
+    node.lineEnd += delta;
+    node.contentStart += delta;
+  }
+  for (const k of Object.keys(node)) {
+    const v = node[k];
+    if (v && typeof v === 'object') shiftBlocks(v, delta);
+  }
+}
+
+/** Markdown → { blocks, lines, lineStarts, lineEnd }（装饰生成器直接用） */
+export function parseMarkdown(md) {
+  const lines = String(md).replace(/\r\n?/g, '\n').split('\n');
   const lineStarts = [0];
   for (let i = 0; i < lines.length - 1; i++) lineStarts.push(lineStarts[i] + lines[i].length + 1);
   const lineEnd = (idx) => lineStarts[idx] + lines[idx].length;
+  const blocks = scanDoc(lines, lineStarts, lineEnd);
+  return { blocks, lines, lineStarts, lineEnd };
+}
 
-  const usedSlugs = new Map();
-
-  // endLineIdx：块占的最后一行（多行段落/代码块/引用）。序列化时靠
-  // 「下一块的行首 - 本块的行尾」算该补几个换行，只记第一行行尾会把块内的
-  // 其余行都算成空隙，凭空补出一串空行。
-  function tagLeaf(el, lineIdx, contentOffsetInLine, endLineIdx) {
-    if (!tagOffsets || !el) return;
-    const endIdx = Math.min(lines.length - 1, endLineIdx == null ? lineIdx : endLineIdx);
-    el.dataset.mdLineStart = String(lineStarts[lineIdx]);
-    el.dataset.mdLineEnd = String(lineEnd(endIdx));
-    if (contentOffsetInLine != null) {
-      el.dataset.mdContentStart = String(lineStarts[lineIdx] + contentOffsetInLine);
-    }
-  }
-
-  function makeHeadingEl(level, text, lineIdx) {
-    const h = document.createElement(`h${level}`);
-    const plain = text.replace(/[*_`~=\[]/g, '');
-    let slug = slugify(plain);
-    const n = usedSlugs.get(slug) || 0;
-    usedSlugs.set(slug, n + 1);
-    if (n > 0) slug = `${slug}-${n}`;
-    h.id = slug;
-    h.innerHTML = inlineToHtml(text, opts);
-    const m = /^(#{1,6}\s+)/.exec(lines[lineIdx]);
-    tagLeaf(h, lineIdx, m ? m[0].length : 0);
-    return h;
-  }
-
-  function parseBlocks(start, stop) {
-    const out = [];
-    let i = start;
-    while (i < stop) {
-      const line = lines[i];
-
-      if (/^\s*$/.test(line)) {
-        // 源码里的每一行空行都渲染成「一行」（.md-blank，可点、可放光标、可打字）。
-        // 早先是把连续空行合成一个占位段——结果光标分不清自己在第几个空行上，
-        // 回车后在空行上打字会落到上一行、并进上一段。一行一个才对得上源码。
-        // 空的占位段序列化时跳过，行数由相邻块的源码行号差补回来（见 serializeBlocks）。
-        let j = i;
-        while (j < stop && /^\s*$/.test(lines[j])) j++;
-        if (out.length && j < stop) {
-          for (let k = i; k < j; k++) {
-            const p = document.createElement('p');
-            p.className = 'md-blank';
-            p.dataset.mdBlank = '1';
-            p.appendChild(document.createElement('br'));
-            tagLeaf(p, k, 0);
-            out.push(p);
-          }
-        }
-        i = j;
-        continue;
-      }
-
-      // 代码围栏
-      const fence = FENCE_RE.exec(line);
-      if (fence) {
-        const lang = fence[1] || '';
-        const buf = [];
-        const openLine = i;
-        i++;
-        while (i < stop && !FENCE_RE.test(lines[i])) { buf.push(lines[i]); i++; }
-        i++; // 跳过结束围栏
-        const pre = document.createElement('pre');
-        const code = document.createElement('code');
-        if (lang) code.className = `language-${lang}`;
-        code.innerHTML = highlightCode(buf.join('\n'), lang);
-        pre.appendChild(code);
-        if (lang) {
-          const tag = document.createElement('span');
-          tag.className = 'code-lang';
-          tag.textContent = lang;
-          pre.appendChild(tag);
-        }
-        tagLeaf(pre, openLine, fence[0].length + 1, i - 1);
-        out.push(pre);
-        continue;
-      }
-
-      // 标题
-      const h = HEADING_RE.exec(line);
-      if (h) { out.push(makeHeadingEl(h[1].length, h[2].trim(), i)); i++; continue; }
-
-      // 分割线
-      if (HR_RE.test(line)) { out.push(document.createElement('hr')); i++; continue; }
-
-      // 引用 / Callout
-      if (/^\s*>/.test(line)) {
-        const callout = CALLOUT_RE.exec(line);
-        const buf = [];
-        const quoteStart = i;
-        while (i < stop && /^\s*>/.test(lines[i])) { buf.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
-        if (callout) {
-          const div = document.createElement('div');
-          div.className = 'callout';
-          div.dataset.type = callout[1].toLowerCase();
-          const title = document.createElement('div');
-          title.className = 'callout-title';
-          title.textContent = callout[2] || callout[1];
-          const body = document.createElement('div');
-          body.className = 'callout-body';
-          // 注意：buf[0] 是 "[!type] 标题" 行本身，正文从 buf.slice(1) 开始
-          const bodyMd = buf.slice(1).join('\n');
-          const bodyFrag = renderMarkdown(bodyMd, opts);
-          // 修正 body 内块的源码偏移：整体平移到原文档位置
-          shiftOffsets(bodyFrag, lineStarts[quoteStart + 1] - 0);
-          body.appendChild(bodyFrag);
-          div.append(title, body);
-          tagLeaf(div, quoteStart, callout[0].length, i - 1);
-          out.push(div);
-        } else {
-          const bq = document.createElement('blockquote');
-          const innerFrag = renderMarkdown(buf.join('\n'), opts);
-          shiftOffsets(innerFrag, lineStarts[quoteStart]);
-          bq.appendChild(innerFrag);
-          out.push(bq);
-        }
-        continue;
-      }
-
-      // 列表
-      if (LIST_RE.test(line)) {
-        const [el, next] = parseList(i, stop);
-        out.push(el); i = next; continue;
-      }
-
-      // 表格
-      if (line.includes('|') && i + 1 < stop && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && /-/.test(lines[i + 1])) {
-        const splitRowWithPos = (l) => {
-          const cells = [];
-          let pos = 0;
-          let s = l.trim();
-          const lead = l.length - l.trimStart().length;
-          pos = lead;
-          if (s.startsWith('|')) { pos += 1; s = s.slice(1); }
-          for (const part of s.split('|')) {
-            cells.push({ text: part.trim(), pos });
-            pos += part.length + 1;
-          }
-          if (cells.length && cells[cells.length - 1].text === '') cells.pop();
-          return cells;
-        };
-        const header = splitRowWithPos(line);
-        const headerLine = i;
-        i += 2;
-        const bodyRows = [];
-        while (i < stop && lines[i].includes('|') && !/^\s*$/.test(lines[i])) {
-          bodyRows.push({ cells: splitRowWithPos(lines[i]), line: i });
-          i++;
-        }
-        const table = document.createElement('table');
-        const thead = document.createElement('thead');
-        const htr = document.createElement('tr');
-        header.forEach((c) => {
-          const th = document.createElement('th');
-          th.innerHTML = inlineToHtml(c.text, opts);
-          tagLeaf(th, headerLine, c.pos);
-          htr.appendChild(th);
-        });
-        thead.appendChild(htr);
-        const tbody = document.createElement('tbody');
-        bodyRows.forEach((r) => {
-          const tr = document.createElement('tr');
-          r.cells.forEach((c) => {
-            const td = document.createElement('td');
-            td.innerHTML = inlineToHtml(c.text, opts);
-            tagLeaf(td, r.line, c.pos);
-            tr.appendChild(td);
-          });
-          tbody.appendChild(tr);
-        });
-        table.append(thead, tbody);
-        out.push(table);
-        continue;
-      }
-
-      // 普通段落（吃到空行或下一个块级起点）
-      const buf = [line];
-      const startLine = i;
-      i++;
-      while (i < stop && !/^\s*$/.test(lines[i]) && !HEADING_RE.test(lines[i]) && !FENCE_RE.test(lines[i])
-             && !HR_RE.test(lines[i]) && !/^\s*>/.test(lines[i]) && !LIST_RE.test(lines[i])
-             && !(lines[i].includes('|') && i + 1 < stop && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && /-/.test(lines[i + 1]))) {
-        buf.push(lines[i]); i++;
-      }
-      const p = document.createElement('p');
-      p.innerHTML = inlineToHtml(buf.join('\n'), opts).replace(/\n/g, '<br>');
-      tagLeaf(p, startLine, 0, i - 1);
-      out.push(p);
-    }
-    return out;
-  }
-
-  /** 把子渲染结果里的偏移标记整体平移（用于引用/Callout 内嵌块） */
-  function shiftOffsets(frag, delta) {
-    if (!tagOffsets) return;
-    for (const el of frag.querySelectorAll('[data-md-content-start]')) {
-      el.dataset.mdLineStart = String(Number(el.dataset.mdLineStart) + delta);
-      el.dataset.mdLineEnd = String(Number(el.dataset.mdLineEnd) + delta);
-      el.dataset.mdContentStart = String(Number(el.dataset.mdContentStart) + delta);
-    }
-  }
-
-  function parseList(start, stop) {
-    const items = []; // { indent, ordered, text, startLine }
-    let i = start;
-    while (i < stop) {
-      const m = LIST_RE.exec(lines[i]);
-      if (!m) break;
-      const indent = m[1].replace(/\t/g, '  ').length;
-      items.push({ indent, ordered: /\d/.test(m[2]), text: m[3], startLine: i });
-      i++;
-      // 延续行（缩进内容 / 空行后的缩进内容）
-      while (i < stop) {
-        const l = lines[i];
-        if (/^\s*$/.test(l)) {
-          const nxt = lines[i + 1];
-          if (nxt !== undefined && /^\s+\S/.test(nxt) && !LIST_RE.test(nxt)) { items[items.length - 1].text += '\n'; i++; continue; }
-          break;
-        }
-        if (LIST_RE.test(l)) break;
-        if (/^\s{2,}\S/.test(l)) { items[items.length - 1].text += '\n' + l.replace(/^\s{2,}/, ''); i++; continue; }
-        break;
-      }
-    }
-
-    // 按缩进分组嵌套（栈算法：同级入同一帧，更深的挂到上一项）
-    const rootItems = [];
-    const stack = []; // { indent, items }
-    for (const item of items) {
-      while (stack.length && item.indent <= stack[stack.length - 1].indent) stack.pop();
-      if (!stack.length) {
-        rootItems.push(item);
-        stack.push({ indent: item.indent, items: rootItems });
-      } else {
-        const frame = stack[stack.length - 1];
-        const parent = frame.items[frame.items.length - 1];
-        if (parent) {
-          parent.children = parent.children || [];
-          parent.children.push(item);
-          stack.push({ indent: item.indent, items: parent.children });
-        } else {
-          frame.items.push(item);
-        }
-      }
-    }
-
-    const buildTree = (nodes) => {
-      const el = document.createElement(nodes[0].ordered ? 'ol' : 'ul');
-      for (const n of nodes) {
-        const li = document.createElement('li');
-        const rawLine = lines[n.startLine];
-        const lm = LIST_RE.exec(rawLine);
-        const indentLen = lm ? lm[1].replace(/\t/g, '  ').length : 0;
-        const markerLen = lm ? lm[2].length + 1 : 2; // "- " 计 2
-        let contentOff = indentLen + markerLen;
-        const task = /^\[([ xX])\]\s+(.*)$/.exec(n.text);
-        if (task) {
-          li.className = 'task-list-item';
-          const cb = document.createElement('input');
-          cb.type = 'checkbox';
-          cb.checked = task[1].toLowerCase() === 'x';
-          li.appendChild(cb);
-          n.text = task[2];
-          contentOff += 4; // "[x] "
-        }
-        const parts = n.text.split('\n');
-        const span = document.createElement('span');
-        span.innerHTML = inlineToHtml(parts[0], opts);
-        li.appendChild(span);
-        if (parts.length > 1) {
-          const rest = document.createElement('div');
-          rest.className = 'li-rest';
-          const restFrag = renderMarkdown(parts.slice(1).join('\n'), opts);
-          // 续行在源码中的偏移：从第二行开始平移
-          const restStart = n.startLine + 1;
-          if (tagOffsets) {
-            for (const el2 of restFrag.querySelectorAll('[data-md-content-start]')) {
-              const shift = lineStarts[restStart] - Number(el2.dataset.mdLineStart);
-              el2.dataset.mdLineStart = String(Number(el2.dataset.mdLineStart) + shift);
-              el2.dataset.mdLineEnd = String(Number(el2.dataset.mdLineEnd) + shift);
-              el2.dataset.mdContentStart = String(Number(el2.dataset.mdContentStart) + shift);
-            }
-          }
-          rest.appendChild(restFrag);
-          li.appendChild(rest);
-        }
-        if (n.children && n.children.length) li.appendChild(buildTree(n.children));
-        el.appendChild(li);
-        // li 的源码标记：行起点 + 内容起点（跳过缩进和列表标记）
-        if (tagOffsets) {
-          li.dataset.mdLineStart = String(lineStarts[n.startLine]);
-          li.dataset.mdLineEnd = String(lineEnd(n.startLine));
-          li.dataset.mdContentStart = String(lineStarts[n.startLine] + contentOff);
-        }
-      }
-      return el;
-    };
-    return [buildTree(rootItems), i];
-  }
-
-  for (const el of parseBlocks(0, lines.length)) frag.appendChild(el);
-
-  // 文档以空行结尾时，补一个空段落 <p><br></p>。
-  // 为什么必须有它：段落累积器会跳过空行，"第一段\n" 原本渲染成 <p>第一段</p>，
-  // 行尾那个换行在 DOM 里不存在——用户按回车打到新行，下一次输入序列化时
-  // 这个 \n 就被吃掉（实测：段尾回车后续打，两行拼成一行）。补了空段落，
-  // 回车落点才有可放光标的 DOM 节点，序列化也接得住（见 serializeBlocks 空段落分支）。
-  // 多个连续空行只补一个：序列化按 '\n\n' 拼接，每空行都补会逐轮膨胀、破坏不动点。
-  // 从尾部向前找最后一个非空行；它之后的连续空白段才是「行尾空行」
+/** 扫一份「文档」：块 + 文末空行占位（主文档与引用/Callout 子文档都走这里） */
+function scanDoc(lines, lineStarts, lineEnd) {
+  const ctx = { usedSlugs: new Map() };
+  const blocks = scanBlocks(lines, lineStarts, lineEnd, 0, lines.length, ctx);
+  // 文档以空行结尾时补占位（不能带 md-blank，见 renderBlock 注释）
   let lastText = lines.length - 1;
   while (lastText >= 0 && /^\s*$/.test(lines[lastText])) lastText--;
   for (let k = lastText + 1; k < lines.length; k++) {
-    // 行尾空行：一行一个，且**不能**带 md-blank（它要把结尾的换行数留下来，
-    // 见 serializeBlocks 的 '' 分支）；带标记是为了算出正确的新行数。
-    const p = document.createElement('p');
-    p.appendChild(document.createElement('br'));
-    tagLeaf(p, k, 0);
-    frag.appendChild(p);
+    blocks.push({ type: 'blank-tail', line: k, lineStart: lineStarts[k], lineEnd: lineEnd(k), contentStart: lineStarts[k] });
   }
+  return blocks;
+}
+
+function scanBlocks(lines, lineStarts, lineEnd, start, stop, ctx) {
+  const out = [];
+  let i = start;
+  while (i < stop) {
+    const line = lines[i];
+
+    if (/^\s*$/.test(line)) {
+      // 源码里每一行空行都是一个描述符（一行一个，才对得上源码行号）
+      let j = i;
+      while (j < stop && /^\s*$/.test(lines[j])) j++;
+      if (out.length && j < stop) {
+        for (let k = i; k < j; k++) {
+          out.push({ type: 'blank', line: k, lineStart: lineStarts[k], lineEnd: lineEnd(k), contentStart: lineStarts[k] });
+        }
+      }
+      i = j;
+      continue;
+    }
+
+    // 代码围栏
+    const fence = FENCE_RE.exec(line);
+    if (fence) {
+      const lang = fence[1] || '';
+      const buf = [];
+      const openLine = i;
+      i++;
+      while (i < stop && !FENCE_RE.test(lines[i])) { buf.push(lines[i]); i++; }
+      i++; // 跳过结束围栏
+      out.push({
+        type: 'fence', lang, code: buf.join('\n'), line: openLine, endLine: Math.min(lines.length - 1, i - 1),
+        lineStart: lineStarts[openLine],
+        lineEnd: lineEnd(Math.min(lines.length - 1, i - 1)),
+        contentStart: lineStarts[openLine] + fence[0].length + 1,
+      });
+      continue;
+    }
+
+    // 标题
+    const h = HEADING_RE.exec(line);
+    if (h) {
+      const level = h[1].length;
+      const text = h[2].trim();
+      const plain = text.replace(/[*_`~=\[]/g, '');
+      let slug = slugify(plain);
+      const n = ctx.usedSlugs.get(slug) || 0;
+      ctx.usedSlugs.set(slug, n + 1);
+      if (n > 0) slug = `${slug}-${n}`;
+      const m = /^(#{1,6}\s+)/.exec(line);
+      out.push({
+        type: 'heading', level, text, slug, line: i,
+        lineStart: lineStarts[i], lineEnd: lineEnd(i),
+        contentStart: lineStarts[i] + (m ? m[0].length : 0),
+      });
+      i++;
+      continue;
+    }
+
+    // 分割线（描述符补上偏移——装饰生成器要用；渲染侧 hr 依旧不打 data-md-* 标记）
+    if (HR_RE.test(line)) {
+      out.push({ type: 'hr', line: i, lineStart: lineStarts[i], lineEnd: lineEnd(i), contentStart: lineStarts[i] });
+      i++;
+      continue;
+    }
+
+    // 引用 / Callout
+    if (/^\s*>/.test(line)) {
+      const callout = CALLOUT_RE.exec(line);
+      const buf = [];
+      const quoteStart = i;
+      while (i < stop && /^\s*>/.test(lines[i])) { buf.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
+      if (callout) {
+        // buf[0] 是 "[!type] 标题" 行本身，正文从 buf.slice(1) 开始
+        const sub = subLineStarts(buf.slice(1).join('\n'));
+        const bodyBlocks = scanDoc(sub.lines, sub.starts, (idx) => sub.starts[idx] + sub.lines[idx].length);
+        // 修正 body 内块的源码偏移：整体平移到原文档位置（与旧实现同公式）
+        shiftBlocks(bodyBlocks, lineStarts[quoteStart + 1]);
+        out.push({
+          type: 'callout', calloutType: callout[1].toLowerCase(), title: callout[2] || callout[1],
+          blocks: bodyBlocks, line: quoteStart, endLine: Math.min(lines.length - 1, i - 1),
+          lineStart: lineStarts[quoteStart],
+          lineEnd: lineEnd(Math.min(lines.length - 1, i - 1)),
+          contentStart: lineStarts[quoteStart] + callout[0].length,
+        });
+      } else {
+        const sub = subLineStarts(buf.join('\n'));
+        const innerBlocks = scanDoc(sub.lines, sub.starts, (idx) => sub.starts[idx] + sub.lines[idx].length);
+        shiftBlocks(innerBlocks, lineStarts[quoteStart]);
+        out.push({ type: 'quote', blocks: innerBlocks, line: quoteStart, endLine: Math.min(lines.length - 1, i - 1) });
+      }
+      continue;
+    }
+
+    // 列表
+    if (LIST_RE.test(line)) {
+      const [list, next] = scanList(lines, lineStarts, lineEnd, i, stop);
+      out.push(list); i = next; continue;
+    }
+
+    // 表格
+    if (line.includes('|') && i + 1 < stop && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && /-/.test(lines[i + 1])) {
+      const splitRowWithPos = (l, lineIdx) => {
+        const cells = [];
+        let pos = 0;
+        let s = l.trim();
+        const lead = l.length - l.trimStart().length;
+        pos = lead;
+        if (s.startsWith('|')) { pos += 1; s = s.slice(1); }
+        for (const part of s.split('|')) {
+          // 单元格偏移扫描时算好（子文档里的表格才能被整体平移）
+          cells.push({
+            text: part.trim(), pos,
+            lineStart: lineStarts[lineIdx],
+            lineEnd: lineEnd(lineIdx),
+            contentStart: lineStarts[lineIdx] + pos,
+          });
+          pos += part.length + 1;
+        }
+        if (cells.length && cells[cells.length - 1].text === '') cells.pop();
+        return cells;
+      };
+      const headerLine = i;
+      const header = splitRowWithPos(line, headerLine);
+      i += 2;
+      const rows = [];
+      while (i < stop && lines[i].includes('|') && !/^\s*$/.test(lines[i])) {
+        rows.push({ cells: splitRowWithPos(lines[i], i), line: i });
+        i++;
+      }
+      out.push({ type: 'table', header: { cells: header, line: headerLine }, rows });
+      continue;
+    }
+
+    // 普通段落（吃到空行或下一个块级起点）
+    const buf = [line];
+    const startLine = i;
+    i++;
+    while (i < stop && !/^\s*$/.test(lines[i]) && !HEADING_RE.test(lines[i]) && !FENCE_RE.test(lines[i])
+           && !HR_RE.test(lines[i]) && !/^\s*>/.test(lines[i]) && !LIST_RE.test(lines[i])
+           && !(lines[i].includes('|') && i + 1 < stop && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && /-/.test(lines[i + 1]))) {
+      buf.push(lines[i]); i++;
+    }
+    out.push({
+      type: 'paragraph', text: buf.join('\n'), line: startLine, endLine: i - 1,
+      lineStart: lineStarts[startLine], lineEnd: lineEnd(Math.min(lines.length - 1, i - 1)),
+      contentStart: lineStarts[startLine],
+    });
+  }
+  return out;
+}
+
+/** 列表扫描：返回 [{type:'list', ordered, items}, nextIndex]；items 为嵌套树 */
+function scanList(lines, lineStarts, lineEnd, start, stop) {
+  const items = []; // { indent, ordered, text, startLine }
+  let i = start;
+  while (i < stop) {
+    const m = LIST_RE.exec(lines[i]);
+    if (!m) break;
+    const indent = m[1].replace(/\t/g, '  ').length;
+    items.push({ indent, ordered: /\d/.test(m[2]), text: m[3], startLine: i });
+    i++;
+    // 延续行（缩进内容 / 空行后的缩进内容）
+    while (i < stop) {
+      const l = lines[i];
+      if (/^\s*$/.test(l)) {
+        const nxt = lines[i + 1];
+        if (nxt !== undefined && /^\s+\S/.test(nxt) && !LIST_RE.test(nxt)) { items[items.length - 1].text += '\n'; i++; continue; }
+        break;
+      }
+      if (LIST_RE.test(l)) break;
+      if (/^\s{2,}\S/.test(l)) { items[items.length - 1].text += '\n' + l.replace(/^\s{2,}/, ''); i++; continue; }
+      break;
+    }
+  }
+
+  // 按缩进分组嵌套（栈算法：同级入同一帧，更深的挂到上一项）
+  const rootItems = [];
+  const stack = []; // { indent, items }
+  for (const item of items) {
+    while (stack.length && item.indent <= stack[stack.length - 1].indent) stack.pop();
+    if (!stack.length) {
+      rootItems.push(item);
+      stack.push({ indent: item.indent, items: rootItems });
+    } else {
+      const frame = stack[stack.length - 1];
+      const parent = frame.items[frame.items.length - 1];
+      if (parent) {
+        parent.children = parent.children || [];
+        parent.children.push(item);
+        stack.push({ indent: item.indent, items: parent.children });
+      } else {
+        frame.items.push(item);
+      }
+    }
+  }
+
+  // li 的源码偏移扫描时算好（子文档里的列表才能被整体平移）：
+  // 行起点 + 行尾 + 内容起点（跳过缩进、列表标记、任务方括号）
+  const prepItem = (n) => {
+    const rawLine = lines[n.startLine];
+    const lm = LIST_RE.exec(rawLine);
+    const indentLen = lm ? lm[1].replace(/\t/g, '  ').length : 0;
+    const markerLen = lm ? lm[2].length + 1 : 2; // "- " 计 2
+    let contentOff = indentLen + markerLen;
+    const task = /^\[([ xX])\]\s+(.*)$/.exec(n.text);
+    if (task) {
+      n.task = task[1].toLowerCase() === 'x';
+      n.text = task[2];
+      contentOff += 4; // "[x] "
+    }
+    n.lineStart = lineStarts[n.startLine];
+    n.lineEnd = lineStarts[n.startLine] + lines[n.startLine].length;
+    n.contentStart = lineStarts[n.startLine] + contentOff;
+    if (n.children) for (const c of n.children) prepItem(c);
+  };
+  for (const n of rootItems) prepItem(n);
+
+  // lineStarts 挂在描述符上：渲染「续言块」时的平移基准（子文档里是子文档的表）
+  return [{ type: 'list', ordered: rootItems[0]?.ordered ?? false, items: rootItems, lineStarts }, i];
+}
+
+/* ================= 块级渲染（DOM 层） ================= */
+
+/** 给元素打上源码偏移标记（tagOffsets 关闭时跳过——嵌入/预览渲染用） */
+function tagEl(el, b, tagOffsets) {
+  if (!tagOffsets || b.lineStart == null) return;
+  el.dataset.mdLineStart = String(b.lineStart);
+  el.dataset.mdLineEnd = String(b.lineEnd);
+  if (b.contentStart != null) el.dataset.mdContentStart = String(b.contentStart);
+}
+
+export function renderMarkdown(md, opts = {}) {
+  const doc = parseMarkdown(md);
+  const tagOffsets = opts.tagOffsets !== false; // 嵌入/预览渲染时关闭（其 md 来源不同）
+  const ctx = { opts, tagOffsets, lineStarts: doc.lineStarts, lines: doc.lines };
+  const frag = document.createDocumentFragment();
+  for (const b of doc.blocks) frag.appendChild(renderBlock(b, ctx));
   return frag;
+}
+
+function renderBlock(b, ctx) {
+  switch (b.type) {
+    case 'blank': {
+      const p = document.createElement('p');
+      p.className = 'md-blank';
+      p.dataset.mdBlank = '1';
+      p.appendChild(document.createElement('br'));
+      tagEl(p, b, ctx.tagOffsets);
+      return p;
+    }
+    case 'blank-tail': {
+      // 行尾空行占位：文件以 \n 结尾时渲染出来的空段落。为什么必须有它：段落累积器
+      // 会跳过空行，"第一段\n" 原本渲染成 <p>第一段</p>，行尾那个换行在 DOM 里不存在——
+      // 用户按回车打到新行，下一次输入序列化时这个 \n 就被吃掉（实测：段尾回车后续打，
+      // 两行拼成一行）。补了空段落，回车落点才有可放光标的 DOM 节点，序列化也接得住
+      // （见 serializeBlocks 空段落分支）。多个连续空行一个一行，行数由相邻块的源码
+      // 行号差补回来；它**不能**带 md-blank（要把结尾的换行数留下来）。
+      const p = document.createElement('p');
+      p.appendChild(document.createElement('br'));
+      tagEl(p, b, ctx.tagOffsets);
+      return p;
+    }
+    case 'fence': {
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      if (b.lang) code.className = `language-${b.lang}`;
+      code.innerHTML = highlightCode(b.code, b.lang);
+      pre.appendChild(code);
+      if (b.lang) {
+        const tag = document.createElement('span');
+        tag.className = 'code-lang';
+        tag.textContent = b.lang;
+        pre.appendChild(tag);
+      }
+      tagEl(pre, b, ctx.tagOffsets);
+      return pre;
+    }
+    case 'heading': {
+      const h = document.createElement(`h${b.level}`);
+      h.id = b.slug;
+      h.innerHTML = inlineToHtml(b.text, ctx.opts);
+      tagEl(h, b, ctx.tagOffsets);
+      return h;
+    }
+    case 'hr':
+      return document.createElement('hr');
+    case 'quote': {
+      const bq = document.createElement('blockquote');
+      for (const sub of b.blocks) bq.appendChild(renderBlock(sub, ctx));
+      return bq;
+    }
+    case 'callout': {
+      const div = document.createElement('div');
+      div.className = 'callout';
+      div.dataset.type = b.calloutType;
+      const title = document.createElement('div');
+      title.className = 'callout-title';
+      title.textContent = b.title;
+      const body = document.createElement('div');
+      body.className = 'callout-body';
+      for (const sub of b.blocks) body.appendChild(renderBlock(sub, ctx));
+      div.append(title, body);
+      tagEl(div, b, ctx.tagOffsets);
+      return div;
+    }
+    case 'list':
+      return renderList(b, ctx);
+    case 'table': {
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const htr = document.createElement('tr');
+      for (const c of b.header.cells) {
+        const th = document.createElement('th');
+        th.innerHTML = inlineToHtml(c.text, ctx.opts);
+        tagEl(th, c, ctx.tagOffsets);
+        htr.appendChild(th);
+      }
+      thead.appendChild(htr);
+      const tbody = document.createElement('tbody');
+      for (const r of b.rows) {
+        const tr = document.createElement('tr');
+        for (const c of r.cells) {
+          const td = document.createElement('td');
+          td.innerHTML = inlineToHtml(c.text, ctx.opts);
+          tagEl(td, c, ctx.tagOffsets);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.append(thead, tbody);
+      return table;
+    }
+    case 'paragraph': {
+      const p = document.createElement('p');
+      p.innerHTML = inlineToHtml(b.text, ctx.opts).replace(/\n/g, '<br>');
+      tagEl(p, b, ctx.tagOffsets);
+      return p;
+    }
+  }
+  return document.createDocumentFragment();
+}
+
+/** 列表渲染：li = [复选框?] + span(首行) + div.li-rest(续言块) + 嵌套列表。
+ *  li 的偏移用扫描时算好的值（描述符自带），续言块的平移基准用列表自带的
+ *  lineStarts（子文档里的列表用的是子文档的表——与旧实现的闭包行为一致）。 */
+function renderList(list, ctx) {
+  const lineStarts = list.lineStarts;
+  const buildTree = (nodes) => {
+    const el = document.createElement(nodes[0].ordered ? 'ol' : 'ul');
+    for (const n of nodes) {
+      const li = document.createElement('li');
+      if (n.task != null) {
+        li.className = 'task-list-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = n.task;
+        li.appendChild(cb);
+      }
+      const parts = n.text.split('\n');
+      const span = document.createElement('span');
+      span.innerHTML = inlineToHtml(parts[0], ctx.opts);
+      li.appendChild(span);
+      if (parts.length > 1) {
+        const rest = document.createElement('div');
+        rest.className = 'li-rest';
+        const restFrag = renderMarkdown(parts.slice(1).join('\n'), ctx.opts);
+        // 续行在源码中的偏移：从第二行开始平移（与旧实现同公式）
+        const restStart = n.startLine + 1;
+        if (ctx.tagOffsets) {
+          for (const el2 of restFrag.querySelectorAll('[data-md-content-start]')) {
+            const shift = lineStarts[restStart] - Number(el2.dataset.mdLineStart);
+            el2.dataset.mdLineStart = String(Number(el2.dataset.mdLineStart) + shift);
+            el2.dataset.mdLineEnd = String(Number(el2.dataset.mdLineEnd) + shift);
+            el2.dataset.mdContentStart = String(Number(el2.dataset.mdContentStart) + shift);
+          }
+        }
+        rest.appendChild(restFrag);
+        li.appendChild(rest);
+      }
+      if (n.children && n.children.length) li.appendChild(buildTree(n.children));
+      el.appendChild(li);
+      // li 的源码标记：行起点 + 内容起点（跳过缩进和列表标记）
+      if (ctx.tagOffsets) {
+        li.dataset.mdLineStart = String(n.lineStart);
+        li.dataset.mdLineEnd = String(n.lineEnd);
+        li.dataset.mdContentStart = String(n.contentStart);
+      }
+    }
+    return el;
+  };
+  return buildTree(list.items);
 }
 
 /* ================= DOM → Markdown 序列化 ================= */

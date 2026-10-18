@@ -271,7 +271,7 @@ function build() {
             <img src="/icon.png" alt="Tracery" />
             <div>
               <div class="about-name">Tracery</div>
-              <div class="about-ver">v1.1.0 · MIT 开源</div>
+              <div class="about-ver">v1.1.1 · MIT 开源</div>
             </div>
           </div>
           <p class="set-note">
