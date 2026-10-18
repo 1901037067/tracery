@@ -1,0 +1,289 @@
+/**
+ * public/js/cm/widgets.js — CM6 块级 widget 与行级装饰（P3）
+ * ------------------------------------------------------------------
+ * EDITOR-MIGRATION.md 第 4 节 P3 的「无服务端依赖」子集：
+ *   ① `![[图片.png|640]]` 整行 → 图片 widget + 右下角拖宽手柄（拖完改写 doc 里的宽度参数）
+ *   ② `- [ ]` / `- [x]` → 复选框 widget，点击直接改 doc
+ *   ③ Callout（`> [!tip]`）→ 行装饰色条 + 藏 `>`/`[!type]`；正文仍是 CM 真实行（不整块 replace）
+ *   ④ 表格 → 行装饰补边框（**不整块 replace**，否则单元格不可编辑）
+ *   ⑤ 双链/标签 → hover 与点击（走 domEventHandlers 回调，复用 P1 的行内装饰 span）
+ * 「![[笔记]] 嵌入卡片」依赖 Api.note（服务端），按约定留到 P4 接回 app.js 时做。
+ *
+ * 三条来自 P0/P1 的硬约束（照抄结论）：
+ *   - **块级 widget 装饰必须挂 StateField**（视图插件里用 block replace 会抛
+ *     "Block decorations may not be specified via plugins"）→ 图片 embed 走 StateField；
+ *   - **挂件高度变化走 state effect/事务**（原地改 DOM + requestMeasure 会被 CM 测量周期抢滚动）：
+ *     图片拖宽在拖动期只改本地 DOM，pointerup 时 dispatch 一个 doc 变更（事务）持久化宽度，
+ *     由 CM 重新测量、自动锚定滚动；
+ *   - 行内替换/行装饰可以走 ViewPlugin（视口作用域、便宜）→ 复选框/Callout/表格走 ViewPlugin。
+ *
+ * 与块级模型的业务解耦：本模块不认路径、不认附件库，图片 URL / 是否图片都由调用方注入的
+ * `resolveImage(name)` / `isImage(name)` 决定；P4 接 editor.js 的 resolveFile + Api.fileUrl。
+ */
+import { RangeSetBuilder, StateField } from '@codemirror/state';
+import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
+import { parseCached } from './decorations.js';
+
+const DEFAULT_IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+const EMBED_LINE_RE = /^!\[\[([^\]]+)\]\]$/;   // 整行就是一个嵌入
+const TASK_MARK_RE = /^(\s*[-*+]\s+)\[([ xX])\]/;
+const QUOTE_MARK_RE = /^(\s*>\s?)/;
+const CALLOUT_MARK_RE = /^(\s*>\s?)(\[![^\]]+\]\s*)/;
+
+/** 0-based AST 行号 → CM 1-based doc 行（P1 坑 3：混用会整体挂歪） */
+function docLine(state, idx0) { return state.doc.line(idx0 + 1); }
+
+/** 光标覆盖的源码行号集合（这些行按 P1 规则显示原始语法） */
+function cursorLines(state) {
+  const set = new Set();
+  for (const r of state.selection.ranges) {
+    const a = state.doc.lineAt(r.from).number;
+    const b = state.doc.lineAt(r.to).number;
+    for (let n = a; n <= b; n++) set.add(n);
+  }
+  return set;
+}
+
+/** 解析嵌入 raw（`名字|宽度` 里的内容）→ { name, width, isImage, src } */
+function parseEmbed(raw, opts) {
+  const name = raw.split('|')[0].replace(/#.*$/, '').trim();
+  const alias = raw.split('|')[1];
+  const width = Number.parseInt(alias, 10);
+  const isImage = (opts.isImage ?? ((n) => DEFAULT_IMG_RE.test(n)))(name);
+  const src = opts.resolveImage?.(name) ?? null;
+  return { name, width: Number.isFinite(width) && width > 0 ? width : 0, isImage, src };
+}
+
+/* ================= ① 图片嵌入 widget（块级，StateField） ================= */
+
+class ImageEmbedWidget extends WidgetType {
+  constructor(embed, from) {
+    super();
+    this.embed = embed;
+    this.from = from;
+  }
+  eq(o) { return o.from === this.from && o.embed.raw === this.embed.raw && o.embed.src === this.embed.src; }
+  get estimatedHeight() { return this.embed.isImage ? (this.embed.width ? Math.min(this.embed.width * 0.62, 900) : 240) : 36; }
+  toDOM(view) {
+    const { name, width, isImage, src } = this.embed;
+    const fig = document.createElement('figure');
+    fig.className = 'cm-lp-img' + (isImage ? ' embed-image' : ' embed-file');
+    fig.contentEditable = 'false';
+    fig.dataset.name = name;
+    if (!isImage) { fig.textContent = `📎 ${name}`; return fig; }
+    if (!src) { fig.innerHTML = `<div class="cm-lp-img-missing">图片不存在：<code>${name}</code></div>`; return fig; }
+    const img = document.createElement('img');
+    img.src = src; img.alt = name; img.draggable = false; img.loading = 'lazy';
+    if (width) { img.style.width = `${width}px`; img.style.maxWidth = '100%'; }
+    const grip = document.createElement('span');
+    grip.className = 'cm-lp-img-grip';
+    grip.title = '拖动调整宽度（双击还原）';
+    grip.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const startX = e.clientX;
+      // 用「逻辑宽度」（style.width）当基准，比 getBoundingClientRect 稳（图片可能未加载）
+      const specified = Number.parseInt(img.style.width, 10);
+      const startW = Number.isFinite(specified) && specified > 0 ? specified : img.getBoundingClientRect().width;
+      const move = (ev) => {
+        const w = Math.round(Math.min(1200, Math.max(80, startW + ev.clientX - startX)));
+        img.style.width = `${w}px`; img.style.maxWidth = '100%';
+        grip.dataset.w = String(w);
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        const w = Number(grip.dataset.w);
+        // 拖完才写 doc（事务 → CM 重新测量并锚定滚动，P0 结论 2）
+        if (w > 0) setEmbedWidth(view, this.from, w);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+    grip.addEventListener('dblclick', (e) => { e.stopPropagation(); img.style.width = ''; setEmbedWidth(view, this.from, 0); });
+    grip.addEventListener('click', (e) => e.stopPropagation());
+    fig.append(img, grip);
+    return fig;
+  }
+  // 不实现 ignoreEvent（默认 false）：点击图片本体交给 CM → 光标落到该行 → 露出原始语法可编辑；
+  // 拖宽手柄自己 stopPropagation，不让 CM 抢走指针事件。
+}
+
+/** 改写某行嵌入的宽度（0 = 去掉尺寸），走 doc 事务。与 editor.js setImageWidth 同口径。 */
+export function setEmbedWidth(view, pos, width) {
+  const line = view.state.doc.lineAt(pos);
+  const m = EMBED_LINE_RE.exec(line.text.trim());
+  if (!m) return false;
+  const idx = line.text.indexOf('![[');
+  const raw = m[1];
+  const name = raw.split('|')[0].replace(/#.*$/, '').trim();
+  const next = width > 0 ? `![[${name}|${Math.round(width)}]]` : `![[${name}]]`;
+  view.dispatch({ changes: { from: line.from + idx, to: line.from + line.text.trim().length, insert: next }, userEvent: 'input' });
+  return true;
+}
+
+function buildImageDecos(state, opts) {
+  const { blocks } = parseCached(state);
+  const b = new RangeSetBuilder();
+  for (const blk of blocks) {
+    if (blk.type !== 'paragraph' || blk.line !== blk.endLine) continue;
+    const m = EMBED_LINE_RE.exec(blk.text.trim());
+    if (!m) continue;
+    const line = docLine(state, blk.line);
+    const embed = { raw: m[1], ...parseEmbed(m[1], opts) };
+    // 块级 replace 的 range 用 [line.from, line.to)：整行收起成 widget（P1 坑 4）
+    if (line.from < line.to) {
+      b.addRange(line.from, line.to, Decoration.replace({ widget: new ImageEmbedWidget(embed, line.from), block: true }));
+    }
+  }
+  return b.finish();
+}
+
+/** 图片嵌入装饰（块级，必须 StateField）。
+ *  注意：块级 widget **不套用「光标行显示原始语法」规则**——StateField 的选区重建
+ *  在 CM6 里不会像 ViewPlugin 那样即时反映到 DOM（实测：create 时默认光标在第 1 行，
+ *  会让该行图片被跳过且其后选区重建也不刷新）。块级嵌入恒定显示，保证确定性。 */
+export function imageEmbeds(opts = {}) {
+  return StateField.define({
+    create: (state) => buildImageDecos(state, opts),
+    update: (value, tr) => (tr.docChanged ? buildImageDecos(tr.state, opts) : value),
+    provide: (f) => EditorView.decorations.from(f),
+  });
+}
+
+/* ================= ② 复选框 widget（行内替换，ViewPlugin） ================= */
+
+class CheckboxWidget extends WidgetType {
+  constructor(checked, from) { super(); this.checked = checked; this.from = from; }
+  eq(o) { return o.checked === this.checked && o.from === this.from; }
+  toDOM(view) {
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.className = 'cm-lp-cb';
+    box.checked = this.checked;
+    box.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const cur = view.state.doc.sliceString(this.from + 1, this.from + 2);
+      const next = cur === ' ' ? 'x' : /[xX]/.test(cur) ? ' ' : null;
+      if (!next) return;
+      view.dispatch({ changes: { from: this.from + 1, to: this.from + 2, insert: next }, userEvent: 'input' });
+    });
+    return box;
+  }
+  ignoreEvent() { return true; }
+}
+
+/* ================= ③④ 行级装饰收集（Callout / 表格 / 列表复选框） =================
+ * 产出 {from,to?,cls,kind,always?}：kind = 'line' | 'mark' | 'hide' | 'replace'。
+ * always=true 的项不受「光标行显示原始语法」过滤（如表格边框）。 */
+function walkBlocks(blocks, state, cursor, out) {
+  for (const b of blocks) {
+    switch (b.type) {
+      case 'callout': {
+        for (let n = b.line; n <= b.endLine; n++) {
+          const line = docLine(state, n);
+          out.push({ from: line.from, cls: `cm-lp-callout cm-lp-callout-${b.calloutType}`, kind: 'line', always: true });
+          out.push({ from: line.from, cls: n === b.line ? 'cm-lp-callout-title' : 'cm-lp-callout-body', kind: 'line', always: true });
+          if (cursor.has(n + 1)) continue; // 光标行露出原始 `> [!type]`
+          // 标题行藏 `> [!type] `（CALLOUT_MARK_RE），正文行只藏 `> `（QUOTE_MARK_RE）
+          const q = (n === b.line ? CALLOUT_MARK_RE.exec(line.text) : null) || QUOTE_MARK_RE.exec(line.text);
+          if (q) out.push({ from: line.from, to: line.from + q[0].length, kind: 'hide' });
+        }
+        if (b.blocks) walkBlocks(b.blocks, state, cursor, out);
+        break;
+      }
+      case 'table': {
+        // 只补边框（行装饰）；**不整块 replace**——否则单元格文字不可编辑（第 4 节 P3 建议）
+        out.push({ from: docLine(state, b.header.line).from, cls: 'cm-lp-tbl cm-lp-tbl-head', kind: 'line', always: true });
+        for (const r of b.rows) out.push({ from: docLine(state, r.line).from, cls: 'cm-lp-tbl', kind: 'line', always: true });
+        break;
+      }
+      case 'quote':
+        if (b.blocks) walkBlocks(b.blocks, state, cursor, out);
+        break;
+      case 'list':
+        for (const it of b.items) walkItem(it, state, cursor, out);
+        break;
+      default:
+        break; // heading / paragraph / fence / hr / blank 无 P3 新增装饰
+    }
+  }
+}
+
+function walkItem(item, state, cursor, out) {
+  if (item.task != null) {
+    const line = docLine(state, item.startLine);
+    const m = TASK_MARK_RE.exec(line.text);
+    if (m && !cursor.has(line.number)) {
+      const from = line.from + m[1].length;          // `[` 的位置
+      out.push({ from, to: from + 3, kind: 'replace', widget: new CheckboxWidget(m[2].toLowerCase() === 'x', from) });
+    }
+  }
+  if (item.children) for (const c of item.children) walkItem(c, state, cursor, out);
+}
+
+/** 行级装饰插件（视口作用域）：Callout 色条/藏标记、表格边框、列表复选框 */
+export function widgetsPlugin() {
+  return ViewPlugin.fromClass(class {
+    constructor(view) { this.decorations = this.build(view); }
+    update(u) { if (u.docChanged || u.viewportChanged || u.selectionSet) this.decorations = this.build(u.view); }
+    build(view) {
+      const state = view.state;
+      let blocks;
+      try { ({ blocks } = parseCached(state)); } catch (e) { console.error('[widgets] parse 崩溃:', e.message); return Decoration.none; }
+      const cursor = cursorLines(state);
+      const raw = [];
+      const spans = [];
+      try {
+        walkBlocks(blocks, state, cursor, raw);
+        const lo = view.visibleRanges[0]?.from ?? 0;
+        const hi = view.visibleRanges[view.visibleRanges.length - 1]?.to ?? state.doc.length;
+        for (const d of raw) {
+          const to = d.to ?? d.from;
+          // 防御（P1 坑 1）：一个非法 range 会让整个插件被 CM6 禁用
+          if (!Number.isFinite(d.from) || !Number.isFinite(to) || d.from < 0 || to > state.doc.length) continue;
+          if (to < lo || d.from > hi) continue;
+          if (!d.always && d.kind !== 'line' && cursor.has(state.doc.lineAt(d.from).number)) continue;
+          if (d.kind === 'line') spans.push(Decoration.line({ class: d.cls }).range(d.from));
+          else if (d.kind === 'mark') spans.push(Decoration.mark({ class: d.cls }).range(d.from, to));
+          else if (d.kind === 'replace') spans.push(Decoration.replace({ widget: d.widget }).range(d.from, to));
+          else if (d.from < to) spans.push(Decoration.replace({}).range(d.from, to));
+        }
+        return Decoration.set(spans, true);
+      } catch (e) {
+        console.error('[widgets] build 崩溃，本帧放弃装饰:', e && e.stack || e);
+        return Decoration.none;
+      }
+    }
+  }, { decorations: (v) => v.decorations });
+}
+
+/* ================= ⑤ 双链 / 标签：hover + 点击 =================
+ * 复用 P1 在行内加的 `.cm-lp-wikilink` / `.cm-lp-tag` span；这里只挂事件回调，
+ * P4 接 editor.js 的 _openWikilink / _schedulePreview / onTagClick。 */
+export function linkEvents({ onOpenWikilink, onHoverWikilink, onTagClick } = {}) {
+  return EditorView.domEventHandlers({
+    click(event) {
+      const link = event.target.closest?.('.cm-lp-wikilink');
+      if (link) { event.preventDefault(); onOpenWikilink?.(link.textContent, event); return true; }
+      const tag = event.target.closest?.('.cm-lp-tag');
+      if (tag) { event.preventDefault(); onTagClick?.(tag.textContent, event); return true; }
+      return false;
+    },
+    mouseover(event) {
+      const link = event.target.closest?.('.cm-lp-wikilink');
+      if (link) onHoverWikilink?.(link.textContent, link, event);
+      return false;   // hover 不拦，别影响 CM 自身处理
+    },
+  });
+}
+
+/* ================= 装配 ================= */
+
+/** P3 扩展集合。opts: { resolveImage(name)->url|null, isImage(name)->bool, onOpenWikilink, onHoverWikilink, onTagClick } */
+export function widgetExtensions(opts = {}) {
+  return [
+    imageEmbeds(opts),
+    widgetsPlugin(),
+    linkEvents(opts),
+  ];
+}

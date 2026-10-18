@@ -37,7 +37,7 @@ const INLINE_PATTERNS = [
   { re: /(^|[\s(（])_([^_\n]+)_(?=$|[\s).，。！？、；:])/g, cls: 'cm-lp-em', marker: 1, inner: 2 },
   { re: /~~([^~]+)~~/g, cls: 'cm-lp-del', marker: 2 },
   { re: /==([^=]+)==/g, cls: 'cm-lp-mark', marker: 2 },
-  { re: /(^|[\s(（])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu, cls: 'cm-lp-tag', marker: 0, inner: 2 },
+  { re: /(^|[\s(（])(#[\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu, cls: 'cm-lp-tag', marker: 0, inner: 2 },
 ];
 
 /** 在 text（doc 中从 base 开始的片段）里扫行内装饰：
@@ -75,7 +75,7 @@ function scanInline(text, base, out) {
 
 /* ================= 解析缓存（doc 不变不重扫） ================= */
 const parseCache = { doc: null, parse: null };
-function parseCached(state) {
+export function parseCached(state) {
   const text = state.doc.toString();
   if (parseCache.doc !== text) {
     parseCache.doc = text;
@@ -116,6 +116,9 @@ function collectBlockDecos(blocks, state, cursor, out) {
         break;
       }
       case 'paragraph':
+        // 整行就是一个嵌入（![[...]]）——P3 交给 widgets.js 的块级 widget 接管，
+        // 这里不再挂行内装饰（否则行内 mark 与整行 block replace 重叠，可能被 CM 判为冲突）
+        if (b.line === b.endLine && /^\s*!\[\[[^\]]+\]\]\s*$/.test(b.text)) break;
         scanInline(b.text, b.lineStart, out);
         break;
       case 'list':

@@ -184,11 +184,15 @@ Obsidian 的「source」就是实时预览编辑视图，「preview」才是阅�
 - 「藏标记」用 `Decoration.replace({})`（无 widget = 内联空替换）；**整行收起**（围栏行、表格分隔行）
   用 `Decoration.replace({widget, block:true})` 挂 StateField（P0 结论）
 
-### P2 行内编辑（1~2 天）
-- 光标行显示语法标记（`Decoration.mark` 的 `inclusive` + `cursorLine` 判断）
+### P2 行内编辑（1~2 天）—— ✅ **已完成（2026-10-18），结论见 7.3**
+- 光标行显示语法标记（`Decoration.mark` 的 `inclusive` + `cursorLine` 判断）——P1 装饰侧已做
 - Enter 续列表 / 任务列表、Tab 缩进、`Ctrl+B/I/S/K`、Backspace 行首合并（CM 默认有，验证即可）
+  → 落在新模块 `public/js/cm/editing.js`（不碰 `editor.js`）
 
-### P3 块级 widget（1~2 天，最容易丢功能的一段）
+### P3 块级 widget（1~2 天，最容易丢功能的一段）—— ✅ **「无服务端依赖」子集完成（2026-10-18），结论见 7.4**
+- 已做：图片嵌入 widget + 拖宽手柄、复选框 widget、Callout 行装饰、表格边框（行装饰）、双链/标签 hover+点击 → `public/js/cm/widgets.js`
+- 未做（留 P4）：`![[笔记]]` 嵌入卡片（需 `Api.note`）
+- 原计划（保留供参考）：
 - `![[图片.png|640]]` → 图片 widget + 右下角拖宽手柄（复用 `editor.js` 里的 `_renderImageEmbed`、`setImageWidth` 逻辑）
 - `![[笔记]]` → 嵌入卡片（复用 `Api.note` + `renderMarkdown`，注意 `tagOffsets:false`）
 - `> [!tip]` → Callout 卡片（标题行可编辑，正文仍是 CM 行，用 `Decoration.line` 做左侧色条即可，别整块 replace，否则正文不可编辑）
@@ -261,7 +265,7 @@ undo()  redo()  canUndo()  canRedo()   dirty(属性)
 ```bash
 npm run dev                 # 启动服务（默认 9520）
 npm run test:e2e            # 功能回归
-npm run test:cmlab          # CM6 探针（P0：IME/行号/3000行滚动/widget高度×滚动/history）
+npm run test:cmlab          # CM6 探针（P0–P3：IME/行号/滚动/widget/history/装饰/行内编辑/块级widget）
 npm run test:roundtrip      # Markdown 往返（换内核后要改成「text ↔ 装饰」等价性）
 npm run test:enter          # 回车行为（换内核后重写）
 npm run test:gap            # 空行/落点（换内核后大部分断言作废）
@@ -362,6 +366,114 @@ npm run dist:dir && npm run release   # 打包（release 会 repack asar + 压 z
 已对齐：标题层级/加粗/斜体/删除线/高亮/行内代码/双链/标签、列表标记、引用、代码块围栏收起、
 分割线、表格行背景；**未对齐（留给 P3）**：表格整块样式（边框/对齐/单元格）、Callout 卡片、图片/嵌入 widget、复选框。
 
+### 7.3 P2 结论（2026-10-18 · 已完成，探针第 ⑥ 项 21 条断言全过 + 全量探针绿）
+
+**交付物**
+
+| 文件 | 内容 |
+|---|---|
+| `public/js/cm/editing.js` | **新增**。P2 编辑内核：`continueMarkupOrTask`（Enter）、`indentMore`/`indentLess`（Tab/Shift+Tab）、`toggleBold`/`toggleItalic`/`toggleStrike`/`insertWikilink`（Ctrl+B/I/S/K）、`assetEventHandlers`（粘贴/拖入附件拦截）、`editingKeymap` + `editingExtensions()` |
+| `public/js/cmlab.js` | `markdown({ base, addKeymap:false })` + 接入 `editingExtensions({ onAssetFile })`；新增第 ⑥ 项探针 `probeEditing()`（21 条断言）；`window.__probe.p2` |
+| `test/cmlab-test.mjs` / `public/cmlab.html` | 文档串与页头说明更新（5 → 6 项探针）。**运行器逻辑不用改**：⑥ 与其余探针一样在 `runAll` 内跑、写进 `window.__probe.results`，`autoOk` 自动纳入 |
+
+**没有动 `public/js/editor.js`**（P4 才接回）——P2 全部落在新模块里。
+
+**实测（Edge 150 headless）**：⑥ 项 21 条断言全过。覆盖：
+Enter 续任务列表（自补 `- [ ] `）/ 无序 / 有序自增（`2.`→`3.`）/ 引用、空任务项回车退出列表；
+Tab 缩进列表行（行首 +2 空格）/ Shift+Tab 反缩进 / Tab 普通行光标处插 2 空格；Backspace 行首合并到上一行；
+Ctrl+B/I/S 包裹选区（`**…**`/`*…*`/`~~…~~`）、Ctrl+B 无选区插标记对；Ctrl+K 无选区插 `[[链接文字]]` 并选中、有选区包双链；
+粘贴附件被拦（不落 `data:`/`blob:`、回插 `![[…]]`）、拖入附件被拦、`dragover(含文件)` 被拦、纯文本粘贴不误拦。
+
+**P2 的 4 个关键结论（P3/P4 直接抄）：**
+
+1. **keymap 要自持，并把 `markdown` 的 keymap 关掉**：`markdown()` 默认 `addKeymap:true` 会装一份
+   `markdownKeymap`（**Prec.high**），与本模块的 Enter/Backspace 绑定抢顺序。配方是
+   `markdown({ base: markdownLanguage, addKeymap: false })` + `Prec.high(keymap.of(editingKeymap))`。
+   本模块把 `insertNewlineContinueMarkup` / `deleteMarkupBackward` **显式挪进自己的 keymap**，
+   Enter/Backspace 只在一处定义、顺序确定。非 markdown 上下文（如代码块内）返回 false，
+   由 `defaultKeymap` 的 `insertNewlineAndIndent` / `deleteCharBackward` 兜底，因此**不用自己再兜一层**。
+2. **CM 内置的 `insertNewlineContinueMarkup` 不续任务项 `[ ]`**：GFM 的 Task marker 不在它的续行逻辑里，
+   在 `- [ ] 甲` 上回车得到的是 `- `（丢了复选框）。所以 `continueMarkupOrTask` 单光标命中
+   `^(\s*)([-*+]\s+)\[([ xX])\]\s?` 时自己续 `行首缩进 + 项目符号 + '[ ] '`（固定未勾选）；
+   **空任务项**（`- [ ] ` 后无内容）则整行去标记（留在原行）= 退出任务列表——这一步也自己做了，
+   因为内置对空任务项的去标记行为不保证与 `editor.js` 的 `_handleEnter` 口径一致。其余（有序/无序/引用/普通换行）
+   全部交还内置命令。
+3. **粘贴/拖入拦截的「谁先谁后」很关键**：CM6 在 `InputState` 里有一份**内置** `handlers.paste` / `handlers.drop`
+   （drop 对文件走 `FileReader.readAsText` 把文件**文本**插进文档）。`computeHandlers` 的拼装顺序是
+   **先插件的 `domEventHandlers`、后内置 handlers**，`runHandlers` 遇到第一个返回 true 的即 `preventDefault` 并 break——
+   所以我们的 `assetEventHandlers` 只要在有文件时返回 true，就能抢在内置 drop 之前拦下。
+   - 判断依据是 `clipboardData.items` 里有 `kind==='file'` / `dataTransfer.files` 非空；**纯文本粘贴必须返回 false**
+     （否则误吞用户粘贴的文本），此时由内置 paste 正常插入。
+   - **不能用 `event.defaultPrevented` 判断「是否被我们拦」**：内置 paste 自己也会 preventDefault（它插文本），
+     断言要改成「附件记录（assetLog）有没有增 + 文档里有没有 `data:`/`blob:`」。
+   - `dragover` 必须对含 `Files` 的拖拽 `preventDefault`，否则 drop 事件根本不触发。
+4. **附件拦截只「拦 + 递文件」，不落盘**：内核不碰服务端，把 `File` 交给回调 `onAssetFile(file, view, event)`；
+   P4 接 `editor.js._saveAssetFile`（`Api.saveAsset` → 回插 `![[path]]`）。探针页没有服务端，
+   `onAssetFile` 只记录 File 并回插占位路径 `![[attachments/<name>]]`，用来断言拦截生效且文档干净。
+
+**附带验证**：键盘断言走的是 CM 真实事件管线（`contentDOM.dispatchEvent(new KeyboardEvent(...))` →
+`handleEvent` → `runHandlers` → `getKeymap`），不是直接调命令——所以能证明 keymap 装配（`Prec.high` + `addKeymap:false`）确实生效；
+合成事件在 `ignoreDuringComposition` 里被放行（`event.synthetic` 分支返回 false），无需真实按键。
+
+复跑：`npm run test:cmlab`（页内点「运行全部探针」亦可手看）。
+
+### 7.4 P3 结论（2026-10-18 · 已完成「无服务端依赖」子集，探针第 ⑦ 项 17 条断言全过 + 全量探针绿）
+
+**范围约定**：P3 全量含 6 项，其中 `![[笔记]]` 嵌入卡片依赖服务端 `Api.note`（探针页无 vault），
+经确认本次只做「无服务端依赖子集」：① 图片嵌入 widget + 拖宽、② 复选框 widget、
+③ Callout 行装饰、④ 表格边框、⑤ 双链/标签 hover+点击。**嵌入卡片留到 P4 接回 app.js 时做**。
+
+**交付物**
+
+| 文件 | 内容 |
+|---|---|
+| `public/js/cm/widgets.js` | **新增**。`ImageEmbedWidget` + `imageEmbeds`（StateField：整行 `![[..]]` → 图片/文件 widget + 右下角拖宽手柄，拖完改写 doc 宽度）、`CheckboxWidget`（行内 replace，点击改 doc）、`widgetsPlugin`（ViewPlugin：Callout 行装饰+藏 `>`/`[!type]`、表格行装饰边框、列表复选框）、`linkEvents`（双链/标签 hover+点击）、`setEmbedWidth`、`widgetExtensions()` |
+| `public/js/cm/decorations.js` | 两处小改：① 整行嵌入的段落不再走行内装饰（让位给 P3 块级 widget，避免重叠）；② 修 `#标签` 行内 mark 的 off-by-one（见结论 6） |
+| `public/js/cmlab.js` + `public/cmlab.html` | 接入 `widgetExtensions({ resolveImage 桩, 三个事件回调 })`；新增第 ⑦ 项探针 `probeWidgets()`（17 条断言）+ `cm-lp-img/cb/callout/tbl` 样式；`window.__probe.p3` |
+| `test/cmlab-test.mjs` | 文档串更新（6 → 7 项探针）。运行器逻辑不用改 |
+
+**没有动 `public/js/editor.js`**（P4 才接回）。
+
+**实测（Edge 150 headless）**：⑦ 项 17 条断言全过——图片嵌入（src/宽 320px）、原语法收起、拖宽手柄、
+非图片附件→文件条、复选框勾选态与点击改 doc、Callout 标题藏标记+行装饰、Callout 正文仍是真实可编辑行、
+表格边框（2px）+ 单元格文字未被 replace、双链/标签 span 的 hover/click 回调、块级图片恒定显示、
+拖动写回宽度（320→440）。链接事件记录：`[["hover","双链A"],["open","双链A"],["tag","#标签B"]]`。
+
+**P3 的 7 个关键结论（P4 直接抄）：**
+
+1. **块级 widget 的选区重建在 CM6 里不即时反映到 DOM → 块级嵌入别套「光标行显示原始语法」**。
+   实测踩坑：`EditorState.create({doc})` 的默认光标在第 1 行，若对整行嵌入套用「光标行露源码」，
+   第 1 行的图片会被跳过；且此后 `goTo()` 的 selection-only dispatch **不会刷新**该块级 widget
+   （反复 3 帧仍看不到，只是 doc 变更后的重建才生效）。结论：块级嵌入**恒定显示**；
+   只有 ViewPlugin 里的 mark/hide 才适合做光标行规则。→ 代价：暂时不能直接编辑 `![[...]]` 原始行（见下方边界）。
+2. **两个相邻的 `![[..]]` 行会被解析成同一个段落**（parser 行为，与 `editor.js` 块级渲染一致），
+   于是不会被识别成「整行嵌入」。块级图片要求**段落恰好是单行且整行就是一个嵌入**；
+   相邻嵌入之间必须空行分隔。`widgets.js` 用 `blk.type==='paragraph' && blk.line===blk.endLine` 卡这个条件。
+3. **装饰分两档：块级 replace 走 StateField，行内 replace/行装饰走 ViewPlugin**——
+   图片嵌入 = 块级 → StateField；复选框 = 行内 replace、Callout/表格 = 行装饰 → ViewPlugin（视口作用域、便宜）。
+   **表格不整块 replace**，只用 `Decoration.line` 补边框：单元格文字仍是真实源码行（实测 `lineText` 仍 `| 1 | 2 |`），可编辑。
+4. **图片拖宽：拖动期只改本地 DOM，pointerup 才走事务写 doc**（P0 结论 2 的直接应用）。
+   拖完 `setEmbedWidth` dispatch 一个 doc 变更持久化 `![[name|宽]]`，由 CM 重新测量并锚定滚动。
+   widget 用 `estimatedHeight`（按宽度估算）做测量前占位。
+5. **拖宽基准用 `img.style.width`（逻辑宽度）而非 `getBoundingClientRect().width`**——
+   探针里图片 src 是桩（404，图未加载时 rect 宽度可能是 0），用逻辑宽度才能让拖动可复现（320→440 精确）。
+6. **顺手修了 P1 遗留的 off-by-one**：`INLINE_PATTERNS` 里 `#标签` 那条 `inner:2` 从分隔符后起算
+   （起点落在 `#`），但长度只加了「名字」的长度 → mark 覆盖 `#标签`、**丢掉最后一个字**（`#标签B` 渲染成 `#标签`）。
+   已改为分组 2 把 `#` 一起括进来（`(#[\p{L}…]*)`）。是 P3 的「标签点击」断言把它逼出来的；P1 的探针只查了 span 存在，没查文本，故漏网。
+7. **双链/标签事件走 `domEventHandlers`，复用 P1 的行内 span**（`.cm-lp-wikilink` / `.cm-lp-tag`）：
+   `click` 命中即 `preventDefault` 并回调（返回 true，阻止 CM 后续处理）；`mouseover` 回调但返回 false（不拦，避免影响 CM 自身）。
+
+**P3 子集的两条已知边界（留给后续）：**
+
+- **`![[笔记]]` 嵌入卡片**：需 `Api.note` + `renderMarkdown(tagOffsets:false)`，随 P4 接回 app.js 时做；
+  架构上就是再加一个 StateField（异步解析走 state effect）。
+- **块级图片恒显 → 不能直接编辑 `![[...]]` 原始行**：要修得让 StateField 的选区重建能即时刷新
+  （可能要配合 `view.requestMeasure()` 或改成 ViewPlugin 视口内 + 命中行单独处理），或等 P4 用 CM 的
+  `EditorView.updateListener` 做一次显式 `requestMeasure`。另外 Callout **正文内**的行内装饰
+  偏移是 P1 侧的旧问题（子文档 base 未按 `>` 位移），本次只在 Callout 做行装饰+藏标记，没动行内；正文含 `**粗体**` 会错位。
+
+复跑：`npm run test:cmlab`（7 项探针 + IME 全绿）。
+
 ---
 
 ## 8. 下个会话从这里开始
@@ -369,18 +481,24 @@ npm run dist:dir && npm run release   # 打包（release 会 repack asar + 压 z
 1. 读这份文档 + `docs/HANDOFF.md` 的 #14 / #21 / #26 / #34 / #36 / #40 / #41 / #42（空行/光标/行号/跨行删除的既有结论）
 2. 跑一次 `npm run test:e2e` + `test:gap` + `test:backspace` + `test:cmlab` 确认基线是绿的
 3. **P0 ✅ 完成**（探针 5 项全过，结论 7.1）；**P1 ✅ 完成**（parse/render 拆分 + `cm/decorations.js`，
-   探针第 ⑤ 项 10 条断言全过，结论 7.2，含 9 个坑）
-4. **下一步：P2 行内编辑**——光标行规则已经在 P1 做了（装饰侧 `cursor.has()`），P2 要补的是：
-   Enter 续列表/任务列表（`insertNewlineContinueMarkup` + 自定义 `- [ ]`）、Tab 缩进、
-   `Ctrl+B/I/S/K`、Backspace 行首合并（CM 原生有，但要注意与块级模型的 `_mergeLineBackward` 逻辑对齐）、
-   粘贴/拖入附件拦截（`domEventHandlers`）
-5. P2 完成后再动 P3（块级 widget，最容易丢功能）→ P4 接回 app.js → P5 测试迁移
+   探针第 ⑤ 项 10 条断言全过，结论 7.2，含 9 个坑）；**P2 ✅ 完成**（`cm/editing.js`：Enter 续列表/任务列表、
+   Tab 缩进、Ctrl+B/I/S/K、粘贴拖入拦截，探针第 ⑥ 项 21 条断言全过，结论 7.3，含 4 个关键结论）；
+   **P3 ✅ 完成（无服务端依赖子集）**（`cm/widgets.js`：图片嵌入+拖宽、复选框、Callout、表格边框、
+   双链/标签事件，探针第 ⑦ 项 17 条断言全过，结论 7.4，含 7 个关键结论）
+4. **下一步：P4 接回 app.js**——`LiveEditor` 内部换成 CM（保留名字与全部方法，契约见第 5 节），
+   把 P1/P2/P3 的 `cm/decorations.js` + `cm/editing.js` + `cm/widgets.js` 装配进去（`markdown` 记得配
+   `addKeymap:false`），并补上 P3 唯一遗留项 **`![[笔记]]` 嵌入卡片**（接 `Api.note` + `renderMarkdown(tagOffsets:false)`，
+   异步解析走 state effect）；DOM 契约同步改（见 5.3）
+5. P4 完成后 → P5 测试迁移（重写 `test/enter`、`test/gap`、`test/polish` 中依赖块级 DOM 的断言，见第 6 节）
+   → 全量 18 套件回归 → `npm run dist:dir` + `npm run release`
 
 ### 给用户的开场提示词（可直接粘贴）
 
 ```
-读 docs/EDITOR-MIGRATION.md（编辑区内核迁移交接），继续 P2 行内编辑：
-在 public/js/cm/ 下补 keymap（Enter 续列表/任务列表、Tab 缩进、Ctrl+B/I/S/K），
-粘贴/拖入附件在 domEventHandlers 里拦掉，用 cmlab 探针页加第 ⑥ 项断言，
-结论写回文档第 7 节；不要动现有的 public/js/editor.js（P4 才接回）。
+读 docs/EDITOR-MIGRATION.md（编辑区内核迁移交接），开始 P4：把 LiveEditor 接回 CM 内核。
+在 public/js/editor.js 里把内部实现换成 CodeMirror 6（保留类名/方法/构造参数，契约见第 5 节），
+装配 cm/decorations.js + cm/editing.js + cm/widgets.js（markdown 配 addKeymap:false），
+补上 ![[笔记]] 嵌入卡片（接 Api.note + renderMarkdown），同步改 5.3 的 DOM 契约与 app.js 选择器，
+保留 settings.editorEngine='block'|'cm' 回退开关；用 cmlab 探针页加第 ⑧ 项端到端断言，
+结论写回文档第 7 节（7.5）。
 ```

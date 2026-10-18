@@ -54,6 +54,20 @@
   .cm-lp-tr { background: #fafafa; }
   .cm-lp-tr-head { background: #f3f4f6; font-weight: 600; }
   .cm-lp-zero { height: 0; overflow: hidden; }
+  /* P3 块级 widget 与行级装饰（public/js/cm/widgets.js） */
+  .cm-lp-img { position: relative; display: inline-block; margin: 6px 0; padding: 4px; border: 1px dashed var(--border); border-radius: 6px; background: #fafafa; }
+  .cm-lp-img img { display: block; max-width: 100%; border-radius: 4px; }
+  .cm-lp-img-grip { position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px; border-radius: 3px; background: var(--accent); opacity: .75; cursor: nwse-resize; }
+  .cm-lp-img-grip:hover { opacity: 1; }
+  .cm-lp-img.embed-file { border-style: solid; font-family: var(--mono); font-size: 12px; color: var(--muted); padding: 4px 8px; }
+  .cm-lp-img-missing { color: var(--bad); font-size: 12px; }
+  .cm-lp-cb { vertical-align: middle; margin: 0 5px 0 1px; }
+  .cm-lp-callout { border-left: 3px solid var(--accent); background: #faf5ff; padding-left: 8px; }
+  .cm-lp-callout-tip { border-left-color: #0ea5e9; background: #f0f9ff; }
+  .cm-lp-callout-title { font-weight: 700; }
+  .cm-lp-callout-body { color: #374151; }
+  .cm-lp-tbl { border-bottom: 1px solid var(--border); background: #fafafa; font-family: var(--mono); }
+  .cm-lp-tbl-head { border-top: 1px solid var(--border); border-bottom: 2px solid #cbd5e1; background: #f3f4f6; font-weight: 600; }
   .probe-collapse, .probe-grow {
     border: 1px solid var(--border); border-left: 4px solid var(--accent);
     border-radius: 6px; padding: 8px 12px; margin: 4px 0; background: #faf5ff;
@@ -107,7 +121,7 @@
 <body>
 <header>
   <h1>CM6 探针 · cmlab</h1>
-  <p>编辑区内核迁移 P0：独立验证中文输入法组词 / 行号 / 3000 行滚动 / Decoration.widget 高度变化滚动稳定性 / history 撤销选区恢复。本页不依赖现有编辑区代码。</p>
+  <p>编辑区内核迁移探针：P0 输入法组词 / 行号 / 3000 行滚动 / widget 高度变化滚动稳定性 / history；P1 装饰渲染；P2 行内编辑（Enter 续列表、Tab、Ctrl+B/I/S/K、粘贴拖入拦截）；P3 块级 widget（图片嵌入+拖宽、复选框、Callout、表格边框、双链/标签事件）。本页不依赖现有编辑区代码。</p>
 </header>
 <div class="wrap">
   <div class="bar">

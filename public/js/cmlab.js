@@ -9,6 +9,9 @@
  *   4. Decoration.widget 高度变化时滚动稳定性（4 个变体：视口内 state 切换 /
  *      视口上方 state 切换 / 原地 DOM 变更 + requestMeasure / anchor 补偿）
  *   5. history() 撤销恢复 doc 与选区
+ *   6. 行内编辑（P2）：Enter 续列表/任务列表、Tab 缩进、Ctrl+B/I/S/K、
+ *      粘贴/拖入附件在 domEventHandlers 里拦掉
+ *   7. 块级 widget（P3）：图片嵌入 + 拖宽、复选框、Callout 行装饰、表格边框、双链/标签事件
  *
  * 结果同时渲染到页面表格并暴露在 window.__probe.results。
  */
@@ -18,6 +21,8 @@ import { history, undo, redo, defaultKeymap, historyKeymap } from '@codemirror/c
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 import { livePreviewPlugin, fenceHiding } from './cm/decorations.js';
+import { editingExtensions } from './cm/editing.js';
+import { widgetExtensions } from './cm/widgets.js';
 
 /* ================= 文档生成（确定性，3000 行中文 md） ================= */
 
@@ -149,17 +154,44 @@ function buildWidgets(state) {
 
 /* ================= 装配 EditorView ================= */
 
+/* ---------- 附件拦截回调（P2 ⑥）----------
+ * 模拟 editor.js 的 _saveAssetFile 后半段：真实 P4 是「存盘 → 回插 ![[path]]」，
+ * 探针只记录 File 并回插一个可断言的占位路径，用来验证「拦截生效、
+ * 且文档里不出现浏览器默认塞进来的 data:/blob:」。 */
+const assetLog = [];
+function onAssetFile(file) {
+  assetLog.push({ name: file.name, type: file.type, size: file.size });
+  const head = VIEW.state.selection.main.head;
+  VIEW.dispatch({ changes: { from: head, insert: `![[attachments/${file.name}]]` } });
+}
+
+/* ---------- P3 widget 依赖回调（无服务端）----------
+ * 探针页没有 vault/Api：图片 URL 用桩 resolveImage（返回 /demo-vault/<name>），
+ * 双链/标签事件只记录到 linkLog，供第 ⑦ 项断言。P4 接 editor.js 的
+ * resolveFile/Api.fileUrl 与 _openWikilink/_schedulePreview/onTagClick。 */
+const linkLog = [];
+const imageStub = (name) => `/demo-vault/${name}`;
+
 const lineNumComp = new Compartment();
 const EXTENSIONS = [
   lineNumComp.of(lineNumbers()),
   history(),
   keymap.of([...historyKeymap, ...defaultKeymap]),
-  markdown({ base: markdownLanguage }),
+  // addKeymap:false —— 把 Enter/Backspace 的绑定让给 P2 的 editing keymap（见 cm/editing.js），
+  // 否则内置 markdownKeymap（Prec.high）会和它抢顺序
+  markdown({ base: markdownLanguage, addKeymap: false }),
   syntaxHighlighting(defaultHighlightStyle),
   collapseOpen,
   widgetDecorations,
   livePreviewPlugin,
   fenceHiding,
+  ...editingExtensions({ onAssetFile }),
+  ...widgetExtensions({
+    resolveImage: imageStub,
+    onOpenWikilink: (target) => linkLog.push(['open', target]),
+    onHoverWikilink: (target) => linkLog.push(['hover', target]),
+    onTagClick: (target) => linkLog.push(['tag', target]),
+  }),
   EditorView.editable.of(true),
   EditorView.lineWrapping,
 ];
@@ -598,6 +630,296 @@ async function probeDecorations() {
   };
 }
 
+/* ================= 探针 6：行内编辑（P2） =================
+ * 覆盖 EDITOR-MIGRATION.md 第 4 节 P2 的全部动作。键盘走 CM 真实事件管线
+ * （contentDOM.dispatchEvent → handleEvent → runHandlers → keymap），不是直接调命令，
+ * 这样才能证明 keymap 装配（Prec.high + markdown addKeymap:false）是对的。
+ * 粘贴/拖入无法用真实输入法/鼠标驱动，用合成 ClipboardEvent/PasteEvent + DataTransfer
+ * （File 对象）走同一套 domEventHandlers。 */
+
+const P2_FIXTURE = [
+  '- [ ] 甲任务',
+  '- 乙列表',
+  '普通段落',
+  '- [ ] ',
+  '加粗候选文本',
+  '',
+].join('\n') + '\n';
+
+async function probeEditing() {
+  const checks = {};
+  const metrics = {};
+  const ok = (name, cond, detail) => { checks[name] = !!cond; metrics[name] = (cond ? '✅' : '❌') + (detail !== undefined ? ` (${detail})` : ''); return !!cond; };
+
+  const setDoc = async (text) => {
+    view.setState(EditorState.create({ doc: text, extensions: EXTENSIONS }));
+    await nextFrames(2);
+  };
+  const caret = (lineNo, col = 0) => view.dispatch({ selection: EditorSelection.cursor(view.state.doc.line(lineNo).from + col) });
+  const selectCols = (lineNo, a, b) => { const l = view.state.doc.line(lineNo); view.dispatch({ selection: EditorSelection.range(l.from + a, l.from + b) }); };
+  const lineText = (n) => view.state.doc.line(n).text;
+  const caretCol = (n) => view.state.selection.main.head - view.state.doc.line(n).from;
+  // 合成 keydown 走真实键盘管线；返回是否被 preventDefault（= 命中 keymap）
+  const press = async (key, mods = {}) => {
+    const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...mods });
+    view.contentDOM.dispatchEvent(ev);
+    await nextFrames(1);
+    return ev.defaultPrevented;
+  };
+  const fileEvent = async (type, prop, file) => {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const ev = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, prop, { value: dt });
+    view.contentDOM.dispatchEvent(ev);
+    await nextFrames(1);
+    return ev;
+  };
+  const png = (name) => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], name, { type: 'image/png' });
+
+  /* --- Enter：续任务列表（自定义，CM 内置不续 [ ]） --- */
+  await setDoc(P2_FIXTURE);
+  caret(1, lineText(1).length);
+  await press('Enter');
+  ok('Enter续任务列表(- [ ] )', lineText(2) === '- [ ] ' && lineText(1) === '- [ ] 甲任务' && caretCol(2) === 6, JSON.stringify(lineText(2)));
+
+  /* --- Enter：续无序 / 有序（CM 内置） --- */
+  await setDoc(P2_FIXTURE);
+  caret(2, lineText(2).length);
+  await press('Enter');
+  ok('Enter续无序列表(- )', lineText(3) === '- ', JSON.stringify(lineText(3)));
+
+  await setDoc('1. 第一\n2. 第二\n\n');
+  caret(2, lineText(2).length);
+  await press('Enter');
+  ok('Enter续有序列表自增(2.→3.)', lineText(3) === '3. ', JSON.stringify(lineText(3)));
+
+  await setDoc('> 引用第 1 行\n正文\n');
+  caret(1, lineText(1).length);
+  await press('Enter');
+  ok('Enter续引用(> )', lineText(2) === '> ', JSON.stringify(lineText(2)));
+
+  /* --- Enter：空任务项退出列表 --- */
+  await setDoc(P2_FIXTURE);
+  caret(4, lineText(4).length);
+  await press('Enter');
+  ok('空任务项回车退出列表', lineText(4) === '', JSON.stringify(lineText(4)));
+
+  /* --- Tab / Shift+Tab：2 空格缩进 --- */
+  await setDoc(P2_FIXTURE);
+  caret(1, 0);
+  const tabPrevented = await press('Tab');
+  ok('Tab缩进列表行(+2)', tabPrevented && lineText(1) === '  - [ ] 甲任务' && caretCol(1) === 2, JSON.stringify(lineText(1)));
+
+  await setDoc('  - [ ] 甲任务\n');
+  caret(1, 4);
+  await press('Tab', { shiftKey: true });
+  ok('Shift+Tab反缩进(-2)', lineText(1) === '- [ ] 甲任务', JSON.stringify(lineText(1)));
+
+  await setDoc(P2_FIXTURE);
+  caret(3, 0);
+  await press('Tab');
+  ok('Tab普通行光标处插2空格', lineText(3) === '  普通段落', JSON.stringify(lineText(3)));
+
+  /* --- Backspace：行首合并（CM 原生 deleteMarkupBackward → deleteCharBackward） --- */
+  await setDoc(P2_FIXTURE);
+  caret(3, 0);
+  await press('Backspace');
+  ok('Backspace行首合并到上一行', lineText(2) === '- 乙列表普通段落' && lineText(3) === '- [ ] ', JSON.stringify(lineText(2)));
+
+  /* --- Ctrl+B / I / S：包裹 --- */
+  await setDoc(P2_FIXTURE);
+  selectCols(5, 0, lineText(5).length);
+  await press('b', { ctrlKey: true });
+  ok('Ctrl+B包裹选区(** **)', lineText(5) === '**加粗候选文本**', JSON.stringify(lineText(5)));
+
+  await setDoc(P2_FIXTURE);
+  selectCols(5, 0, lineText(5).length);
+  await press('i', { ctrlKey: true });
+  ok('Ctrl+I包裹选区(* *)', lineText(5) === '*加粗候选文本*', JSON.stringify(lineText(5)));
+
+  await setDoc(P2_FIXTURE);
+  selectCols(5, 0, lineText(5).length);
+  await press('s', { ctrlKey: true });
+  ok('Ctrl+S包裹选区(~~ ~~)', lineText(5) === '~~加粗候选文本~~', JSON.stringify(lineText(5)));
+
+  await setDoc(P2_FIXTURE);
+  caret(3, 0);
+  await press('b', { ctrlKey: true });
+  ok('Ctrl+B无选区插标记对', lineText(3) === '****普通段落' && caretCol(3) === 2, JSON.stringify(lineText(3)));
+
+  /* --- Ctrl+K：双链 --- */
+  await setDoc(P2_FIXTURE);
+  caret(3, lineText(3).length);
+  await press('k', { ctrlKey: true });
+  const kSel = view.state.selection.main;
+  ok('Ctrl+K无选区插[[链接文字]]', lineText(3) === '普通段落[[链接文字]]' && view.state.sliceDoc(kSel.from, kSel.to) === '链接文字', JSON.stringify(lineText(3)));
+
+  await setDoc(P2_FIXTURE);
+  selectCols(5, 0, lineText(5).length);
+  await press('k', { ctrlKey: true });
+  ok('Ctrl+K有选区包双链', lineText(5) === '[[加粗候选文本]]', JSON.stringify(lineText(5)));
+
+  /* --- 粘贴附件：拦掉 + 不落 data:/blob: + 递出 File --- */
+  await setDoc(P2_FIXTURE);
+  caret(3, 0);
+  assetLog.length = 0;
+  const pasteEv = await fileEvent('paste', 'clipboardData', png('probe-paste.png'));
+  const docAfterPaste = view.state.doc.toString();
+  ok('粘贴附件被拦截', pasteEv.defaultPrevented && assetLog.length === 1 && assetLog[0].name === 'probe-paste.png');
+  ok('粘贴未落data:/blob:且回插![[..]]',
+    !docAfterPaste.includes('data:') && !docAfterPaste.includes('blob:') &&
+    docAfterPaste.includes('![[attachments/probe-paste.png]]'));
+
+  /* --- 拖入附件：拦掉 --- */
+  await setDoc(P2_FIXTURE);
+  caret(3, 0);
+  assetLog.length = 0;
+  const dropEv = await fileEvent('drop', 'dataTransfer', new File([new Uint8Array([1, 2, 3])], 'probe-drop.pdf', { type: 'application/pdf' }));
+  const docAfterDrop = view.state.doc.toString();
+  ok('拖入附件被拦截', dropEv.defaultPrevented && assetLog.length === 1 && assetLog[0].name === 'probe-drop.pdf');
+  ok('拖入未落data:/blob:且回插![[..]]',
+    !docAfterDrop.includes('data:') && !docAfterDrop.includes('blob:') &&
+    docAfterDrop.includes('![[attachments/probe-drop.pdf]]'));
+
+  /* --- dragover（含文件）必须拦；纯文本粘贴必须放行 --- */
+  await setDoc(P2_FIXTURE);
+  const dgEv = await fileEvent('dragover', 'dataTransfer', png('x.png'));
+  ok('dragover(含文件)被拦截', dgEv.defaultPrevented);
+
+  const dtText = new DataTransfer();
+  dtText.setData('text/plain', 'hello');
+  const textPaste = new Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(textPaste, 'clipboardData', { value: dtText });
+  assetLog.length = 0;
+  view.contentDOM.dispatchEvent(textPaste);
+  await nextFrames(2);
+  // 纯文本粘贴：我们的附件拦截器不接（assetLog 不增），交给 CM 内置 paste 正常插入文本。
+  // 注意 CM 内置 paste 自己会 preventDefault 并插文本，所以这里不能断言 defaultPrevented=false。
+  ok('纯文本粘贴不被当附件拦', assetLog.length === 0 && view.state.doc.toString().includes('hello'));
+
+  // 恢复合成文档：后面的 IME 探针按第 5 行定位，不能被夹具文档影响
+  await setDoc(buildDoc(3000));
+
+  const allOk = Object.values(checks).every(Boolean);
+  return {
+    ok: allOk,
+    metrics: { ...metrics, '拦截记录': JSON.stringify(assetLog) },
+    notes: allOk
+      ? ['P2 编辑内核（cm/editing.js）：Enter 续列表/任务列表、Tab 缩进、Ctrl+B/I/S/K、粘贴拖入拦截全部生效']
+      : ['有断言失败，见上方 ❌ 项'],
+  };
+}
+
+/* ================= 探针 7：块级 widget（P3） =================
+ * 覆盖「无服务端依赖」子集：图片嵌入 widget + 拖宽、复选框 widget、Callout 行装饰、
+ * 表格边框（不整块 replace）、双链/标签 hover + 点击。图片 URL 用桩 resolveImage。 */
+
+const P3_FIXTURE = [
+  '![[pics/demo.png|320]]',          // 1 图片嵌入（整行）
+  '',                                 // 2（两行嵌入之间必须空行，否则会被解析成同一个段落）
+  '![[notes/a.pdf]]',                 // 3 非图片附件
+  '',                                 // 4
+  '- [ ] 甲任务',                      // 5
+  '- [x] 乙任务',                      // 6
+  '> [!tip] 提示标题',                 // 7
+  '> 正文仍是可编辑的行',              // 8
+  '| 甲 | 乙 |',                       // 9
+  '| --- | --- |',                    // 10
+  '| 1 | 2 |',                        // 11
+  '段落里有 [[双链A]] 与 #标签B 。',   // 12
+  '',                                 // 13
+].join('\n') + '\n';
+
+async function probeWidgets() {
+  const checks = {}, metrics = {};
+  const ok = (name, cond, detail) => { checks[name] = !!cond; metrics[name] = (cond ? '✅' : '❌') + (detail !== undefined ? ` (${detail})` : ''); return !!cond; };
+  const setDoc = async (text) => { view.setState(EditorState.create({ doc: text, extensions: EXTENSIONS })); await nextFrames(2); };
+  const goTo = (lineNo, col = 0) => view.dispatch({ selection: EditorSelection.cursor(view.state.doc.line(lineNo).from + col) });
+  const lineText = (n) => view.state.doc.line(n).text;
+  const contentText = () => view.dom.querySelector('.cm-content')?.textContent || '';
+
+  await setDoc(P3_FIXTURE);
+  goTo(13, 0);            // 光标放到末尾空行：前面各行都不是「光标行」
+  await nextFrames(3);
+
+  /* ① 图片嵌入 widget（块级 StateField） */
+  const imgEl = view.dom.querySelector('.cm-lp-img img');
+  ok('图片嵌入渲染为widget', !!imgEl && imgEl.getAttribute('src') === '/demo-vault/pics/demo.png' && Number.parseInt(imgEl.style.width, 10) === 320,
+    imgEl ? `src=${imgEl.getAttribute('src')} w=${imgEl.style.width}` : '无 img');
+  ok('图片行原始语法被收起', !contentText().includes('![[pics/demo.png'));
+  ok('图片widget有右下角拖宽手柄', !!view.dom.querySelector('.cm-lp-img-grip'));
+
+  /* ② 非图片附件 → 文件条 */
+  ok('非图片附件渲染为文件条', [...view.dom.querySelectorAll('.cm-lp-img.embed-file')].some((el) => el.textContent.includes('notes/a.pdf')));
+
+  /* ③ 复选框 widget + 点击改 doc */
+  const boxes = [...view.dom.querySelectorAll('input.cm-lp-cb')];
+  ok('复选框widget(未勾选/已勾选)', boxes.length === 2 && boxes[0].checked === false && boxes[1].checked === true, `${boxes.map((b) => b.checked)}`);
+  if (boxes[0]) boxes[0].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+  await nextFrames(2);
+  ok('点击复选框改写doc(- [ ]→- [x])', lineText(5) === '- [x] 甲任务', JSON.stringify(lineText(5)));
+
+  /* ④ Callout：行装饰 + 藏标记，正文仍是真实可编辑行 */
+  const tipLine = [...view.dom.querySelectorAll('.cm-line')].find((e) => e.textContent.includes('提示标题'));
+  const bodyLine = [...view.dom.querySelectorAll('.cm-line')].find((e) => e.textContent.includes('正文仍是可编辑的行'));
+  ok('Callout标题行装饰+藏标记', !!tipLine && tipLine.className.includes('cm-lp-callout-tip') && tipLine.textContent === '提示标题', tipLine ? JSON.stringify(tipLine.textContent) : '未找到');
+  ok('Callout正文是真实可编辑行', !!bodyLine && bodyLine.className.includes('cm-lp-callout-body') && lineText(8).startsWith('>'));
+
+  /* ⑤ 表格边框（行装饰，不整块 replace；单元格文字仍是源码行） */
+  const headLine = [...view.dom.querySelectorAll('.cm-line')].find((e) => e.className.includes('cm-lp-tbl-head'));
+  const dataLine = [...view.dom.querySelectorAll('.cm-line')].find((e) => e.className.includes('cm-lp-tbl') && !e.className.includes('cm-lp-tbl-head'));
+  const borderW = headLine ? getComputedStyle(headLine).borderBottomWidth : '0px';
+  ok('表格行装饰补边框(不replace)', !!headLine && !!dataLine && borderW !== '0px', `borderBottom=${borderW}`);
+  ok('表格单元格文字仍可编辑(未replace)', lineText(11) === '| 1 | 2 |');
+
+  /* ⑥ 双链/标签 hover + 点击 */
+  linkLog.length = 0;
+  const link = view.dom.querySelector('.cm-lp-wikilink');
+  const tag = view.dom.querySelector('.cm-lp-tag');
+  ok('双链/标签渲染为可交互span', !!link && !!tag);
+  if (link) {
+    link.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  }
+  if (tag) tag.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await nextFrames(1);
+  ok('双链hover回调', linkLog.some(([k, t]) => k === 'hover' && t === '双链A'), JSON.stringify(linkLog));
+  ok('双链click回调', linkLog.some(([k, t]) => k === 'open' && t === '双链A'));
+  ok('标签click回调', linkLog.some(([k, t]) => k === 'tag' && /标签B/.test(t)));
+
+  /* ⑦ 块级图片 widget 恒定显示（不套用 ViewPlugin 的「光标行显示原始语法」规则） */
+  goTo(1, 0);
+  await nextFrames(3);
+  ok('块级图片widget恒定显示(光标在其行仍在)', !!view.dom.querySelector('.cm-lp-img img') && !contentText().includes('![[pics/demo.png'));
+
+  /* ⑧ 拖宽 → pointerup 写回 doc（事务持久化宽度，P0 结论 2） */
+  goTo(13, 0);
+  await nextFrames(2);
+  const grip = view.dom.querySelector('.cm-lp-img-grip');
+  const beforeW = lineText(1);
+  if (grip) {
+    const x0 = grip.getBoundingClientRect().left;
+    grip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x0 }));
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x0 + 120 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x0 + 120 }));
+  }
+  await nextFrames(3);
+  const wMatch = /^!\[\[pics\/demo\.png\|(\d+)\]\]$/.exec(lineText(1));
+  ok('拖动写回宽度到doc(320→440)', !!wMatch && Math.abs(Number(wMatch[1]) - 440) <= 3, `${beforeW} → ${lineText(1)}`);
+
+  await setDoc(buildDoc(3000));   // 恢复合成文档（IME 探针按第 5 行定位）
+
+  const allOk = Object.values(checks).every(Boolean);
+  return {
+    ok: allOk,
+    metrics: { ...metrics, linkLog: JSON.stringify(linkLog) },
+    notes: allOk
+      ? ['P3 块级 widget（cm/widgets.js）：图片嵌入+拖宽、复选框、Callout、表格边框、双链/标签事件全部生效']
+      : ['有断言失败，见上方 ❌ 项'],
+  };
+}
+
 /* ================= 运行编排 ================= */
 
 function renderResults() {
@@ -624,6 +946,8 @@ async function runAll() {
     '③ widget高度×滚动': probeWidgetScroll,
     '④ history撤销': probeHistory,
     '⑤ 装饰渲染(P1)': probeDecorations,
+    '⑥ 行内编辑(P2)': probeEditing,
+    '⑦ 块级widget(P3)': probeWidgets,
   })) {
     try {
       results[name] = await fn();
@@ -660,6 +984,10 @@ window.__probe = {
   lineNumbers,
   /** 调试钩子：拿装饰插件实例（P1 排查看装饰集用） */
   __deco: { livePreviewPlugin, fenceHiding, EXTENSIONS, collapseOpen, widgetDecorations },
+  /** P2：附件拦截记录（每次粘贴/拖入递出的 File） */
+  p2: { assetLog },
+  /** P3：双链/标签事件记录（[类型, 目标]） */
+  p3: { linkLog },
   ime: {
     begin(lineNo, col) {
       const line = view.state.doc.line(lineNo);

@@ -1,9 +1,9 @@
 /**
- * cmlab-test.mjs — CM6 探针页运行器（编辑区内核迁移 P0）
+ * cmlab-test.mjs — CM6 探针页运行器（编辑区内核迁移 P0–P3）
  * ------------------------------------------------------------------
  * 复用项目既有的 puppeteer-core + Edge 无头模式：
  *   1. 起服务（独立端口，不占用 npm run dev 的 9520）；
- *   2. 打开 public/cmlab.html，等页内 4 个自动探针跑完；
+ *   2. 打开 public/cmlab.html，等页内 7 个自动探针跑完；
  *   3. 用 CDP Input.imeSetComposition / Input.insertText 驱动中文输入法组词
  *      （ni → 你好 → 提交；再在行中位置组词 中文输入法 → 提交）；
  *   4. 汇总 window.__probe.results，打印报告；全绿退出 0，否则退出 1。
@@ -100,7 +100,7 @@ try {
   const pageError = await page.evaluate(() => window.__probe.pageError || null);
 
   /* ---------- 报告 ---------- */
-  console.log('================ CM6 探针报告（P0 · cmlab） ================');
+  console.log('================ CM6 探针报告（P0–P3 · cmlab） ================');
   console.log(`环境: Edge headless · ${await browser.version()} · 视口 1280x860 · 端口 ${PORT}`);
   for (const [name, r] of Object.entries(results)) {
     console.log(`\n[${r.ok ? '通过' : '失败'}] ${name}`);
