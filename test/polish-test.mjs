@@ -155,6 +155,13 @@ check('行号从 1 开始且首行对着标题',
 const numbers = gutter.nums.map((x) => x.n);
 check('行号覆盖列表项与代码块每一行',
   numbers.includes(5) && numbers.includes(6) && numbers.includes(9) && numbers.includes(10), numbers.join(','));
+// 2026-10-18 用户报：Obsidian 里「段落 + 5 个 \n」显示 1-6，Tracery 只显示 1-5。
+// 根因是 _collectLineNumbers 跳过了文末空行；CM6/Obsidian 对每一行都编号（含文末空行）。
+// 本夹具共 12 行（文件以 \n 结尾，第 12 行是文末空行），修后末行必须拿到号。
+// 注意：围栏行（8/11）在块级模型里本来就没有可见行可挂号（上一轮的既定行为，
+// 「跳号 7→9 属正常」），CM6 的行号槽与渲染解耦后这类问题才根治——不断言 8/11。
+check('文末空行也编号（与 Obsidian 一致）',
+  numbers.includes(12) && Math.max(...numbers) === 12, numbers.join(','));
 
 /* ---------- ⑦ 设置里关掉行号 ---------- */
 await page.keyboard.down('Control'); await page.keyboard.press(','); await page.keyboard.up('Control');

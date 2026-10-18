@@ -288,9 +288,12 @@ export class LiveEditor {
     const kids = [...this.liveEl.children];
     for (const el of kids) {
       const tag = el.tagName;
-      // 文末「换行之后的那一行」：文件以 \n 结尾时渲染出来的空块，不是真正的源码行，
-      // 编号只会让最后多出一个幽灵数字（Obsidian 也不给它编号）。
-      if (el === kids[kids.length - 1] && !el.textContent.trim() && !el.classList.contains('md-blank')) continue;
+      // 文末「换行之后的那一行」：文件以 \n 结尾时渲染出的空段落（见 markdown.js
+      // 尾部循环），它带 data-md-line-start，是真实的最后一行——**要编号**。
+      // 2026-10-18 更正：此前以为「Obsidian 不给末行编号」而跳过它，导致
+      // 「段落 + 5 个 \n」的文件只显示 5 个号（Obsidian 显示 1-6）。
+      // 实测口径：Obsidian（CM6）对 doc 的每一行都编号，含文末空行；
+      // 与 P0 探针结论一致（3000 行 + 尾 \n → 3001 个行号）。
 
       // 列表 / 表格：容器本身没有偏移标记，编号在 li / tr 上（要先于下面的判断）
       if (tag === 'UL' || tag === 'OL') {
@@ -399,6 +402,7 @@ export class LiveEditor {
     const frag = renderMarkdown(this.md, this._mdOpts());
     this.liveEl.appendChild(frag);
     this.renderedMd = this.md;
+    this.renderedSig = this._domSig();
     this._restoreEmbeds();
     if (caret != null) this._restoreCaretMd(caret);
     this._syncLiveGutter();
@@ -418,7 +422,11 @@ export class LiveEditor {
     clearTimeout(this._rerenderTimer);
     this._rerenderTimer = setTimeout(() => {
       if (this.mode !== 'live') return;
-      if (md === this.renderedMd) return;
+      // 安全网（2026-10-18）：md 没变、但 DOM 结构和模型不一致时也必须重渲染。
+      // 典型场景：没被键盘拦截拦下的浏览器原生跨块编辑（拖拽、跨块选区删除的
+      // 映射失败等）——序列化按旧偏移会把原结构重建出来（md 不变），若不重渲染，
+      // DOM 就停留在被改坏的状态：行号槽残留成死区、视图与模型分裂。
+      if (md === this.renderedMd && this._domSig() === this.renderedSig) return;
       this._renderLive();
     }, 220);
   }
@@ -555,6 +563,27 @@ export class LiveEditor {
     if (mod && e.key.toLowerCase() === 'e') { return; } // 交给 app 切模式
     if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); this._insertLink(); return; }
 
+    /* ---------- Backspace / Delete：跨行操作一律走模型层 ----------
+     * 2026-10-18 用户实测复现的严重 bug：实时预览里光标放第 7 行开头，连续 Backspace
+     * 把 1-7 行在视觉上合并，但——① 行号槽 2-8 残留成点不动的死区；
+     * ② Ctrl+Z 提示无可撤销；③ 切源码模式发现内容完好无损。
+     * 根因：浏览器的原生跨块合并只发生在 DOM 层，而序列化按 data-md-line-* 的
+     * **旧偏移**做 gap 补换行，会把被合并掉的结构原样重建出来 → md 没变 →
+     * _onInput 跳过重渲染（md === renderedMd）→ DOM 停留在被浏览器改坏的状态。
+     * 解法：行首 Backspace / 行尾 Delete / 跨块选区删除，全部在 md 层做完再重渲染
+     * （和 Enter 一条路子），不让浏览器碰块结构。 */
+    if (e.key === 'Backspace' && !mod) {
+      if (this.composing) return;
+      if (this._deleteSelectionAtModel()) { e.preventDefault(); return; }
+      if (this._mergeLineBackward()) { e.preventDefault(); return; }
+      if (this._outdentAtContentStart()) { e.preventDefault(); return; }
+    }
+    if (e.key === 'Delete' && !mod && !e.shiftKey) {   // Shift+Delete 是「剪切」，不拦
+      if (this.composing) return;
+      if (this._deleteSelectionAtModel()) { e.preventDefault(); return; }
+      if (this._mergeLineForward()) { e.preventDefault(); return; }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey && !mod) {
       e.preventDefault();
       this._handleEnter();
@@ -583,6 +612,103 @@ export class LiveEditor {
       }
       return;
     }
+  }
+
+  /** 跨块选区删除：把选区的 md 范围删掉（浏览器原生删会跨块合并 → 视图/模型分裂） */
+  _deleteSelectionAtModel() {
+    const sel = window.getSelection();
+    if (!sel.rangeCount || sel.isCollapsed) return false;
+    if (!this.liveEl.contains(sel.anchorNode) || !this.liveEl.contains(sel.focusNode)) return false;
+    const a = domPointToMd(this.liveEl, sel.anchorNode, sel.anchorOffset);
+    const b = domPointToMd(this.liveEl, sel.focusNode, sel.focusOffset);
+    if (a == null || b == null) return false;   // 映射失败就交给浏览器 + 安全网
+    const start = Math.min(a, b), end = Math.max(a, b);
+    if (start === end) return false;
+    this._replaceRange(start, end, '');
+    this._placeCaret(start);
+    return true;
+  }
+
+  /** 光标所在顶层块是不是「简单文本块」（代码块/表格/嵌入等结构块返回 false） */
+  _caretInPlainBlock() {
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return false;
+    let node = sel.getRangeAt(0).startContainer;
+    if (!this.liveEl.contains(node)) return false;
+    while (node && node.parentElement && node.parentElement !== this.liveEl) node = node.parentElement;
+    if (!node || node.parentElement !== this.liveEl) return false;
+    // UL/OL 也放行：列表项合并是合法操作（Obsidian 同样把内容并进上一条）
+    return /^(P|LI|H[1-6]|BLOCKQUOTE|UL|OL)$/.test(node.tagName);
+  }
+
+  /** 围栏/表格/分割线的行不能做行合并（会把块结构拼坏） */
+  _isStructuralLine(text) {
+    return /^\s*```/.test(text) || /^\s*\|/.test(text) || /^\s*(?:---+|\*\*\*+|___+)\s*$/.test(text);
+  }
+
+  /** 行首的列表/任务/引用/标题标记（合并时一并去掉，与 Obsidian 一致） */
+  _lineMarkupPrefix(line) {
+    const m = /^(\s*(?:[-*+]\s+\[[ x]\]\s+|[-*+]\s+|\d+\.\s+|>\s?|#{1,6}\s+))/.exec(line);
+    return m ? m[1] : '';
+  }
+
+  /** Backspace 在行首：删掉上一个换行（含本行标记前缀），合并进上一行 */
+  _mergeLineBackward() {
+    const sel = window.getSelection();
+    if (!sel.rangeCount || !sel.isCollapsed) return false;
+    const lr = this._currentLineRange();
+    if (!lr || lr.offset !== lr.lineStart || lr.lineStart === 0) return false;
+    if (!this._caretInPlainBlock()) return false;
+    const prevStart = this.md.lastIndexOf('\n', lr.lineStart - 2) + 1;
+    if (this._isStructuralLine(this.md.slice(prevStart, lr.lineStart - 1))) return false;
+    const line = this.md.slice(lr.lineStart, lr.lineEnd);
+    const caret = lr.lineStart - 1;                       // 合并点 = 上一行行尾
+    this._replaceRange(caret, lr.lineStart + this._lineMarkupPrefix(line).length, '');
+    this._placeCaret(caret);
+    return true;
+  }
+
+  /** Backspace 在列表/任务/标题的内容起点：去掉本行标记（Outdent，Obsidian 行为）。
+   *  注：列表/标题的标记（- 、# ）靠 CSS 渲染、不在 DOM 文本里，「行首」位置
+   *  不可放置，能放到的最前位置就是内容起点——在这里拦。引用块的行首位置在块级
+   *  模型里同样不可表示（正文整体剥离 > 后重渲染），不拦，交给安全网兜底。 */
+  _outdentAtContentStart() {
+    const sel = window.getSelection();
+    if (!sel.rangeCount || !sel.isCollapsed) return false;
+    const lr = this._currentLineRange();
+    if (!lr) return false;
+    const line = this.md.slice(lr.lineStart, lr.lineEnd);
+    const m = /^(\s*(?:[-*+]\s+\[[ x]\]\s+|[-*+]\s+|\d+\.\s+|#{1,6}\s+))/.exec(line);
+    if (!m || lr.offset !== lr.lineStart + m[1].length) return false;
+    this._replaceRange(lr.lineStart, lr.lineStart + m[1].length, '');
+    this._placeCaret(lr.lineStart);
+    return true;
+  }
+
+  /** Delete 在行尾：删掉下一个换行（含下一行标记前缀），把下一行并进来 */
+  _mergeLineForward() {
+    const sel = window.getSelection();
+    if (!sel.rangeCount || !sel.isCollapsed) return false;
+    const lr = this._currentLineRange();
+    if (!lr || lr.offset !== lr.lineEnd) return false;
+    if (lr.lineEnd >= this.md.length || this.md[lr.lineEnd] !== '\n') return false;
+    if (!this._caretInPlainBlock()) return false;
+    const nextStart = lr.lineEnd + 1;
+    let nextEnd = this.md.indexOf('\n', nextStart);
+    if (nextEnd === -1) nextEnd = this.md.length;
+    if (this._isStructuralLine(this.md.slice(nextStart, nextEnd))) return false;
+    const caret = lr.lineEnd;
+    this._replaceRange(caret, nextStart + this._lineMarkupPrefix(this.md.slice(nextStart, nextEnd)).length, '');
+    this._placeCaret(caret);
+    return true;
+  }
+
+  /** DOM 结构签名：所有带偏移标记的元素的 tag+行区间序列。
+   *  用途：_onInput 里发现「md 没变但 DOM 被浏览器改坏了」时强制重渲染（安全网）。 */
+  _domSig() {
+    return [...this.liveEl.querySelectorAll('[data-md-line-start]')]
+      .map((el) => `${el.tagName}:${el.dataset.mdLineStart}-${el.dataset.mdLineEnd ?? ''}`)
+      .join('|');
   }
 
   _wrapSelection(mark, close) {
