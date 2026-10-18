@@ -65,7 +65,7 @@ async function main() {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
+  await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
   await sleep(1200);
 
   /* ---------- 1. 布局 ---------- */

@@ -1,18 +1,22 @@
 /**
- * engine-test.mjs — CM6 内核「真实 app」冒烟测试（P4-b1）
+ * engine-test.mjs — CM6 内核「真实 app」冒烟测试（P4-b）
  * ------------------------------------------------------------------
  * 与 cmlab 探针（纯引擎单页）不同，本套件驱动**真实 Tracery**：
- *   1. 启动服务器（独立端口 + 全新临时配置目录 → 自动打开展示仓库 demo-vault）；
- *   2. 用 `?engine=cm` 打开页面，确认编辑区里挂的是 CodeMirror 6（`.cm-editor`）；
- *   3. 打开一篇笔记 → CM 实时预览装饰生效（标题行装饰等），且旧块级 DOM 不出现；
- *   4. 真实键盘输入 → 等自动保存 → 用 API 校验内容落盘；
- *   5. 切源码模式 → 装饰关闭、doc 不变 → 切回；
- *   6. 无页面错误。
+ *   1. 启动服务器（独立端口 + 全新 mkdtemp 配置目录）；
+ *   2. 在临时目录里自建一个小仓库（两篇笔记）并通过 /api/vault/open 打开
+ *      —— **不写仓库里的 demo-vault**（它是服务端默认仓库，直接写会污染仓库）；
+ *   3. 用 `?engine=cm` 打开页面，确认编辑区里挂的是 CodeMirror 6（`.cm-editor`）；
+ *   4. 打开笔记 → CM 实时预览装饰生效，且旧块级 DOM 不出现；
+ *   5. 真实键盘输入 → 等自动保存 → 用 API 校验内容落盘；
+ *   6. 切源码模式（装饰关闭、doc 不变）→ 切回；粘贴附件（拦截→落盘→回插 ![[..]]）；
+ *      点 [[双链]] 跳转目标笔记；
+ *   7. 无页面错误。
  * 运行: npm run test:engine
  */
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,8 +25,26 @@ const ROOT = path.join(__dirname, '..');
 const PORT = 9597;                       // 不占 e2e 的 9598 / dev 的 9520
 const BASE = `http://localhost:${PORT}`;
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-const HOME = path.join(process.env.TEMP || '/tmp', 'tracery-engine-home');
+const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tracery-engine-'));
+const VAULT = path.join(HOME, 'vault');
+const NOTE = '测试笔记.md';
 const MARKER = 'TRACERY_CM_SMOKE_LINE';
+
+// 自建临时仓库（不入库 demo-vault）
+fs.mkdirSync(VAULT, { recursive: true });
+fs.writeFileSync(path.join(VAULT, NOTE), [
+  '# 标题甲',
+  '',
+  '正文段落，含 [[双链与反链]] 与 #标签X 。',
+  '',
+  '## 二级标题',
+  '',
+  '```js',
+  'const a = 1;',
+  '```',
+  '',
+].join('\n'));
+fs.writeFileSync(path.join(VAULT, '双链与反链.md'), '# 目标\n\n这里是目标笔记。\n');
 
 const results = [];
 const check = (name, ok, extra = '') => {
@@ -56,9 +78,6 @@ const browserErrors = [];
 let server;
 
 async function main() {
-  fs.rmSync(HOME, { recursive: true, force: true });
-  fs.mkdirSync(HOME, { recursive: true });
-
   server = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME },
@@ -78,6 +97,14 @@ async function main() {
     page.on('console', (m) => { if (m.type() === 'error') browserErrors.push('console: ' + m.text()); });
 
     await page.goto(`${BASE}/?engine=cm`, { waitUntil: 'networkidle0' });
+    // 打开自建临时仓库（避免写仓库里的 demo-vault），然后重载让文件树就位
+    await page.evaluate(async (vp) => {
+      await fetch('/api/vault/open', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: vp }),
+      });
+    }, VAULT.replace(/\\/g, '/'));
+    await page.reload({ waitUntil: 'networkidle0' });
     await sleep(900);
 
     // 1. app 起来
@@ -100,9 +127,9 @@ async function main() {
       dome.editableAttr === 'false' && dome.sourceWrapHidden && dome.blankBlocks === 0, JSON.stringify(dome));
 
     // 3. 打开笔记 → CM 实时预览装饰生效
-    await page.evaluate(() => {
-      [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('Markdown 语法'))?.click();
-    });
+    await page.evaluate((nm) => {
+      [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes(nm.replace(/\.md$/, '')))?.click();
+    }, NOTE);
     await sleep(900);
     const deco = await page.evaluate(() => {
       const live = document.getElementById('editor-live');
@@ -112,26 +139,26 @@ async function main() {
         notePath: document.getElementById('note-path')?.textContent || '',
       };
     });
-    check('打开笔记后 CM 行级渲染 + 标题行装饰', deco.headingLines >= 1 && deco.lines > 5, JSON.stringify(deco));
+    check('打开笔记后 CM 行级渲染 + 标题行装饰', deco.headingLines >= 2 && deco.lines > 5 && deco.notePath.includes('测试笔记'),
+      JSON.stringify(deco));
 
     // 4. 真实键盘输入 → 自动保存 → API 校验
-    await page.evaluate(() => { document.querySelector('#editor-live .cm-content')?.focus(); });
     await page.click('#editor-live .cm-content');
     await page.keyboard.down('Control'); await page.keyboard.press('End'); await page.keyboard.up('Control');
     await typeText(page, `\n\n${MARKER}`);
     await sleep(1800);   // 自动保存（900ms 防抖 + 余量）
-    const saved = await page.evaluate(async (mk) => {
-      const res = await fetch('/api/note?path=' + encodeURIComponent('Markdown 语法.md'));
+    const saved = await page.evaluate(async (a) => {
+      const res = await fetch('/api/note?path=' + encodeURIComponent(a.note));
       const data = await res.json();
-      return (data.content || '').includes(mk);
-    }, MARKER);
+      return (data.content || '').includes(a.mk);
+    }, { note: NOTE, mk: MARKER });
     check('CM 键盘输入后自动保存到磁盘', saved);
 
     // 5. 切源码模式 = 关装饰、doc 不变；切回
-    const before = await page.evaluate(async () => {
-      const res = await fetch('/api/note?path=' + encodeURIComponent('Markdown 语法.md'));
+    const before = await page.evaluate(async (note) => {
+      const res = await fetch('/api/note?path=' + encodeURIComponent(note));
       return (await res.json()).content || '';
-    });
+    }, NOTE);
     await page.evaluate(() => document.getElementById('btn-mode').click());
     await sleep(600);
     const src = await page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lp-h1, .cm-lp-h2, .cm-lp-h3').length);
@@ -139,18 +166,41 @@ async function main() {
     await page.evaluate(() => document.getElementById('btn-mode').click());
     await sleep(600);
     const backDeco = await page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lp-h1, .cm-lp-h2, .cm-lp-h3').length);
-    check('源码模式关掉装饰、切回恢复', src === 0 && backDeco >= 1 && modeLabel.includes('源码'), `src=${src} back=${backDeco} label=${modeLabel}`);
+    check('源码模式关掉装饰、切回恢复', src === 0 && backDeco >= 2 && modeLabel.includes('源码'), `src=${src} back=${backDeco} label=${modeLabel}`);
     check('切模式不改 doc（内容仍含标记行）', before.includes(MARKER));
 
-    // 清理
-    await page.evaluate(async (mk) => {
-      const res = await fetch('/api/note?path=' + encodeURIComponent('Markdown 语法.md'));
-      const { content } = await res.json();
-      await fetch('/api/note', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: 'Markdown 语法.md', content: content.replace(new RegExp('\\n*' + mk, 'g'), '') }),
-      });
-    }, MARKER);
+    // 6. 附件粘贴：cm 拦截 → 落盘 → 回插 ![[..]]
+    const pasteRes = await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'cm-smoke.png', { type: 'image/png' }));
+      const ev = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clipboardData', { value: dt });
+      const target = document.querySelector('#editor-live .cm-content');
+      target.dispatchEvent(ev);
+      return { prevented: ev.defaultPrevented, items: dt.items.length };
+    });
+    await sleep(1800);
+    const assetOk = await page.evaluate(async (note) => {
+      const { content } = await (await fetch('/api/note?path=' + encodeURIComponent(note))).json();
+      const m = /!\[\[([^\]]*cm-smoke[^\]]*)\]\]/.exec(content || '');
+      if (!m) return { ok: false, tail: (content || '').slice(-60) };
+      const f = await fetch('/api/file?path=' + encodeURIComponent(m[1]));
+      return { ok: f.ok, path: m[1], count: (content.match(/!\[\[[^\]]*cm-smoke[^\]]*\]\]/g) || []).length };
+    }, NOTE);
+    check('cm 下粘贴附件：拦截 → 落盘 → 回插 ![[..]]（且只插一次）',
+      assetOk.ok && assetOk.count === 1 && pasteRes.prevented, JSON.stringify({ ...assetOk, pasteRes }));
+
+    // 7. 双链点击跳转（cm 行内 span + linkEvents → onNavigate → openNote）
+    const clicked = await page.evaluate(() => {
+      const span = [...document.querySelectorAll('#editor-live .cm-lp-wikilink')]
+        .find((s) => s.textContent.includes('双链与反链'));
+      if (!span) return false;
+      span.click();
+      return true;
+    });
+    await sleep(900);
+    const navPath = await page.evaluate(() => document.getElementById('note-path')?.textContent || '');
+    check('cm 下点击 [[双链]] 跳转到目标笔记', clicked && navPath.includes('双链与反链'), `clicked=${clicked} path=${navPath}`);
 
     await page.screenshot({ path: path.join(__dirname, 'screenshots', 'p4-cm-app.png') });
 

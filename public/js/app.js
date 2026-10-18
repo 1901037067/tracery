@@ -9,7 +9,7 @@ import { CmEditor } from './cm/engine.js';
 import { ForceGraph } from './graph.js';
 import {
   initSettings, updateSettings, getSettings, openSettings, close as closeSettings,
-  isOpen as settingsIsOpen, onApplied, ACCENTS,
+  isOpen as settingsIsOpen, onApplied, ACCENTS, resolveAssetDir,
 } from './settings.js';
 import { onSyncStatus } from './sync-ui.js';
 import { askText, askConfirm } from './dialog.js';
@@ -2099,11 +2099,11 @@ function bindGlobalEvents() {
     else if (e.key === 'Escape' && document.body.classList.contains('graph-focus')) { e.preventDefault(); toggleGraphFocus(false); }
   });
 
-  // 编辑器区域滚动时关闭链接预览
+  // 编辑器区域滚动时关闭链接预览（capture：cm 内核的滚动发生在内部 `.cm-scroller`，scroll 不冒泡）
   $('editor-live').addEventListener('scroll', () => {
     const pop = $('link-preview');
     if (pop) pop.hidden = true;
-  });
+  }, true);
 
   // 初始化图谱（面板首次显示时）
   const observer = new MutationObserver(() => {

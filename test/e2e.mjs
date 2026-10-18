@@ -105,7 +105,8 @@ async function main() {
   try {
     const page = await browser.newPage();
     page.on('pageerror', (e) => console.error('  [pageerror]', e.message));
-    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    // pin 块级内核：本套件的渲染断言依赖块级 DOM（#editor-live p/h1/td/.md-blank 等）
+    await page.goto(BASE + '/?engine=block', { waitUntil: 'networkidle0' });
     await sleep(800);
 
     // 1. 自动打开演示仓库

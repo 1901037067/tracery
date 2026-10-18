@@ -52,7 +52,7 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ' — ' + detail : ''}`);
 };
 
-await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
 await sleep(1000);
 
 // 在页面里装载引擎，并挂一个 round-trip 辅助函数

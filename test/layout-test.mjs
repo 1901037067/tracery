@@ -46,7 +46,7 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ' — ' + detail : ''}`);
 }
 
-await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
 await sleep(1200);
 
 /* ---------- 1. 侧栏折叠（含「拖拽过栏宽」这个回归场景） ---------- */

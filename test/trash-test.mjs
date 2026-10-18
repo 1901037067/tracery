@@ -44,7 +44,7 @@ const check = (name, ok, detail = '') => {
 };
 const fileExists = (p) => fs.existsSync(path.join(VAULT, p));
 
-await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
 await sleep(1200);
 await page.evaluate(async (vp) => {
   await fetch('/api/vault/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: vp }) });

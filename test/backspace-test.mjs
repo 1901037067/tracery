@@ -46,7 +46,7 @@ const check = (name, ok, detail = '') => {
   if (!ok) process.exitCode = 1;
 };
 
-await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
 await sleep(1200);
 
 let seq = 0;

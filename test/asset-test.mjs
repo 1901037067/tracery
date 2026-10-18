@@ -105,7 +105,7 @@ async function dropFile(b64, name, type) {
 const noteAbs = path.join(VAULT, NOTE);
 const noteHas = (re) => { try { return new RegExp(re).test(fs.readFileSync(noteAbs, 'utf8')); } catch { return false; } };
 
-await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
 await sleep(1200);
 await openNoteInTestVault();
 

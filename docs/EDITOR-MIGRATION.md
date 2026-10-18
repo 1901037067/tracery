@@ -200,7 +200,7 @@ Obsidian 的「source」就是实时预览编辑视图，「preview」才是阅�
 - 双链/标签的 hover 预览、点击跳转（复用 `editor.js` 的 `_schedulePreview` / `_openWikilink`）
 - 复选框：`Decoration.replace` + widget checkbox，pointerdown 时改 doc
 
-### P4 接回 app.js（1 天）—— 🔶 **P4-1「引擎适配器」✅ + P4-b1「引擎开关接线」✅（默认仍 block）；默认切 cm 待 P4-b2；结论见 7.5 / 7.6**
+### P4 接回 app.js（1 天）—— ✅ **P4-1 适配器 + P4-b1 接线 + P4-b2 默认切 cm 全部完成；结论见 7.5 / 7.6 / 7.7**
 - **已做（P4-1）**：`public/js/cm/engine.js` 的 `CmEditor` 实现下方全部契约方法（探针 ⑧ 23 条全过），
   业务依赖全注入、零业务 import；`![[笔记]]` 嵌入卡片也已落地
 - **待做（P4-b）**：
@@ -575,6 +575,55 @@ Ctrl+B/I/S 包裹选区（`**…**`/`*…*`/`~~…~~`）、Ctrl+B 无选区插�
 
 复跑：`npm run test:cmlab` + `npm run test:engine` + `npm run test:e2e`。
 
+### 7.7 P4-b2 结论（2026-10-18 · **默认切 cm 完成**；块级套件改 pin；cm 小回归修复）
+
+**范围约定**：把默认内核切到 `cm`（用户可见迁移完成），并保住全量套件绿。为不破坏基线，块级断言套件
+**显式 pin `?engine=block`**（成为块级内核回归网）；cm 默认路径由 `npm run test:engine` + cmlab 探针覆盖。
+把块级套件重写成 cm 口径留到 P5。
+
+**交付物**
+
+| 文件 | 内容 |
+|---|---|
+| `public/js/settings.js` | `editorEngine` 默认由 `block` 改为 **`cm`**（设置面板一键回退到块级） |
+| `public/js/app.js` | ① `#editor-live` 滚动关链接预览改**捕获阶段**（cm 的滚动在内部 `.cm-scroller`，scroll 不冒泡）；② 修 **`resolveAssetDir` 未导入**的 bug（见结论 4） |
+| `test/*.mjs`（15 个） | 块级断言套件统一 pin `http://localhost:PORT/?engine=block`（e2e/enter/gap/polish/menu/features/tabs/layout/asset/trash/draw/roundtrip/backspace/ui/ux + design-check/img-probe） |
+| `test/engine-test.mjs` | 重写为**自带临时仓库**（mkdtemp 自建两篇笔记 + `/api/vault/open`，**不碰仓库 demo-vault**），断言扩到 **9 条**（含附件落盘+回插、双链跳转） |
+
+**实测**：`test:engine` **9/9 全过、无页面错误**（含「粘贴附件只插一次」）；`test:cmlab` 8 探针 + IME 全绿；
+`test:e2e` **15/15**；其余块级套件（enter/gap/polish/menu/features/tabs/layout/asset/trash/draw/roundtrip/
+backspace/ui/ux/sync/sync-ui/lan/merge）全绿。
+
+**P4-b2 的 6 个关键结论：**
+
+1. **「默认切 cm」会打掉所有块级 DOM 断言的套件**（实测：e2e 11/15；enter/gap/polish/menu 直接报
+   「找不到 `#editor-live p`」类错误）。切法：这些套件**显式 pin `?engine=block`**，一改全绿，
+   它们从此是「块级内核回归网」。**注意覆盖缺口**：这些套件不再覆盖默认(cm)路径，
+   cm 由 `test:engine` + cmlab 探针兜底；把块级套件改写成 cm 口径是 P5 的事。
+2. **`?engine=cm|block` 查询参数覆盖**是好东西：测试/手工验证一页一引擎，不动持久化设置。
+   P4-b1 加的这条此时成为「双内核共存」的关键开关。
+3. **cm 下「编辑器滚动关闭链接预览」必须用捕获阶段**：cm 的滚动发生在内部 `.cm-scroller`，
+   `scroll` 事件不冒泡，外层 `#editor-live` 默认收不到 → `addEventListener('scroll', fn, true)`
+   （捕获阶段会经过祖先，兼容两种内核）。这是 P4-b1 遗留的小回归，已修。
+4. **接线真 bug：`resolveAssetDir` 未导入，被 try/catch 吞掉**。`app.js` 新加的注入式 `saveAsset` 引用了
+   `resolveAssetDir`，但没从 `settings.js` import → 运行时 `ReferenceError` → 被 `catch { toast('附件保存失败') }`
+   吞成「静默失败」：**cm 下粘贴/拖入附件时拦截生效（`defaultPrevented=true`），但文件不落盘、不插链**。
+   教训：注入式回调里引用漏导入的符号，错误会被业务 catch 掩盖；**测试必须断言「文件真的落盘 / 链真的插入」，
+   不能只看 UI 无报错**。已修（补 import）。
+5. **真实 app 测试必须自带临时仓库**：engine-test 第一版直接用默认仓库 → 而服务端在全新 TRACERY_HOME 下把
+   **仓库里的 `demo-vault` 当默认仓库**（不是副本），于是测试把附件和测试行写进了仓库（实测污染后已清理）。
+   正确姿势：`mkdtemp` 自建仓库 + `POST /api/vault/open {path}` + 重载（与 features/menu/trash 套件同款）。
+   写真实 app 的套件一律如此，别依赖默认仓库。
+6. **发现一个块级内核的既有问题（非本次引入）**：跑 e2e 后，「Markdown 语法.md」里列表项内的
+   `![[常用代码]]` 被序列化拆成了 `!` + 空行 + `[[常用代码]]`。已复原仓库产物（未提交这处污染）。
+   这是块级引擎对「列表项内联 `![[..]]` 嵌入」的序列化 bug，值得单独排查——也是切到 cm 的又一条理由
+   （cm 的 doc 就是权威文本，不存在这种序列化漂移）。
+
+**P5 待办**：① 把块级套件改写成 cm 口径（或做「双引擎各跑一遍」）以覆盖默认路径；② 全量 18 套件回归 →
+`npm run dist:dir` + `npm run release`；③（可选）若仍要维护 block 回退，先修结论 6 的序列化 bug。
+
+复跑：`npm run test:cmlab` + `npm run test:engine` + `npm run test:e2e`（+ 其余块级套件）。
+
 ---
 
 ## 8. 下个会话从这里开始
@@ -589,20 +638,23 @@ Ctrl+B/I/S 包裹选区（`**…**`/`*…*`/`~~…~~`）、Ctrl+B 无选区插�
    **P4-1 ✅ 完成（CM 引擎适配器，未接线）**（`cm/engine.js`：`CmEditor` 实现第 5.2 节全部方法契约 +
    `![[笔记]]` 嵌入卡片，探针第 ⑧ 项 23 条断言全过，结论 7.5，含 6 个关键结论）；
    **P4-b1 ✅ 完成（引擎开关接线，默认仍 block）**（settings `editorEngine` + app.js 工厂 + index.html
-   importmap；新增 `npm run test:engine` 真实 app 冒烟 7/7 全过，`test:e2e` 15/15 未回归，结论 7.6）
-4. **下一步：P4-b2 收尾**——① 把默认切到 `cm`；② 重写 `test/enter`、`test/gap`、`test/polish` 里依赖块级
-   DOM 的断言（第 6 节）；③ 修 cm 下小回归（`#editor-live` 滚动关预览 → 挂 `.cm-scroller`；右键菜单
-   图片判定识别 `.cm-lp-img`）；④ 可选用 `ENGINE` 显式隔离块级专用 handler
-5. P4-b2 完成后 → 全量 18 套件回归 → `npm run dist:dir` + `npm run release`；保留 `settings.editorEngine` 一键回退
+   importmap；新增 `npm run test:engine` 真实 app 冒烟 7/7 全过，`test:e2e` 15/15 未回归，结论 7.6）；
+   **P4-b2 ✅ 完成（默认切 cm）**（settings 默认 `cm`；块级断言套件改 pin `?engine=block`；
+   修 cm 滚动关预览 + `resolveAssetDir` 未导入 bug；engine-test 重写为自带临时仓库、扩到 9 条断言全过，
+   全量套件绿，结论 7.7 含 6 个关键结论）
+4. **下一步：P5 测试迁移与发布**——① 把块级套件改写成 cm 口径（或「双引擎各跑一遍」）以覆盖默认路径；
+   ② 全量 18 套件回归 → `npm run dist:dir` + `npm run release`；③（可选）若仍维护 block 回退，
+   先修结论 6 的块级序列化 bug（列表项内联 `![[..]]` 被拆行）
+5. 发布后保留 `settings.editorEngine` 一键回退；后续小迭代（块级嵌入露源码、Callout 正文行内偏移等）见 7.4/7.5 边界
 
 ### 给用户的开场提示词（可直接粘贴）
 
 ```
-读 docs/EDITOR-MIGRATION.md（编辑区内核迁移交接），开始 P4-b2：把编辑内核默认切到 CM。
-现状：settings.editorEngine 开关与 app.js 工厂已就绪（默认 block），`npm run test:engine` 真实 app 冒烟已过（结论 7.6）。
+读 docs/EDITOR-MIGRATION.md（编辑区内核迁移交接），开始 P5：测试迁移与发布。
+现状：默认内核已是 cm（结论 7.7）；块级断言套件都 pin 到 ?engine=block，只有 test:engine + cmlab 覆盖 cm。
 本轮：
-① settings.editorEngine 默认改 'cm'；
-② 重写 test/enter / test/gap / test/polish 里依赖块级 DOM（.md-blank、#editor-live p、li、.live-gutter .ln）的断言，改成 CM 口径；
-③ 修 cm 下小回归：#editor-live 滚动关链接预览改挂 .cm-scroller；右键菜单图片判定改识别 .cm-lp-img；
-④ 跑 npm run test:cmlab + test:engine + test:e2e + 全量 18 套件回归，结论写回文档第 7 节（7.7）。
+① 把 test/enter / test/gap / test/polish（以及 menu/e2e 里块级 DOM 断言）改写成 cm 口径，或让套件对两个引擎各跑一遍；
+② 全量套件回归（test:cmlab / test:engine / test:e2e + 其余 15 套）；
+③ npm run dist:dir + npm run release；保留 settings.editorEngine 回退；
+④ 结论写回文档第 7 节（7.8）。
 ```

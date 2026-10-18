@@ -34,7 +34,7 @@ const page = await browser.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push('console:' + m.text()); });
-await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
 await sleep(1000);
 await page.evaluate(() => [...document.querySelectorAll('#file-tree .tree-item')].find(i => i.textContent.includes('图'))?.click());
 await sleep(1200);

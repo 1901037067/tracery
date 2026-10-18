@@ -28,7 +28,7 @@ const browser = await puppeteer.launch({
   args: ['--no-sandbox'],
 });
 const page = await browser.newPage();
-await page.goto(BASE, { waitUntil: 'networkidle0' });
+await page.goto(BASE + '/?engine=block', { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
 await sleep(700);
 
 // 欢迎页（临时切换显示，不改配置）
