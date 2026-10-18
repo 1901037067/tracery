@@ -30,10 +30,18 @@ execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'repack.mjs')], { std
 
 console.log('==> 2/3 压缩 zip');
 const tool = ['7za', '7z'].find((t) => spawnSync('where', [t], { encoding: 'utf8' }).status === 0);
+// 压缩引擎优先级：7za/7z（最快）→ Windows 自带 bsdtar（tar.exe，能直接写 zip）→ 系统自带压缩命令。
+// 为什么把 bsdtar 排前面：打包版正在运行时，另一条路（Compress-Archive）会因为
+// 拿不到 app.asar 的句柄直接失败（New-Object MethodInvocationException），
+// 而 bsdtar 是流式只读压缩，实测能过。
+const SYS_TAR = 'C:\\Windows\\System32\\tar.exe';
 if (tool) {
   execFileSync(tool, ['a', '-tzip', ZIP_NEW, `${OUT}\\*`], { stdio: 'inherit' });
+} else if (fs.existsSync(SYS_TAR)) {
+  console.log('    未找到 7za/7z，改用系统 bsdtar（tar.exe -a，能直接写 zip）');
+  execFileSync(SYS_TAR, ['-a', '-c', '-f', ZIP_NEW, '-C', OUT, '.'], { stdio: 'inherit' });
 } else {
-  console.log('    未找到 7za/7z，改用 PowerShell Compress-Archive（慢一些，正常）');
+  console.log('    未找到 7za/7z/tar，改用 Compress-Archive（慢一些，正常）');
   execFileSync(
     'powershell',
     ['-NoProfile', '-Command', `Compress-Archive -Path '${OUT}\\*' -DestinationPath '${ZIP_NEW}' -Force`],
