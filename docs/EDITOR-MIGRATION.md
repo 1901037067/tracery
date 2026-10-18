@@ -624,6 +624,46 @@ backspace/ui/ux/sync/sync-ui/lan/merge）全绿。
 
 复跑：`npm run test:cmlab` + `npm run test:engine` + `npm run test:e2e`（+ 其余块级套件）。
 
+### 7.8 P5 结论（2026-10-18 · **cm 默认路径功能覆盖已补齐**；套件口径改写与打包待续）
+
+**范围约定**：P5 含「把块级套件改写成 cm 口径 + 全量回归 + 打包发布」。本轮先做**最要紧的一步**：
+给**默认（cm）路径**补上真实 app 的功能覆盖（此前只有 `test:engine` 的 9 条冒烟），并试打包。
+块级套件仍 pin `?engine=block`（作为块级回归网）；把它们逐条改写成 cm 口径仍待做。
+
+**交付物**
+
+| 文件 | 内容 |
+|---|---|
+| `public/js/app.js` | 加 `window.__editor` **测试/调试钩子**（暴露当前内核实例，供断言 `getContent()/view`，不再依赖块级 DOM） |
+| `test/engine-test.mjs` | 断言由 9 → **12 条**：新增 **Ctrl+Z / Ctrl+Y 撤销重做**、**设置面板行号开关**（compartment）、**Enter 续任务列表**（`- [ ] `）；仓库再自建 `任务.md` |
+
+**实测**：`test:engine` **12/12 全过、无页面错误**；`test:cmlab` 8 探针 + IME 全绿；`test:e2e` 15/15；
+其余块级套件全绿；`demo-vault` 无污染。
+
+**P5 的 5 个关键结论：**
+
+1. **cm 侧撤销/重做在真实 app 生效**：`Ctrl+Z` 可用，**重做请用 `Ctrl+Y`**——`Ctrl+Shift+Z` 在自动化里
+   因为按住 Shift 会让 `key` 变成大写 `Z`，与 CM keymap 的 `Mod-Shift-z`（小写 z）**不匹配**，
+   键不触发。这是「真键盘测试」的坑，记下来省得下回再踩。
+2. **行号开关（设置面板 → `lineNumComp.reconfigure`）在真实 app 实测 off=0 / on=1**，
+   与 P0 结论 4「reconfigure 返回 effect 必须 dispatch」闭环。
+3. **cm 下 Enter 续任务列表在真实 app 生效**（`- [ ] 甲任务` + 回车 → 新行 `- [ ] `），
+   P2 的 `continueMarkupOrTask` 不只是探针页能过。
+4. **`window.__editor` 是把块级套件改写成 cm 口径的关键工具**：块级套件断言的是
+   `#editor-live p/h1/li/.md-blank` 这类渲染产物；cm 下这些不再存在，但**文档文本**（`getContent()`）
+   是权威且稳定的断言面。后续改写套件时，把「查 DOM」换成「查 `getContent()` / `view.state`」即可，
+   只有真正关于渲染的断言（如标题字号、复选框控件）才需要查 `.cm-line` / `.cm-lp-*`。
+5. **打包（`npm run dist:dir`）在本机失败**：electron-builder 解压 `winCodeSign` 缓存需要**创建符号链接的权限**
+   （普通 Windows 账户失败：`Cannot create symbolic link ... : 客户端没有所需的特权`）——这是既有环境问题
+   （见 `docs/HANDOFF.md` 已知坑），**非本次改动引入**，本轮未产出安装包。发布（`dist:dir` + `release`）需在
+   具备权限/开启了开发者模式的环境执行。
+
+**P5 剩余待办**：① 用 `window.__editor` 把 `test/enter`、`test/gap`、`test/polish`、`test/menu`、`test/e2e`
+的块级 DOM 断言改写成 cm 口径（或做「双引擎各跑一遍」），让默认路径不再是「只有 engine-test 覆盖」；
+② 在具备符号链接权限的环境跑 `npm run dist:dir` + `npm run release`。
+
+复跑：`npm run test:cmlab` + `npm run test:engine` + `npm run test:e2e`。
+
 ---
 
 ## 8. 下个会话从这里开始
@@ -641,20 +681,25 @@ backspace/ui/ux/sync/sync-ui/lan/merge）全绿。
    importmap；新增 `npm run test:engine` 真实 app 冒烟 7/7 全过，`test:e2e` 15/15 未回归，结论 7.6）；
    **P4-b2 ✅ 完成（默认切 cm）**（settings 默认 `cm`；块级断言套件改 pin `?engine=block`；
    修 cm 滚动关预览 + `resolveAssetDir` 未导入 bug；engine-test 重写为自带临时仓库、扩到 9 条断言全过，
-   全量套件绿，结论 7.7 含 6 个关键结论）
-4. **下一步：P5 测试迁移与发布**——① 把块级套件改写成 cm 口径（或「双引擎各跑一遍」）以覆盖默认路径；
-   ② 全量 18 套件回归 → `npm run dist:dir` + `npm run release`；③（可选）若仍维护 block 回退，
-   先修结论 6 的块级序列化 bug（列表项内联 `![[..]]` 被拆行）
-5. 发布后保留 `settings.editorEngine` 一键回退；后续小迭代（块级嵌入露源码、Callout 正文行内偏移等）见 7.4/7.5 边界
+   全量套件绿，结论 7.7 含 6 个关键结论）；
+   **P5（部分）✅ 完成（cm 默认路径功能覆盖补齐）**（app.js 加 `window.__editor` 钩子；engine-test 扩到 12 条：
+   撤销重做/行号开关/Enter 续任务，全过；`dist:dir` 因本机符号链接权限受阻，见结论 5）
+4. **剩余（P5 收尾）**——① 用 `window.__editor` 把 `test/enter`、`test/gap`、`test/polish`、`test/menu`、`test/e2e`
+   的块级 DOM 断言改写成 cm 口径（或「双引擎各跑一遍」），让默认路径不再是「只有 engine-test 覆盖」；
+   ② 在具备符号链接权限（或开启 Windows 开发者模式）的环境跑 `npm run dist:dir` + `npm run release`
+5. 发布后保留 `settings.editorEngine` 一键回退；后续小迭代（块级嵌入露源码、Callout 正文行内偏移、
+   块级序列化 bug）见 7.4/7.5/7.7 边界
 
 ### 给用户的开场提示词（可直接粘贴）
 
 ```
-读 docs/EDITOR-MIGRATION.md（编辑区内核迁移交接），开始 P5：测试迁移与发布。
-现状：默认内核已是 cm（结论 7.7）；块级断言套件都 pin 到 ?engine=block，只有 test:engine + cmlab 覆盖 cm。
+读 docs/EDITOR-MIGRATION.md（编辑区内核迁移交接），收尾 P5：把套件口径改写到 cm + 打包发布。
+现状：默认内核已是 cm（7.7）；engine-test 已覆盖 cm 默认路径 12 条断言（7.8，含 window.__editor 钩子）；
+块级套件仍 pin ?engine=block；dist:dir 在本机因符号链接权限失败。
 本轮：
-① 把 test/enter / test/gap / test/polish（以及 menu/e2e 里块级 DOM 断言）改写成 cm 口径，或让套件对两个引擎各跑一遍；
+① 用 window.__editor（getContent()/view）把 test/enter / test/gap / test/polish / test/menu / test/e2e 的
+   块级 DOM 断言改写成 cm 口径，或让这些套件对两个引擎各跑一遍（TRACERY_TEST_ENGINE 环境变量切换）；
 ② 全量套件回归（test:cmlab / test:engine / test:e2e + 其余 15 套）；
-③ npm run dist:dir + npm run release；保留 settings.editorEngine 回退；
-④ 结论写回文档第 7 节（7.8）。
+③ 在具备符号链接权限的环境跑 npm run dist:dir + npm run release；
+④ 结论写回文档第 7 节（7.9）。
 ```

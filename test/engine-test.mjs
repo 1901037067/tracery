@@ -45,6 +45,7 @@ fs.writeFileSync(path.join(VAULT, NOTE), [
   '',
 ].join('\n'));
 fs.writeFileSync(path.join(VAULT, '双链与反链.md'), '# 目标\n\n这里是目标笔记。\n');
+fs.writeFileSync(path.join(VAULT, '任务.md'), '- [ ] 甲任务\n');
 
 const results = [];
 const check = (name, ok, extra = '') => {
@@ -154,6 +155,18 @@ async function main() {
     }, { note: NOTE, mk: MARKER });
     check('CM 键盘输入后自动保存到磁盘', saved);
 
+    // 4b. 撤销 / 重做（CM history 在真实 app 下生效）
+    const doc0 = await page.evaluate(() => window.__editor.getContent());
+    await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
+    await sleep(500);
+    const docUndo = await page.evaluate(() => window.__editor.getContent());
+    // 重做用 Ctrl+Y（Ctrl+Shift+Z 会因 Shift 让 key 变大写 Z，CM 键名不匹配）
+    await page.keyboard.down('Control'); await page.keyboard.press('KeyY'); await page.keyboard.up('Control');
+    await sleep(500);
+    const docRedo = await page.evaluate(() => window.__editor.getContent());
+    check('cm 下 Ctrl+Z / Ctrl+Y 撤销且能重做', docUndo !== doc0 && docRedo === doc0,
+      `undoChanged=${docUndo !== doc0} redoRestored=${docRedo === doc0}`);
+
     // 5. 切源码模式 = 关装饰、doc 不变；切回
     const before = await page.evaluate(async (note) => {
       const res = await fetch('/api/note?path=' + encodeURIComponent(note));
@@ -168,6 +181,19 @@ async function main() {
     const backDeco = await page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lp-h1, .cm-lp-h2, .cm-lp-h3').length);
     check('源码模式关掉装饰、切回恢复', src === 0 && backDeco >= 2 && modeLabel.includes('源码'), `src=${src} back=${backDeco} label=${modeLabel}`);
     check('切模式不改 doc（内容仍含标记行）', before.includes(MARKER));
+
+    // 5c. 行号开关（设置面板 → compartment reconfigure）
+    await page.keyboard.down('Control'); await page.keyboard.press(','); await page.keyboard.up('Control');
+    await sleep(500);
+    await page.evaluate(() => document.querySelector('.switch[data-toggle="lineNumbers"]')?.click());
+    await sleep(500);
+    const linesOff = await page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lineNumbers').length);
+    await page.evaluate(() => document.querySelector('.switch[data-toggle="lineNumbers"]')?.click());
+    await sleep(500);
+    const linesOn = await page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lineNumbers').length);
+    await page.keyboard.press('Escape');
+    await sleep(400);
+    check('cm 下行号开关（设置面板 compartment）', linesOff === 0 && linesOn === 1, `off=${linesOff} on=${linesOn}`);
 
     // 6. 附件粘贴：cm 拦截 → 落盘 → 回插 ![[..]]
     const pasteRes = await page.evaluate(() => {
@@ -201,6 +227,18 @@ async function main() {
     await sleep(900);
     const navPath = await page.evaluate(() => document.getElementById('note-path')?.textContent || '');
     check('cm 下点击 [[双链]] 跳转到目标笔记', clicked && navPath.includes('双链与反链'), `clicked=${clicked} path=${navPath}`);
+
+    // 8. Enter 续任务列表（P2 keymap 在真实 app 下生效）
+    await page.evaluate(() => {
+      [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('任务'))?.click();
+    });
+    await sleep(900);
+    await page.click('#editor-live .cm-content');
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    await sleep(500);
+    const taskDoc = await page.evaluate(() => window.__editor.getContent());
+    check('cm 下 Enter 续任务列表（- [ ] ）', /- \[ \] 甲任务\n- \[ \] /.test(taskDoc), JSON.stringify(taskDoc));
 
     await page.screenshot({ path: path.join(__dirname, 'screenshots', 'p4-cm-app.png') });
 

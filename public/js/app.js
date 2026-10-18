@@ -1688,6 +1688,8 @@ if (ENGINE === 'cm') {
   const sw = $('source-wrap');
   if (sw) sw.hidden = true;
 }
+// 测试/调试钩子：拿到当前编辑内核实例（test/engine-test.mjs 用 getContent/view 做断言）
+window.__editor = editor;
 
 // 表格里：Tab / Shift+Tab 在单元格间跳，回车在当前行下方加一行（仿 Obsidian）
 // 用捕获阶段：编辑器自己的 Tab 是「缩进」，必须抢在它前面，并阻止冒泡
