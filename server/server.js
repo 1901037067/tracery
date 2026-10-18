@@ -140,6 +140,7 @@ const DEFAULT_SETTINGS = {
   fontSize: 16,           // 编辑区字号 px
   editorWidth: 720,       // 正文最大宽度 px
   autosave: 900,          // 自动保存防抖 ms
+  lineNumbers: true,      // 行号：源码模式与实时预览共用
   startup: 'last',        // last | empty
   // 附件管理：新图片/文件（粘贴、拖入、绘图）的落点
   attachment: {
@@ -193,6 +194,7 @@ function mergeSettings(patch = {}) {
   if (Number.isFinite(patch.fontSize)) s.fontSize = Math.min(20, Math.max(12, Math.round(patch.fontSize)));
   if (Number.isFinite(patch.editorWidth)) s.editorWidth = Math.min(1000, Math.max(560, Math.round(patch.editorWidth)));
   if (Number.isFinite(patch.autosave)) s.autosave = Math.min(3000, Math.max(0, Math.round(patch.autosave)));
+  if (typeof patch.lineNumbers === 'boolean') s.lineNumbers = patch.lineNumbers;
   if (['last', 'empty'].includes(patch.startup)) s.startup = patch.startup;
   // 附件管理（嵌套对象，字段逐个校验）
   if (patch.attachment && typeof patch.attachment === 'object') {

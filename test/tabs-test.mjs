@@ -158,11 +158,15 @@ async function main() {
   // 9. 绘图：清空后可撤销
   await page.evaluate(() => document.getElementById('btn-draw').click());
   await sleep(500);
+  // 白板默认是「选择」工具，先切到手绘笔再拖
+  await page.evaluate(() => document.querySelector('.draw-tool[data-tool="freedraw"]').click());
+  await sleep(100);
   const box = await page.evaluate(() => { const r = document.getElementById('draw-canvas').getBoundingClientRect(); return { x: r.x, y: r.y }; });
+  // 起点避开左上角的属性面板（面板占 12~208 x 12~220）
   for (let k = 0; k < 2; k++) {
-    await page.mouse.move(box.x + 120 + k * 40, box.y + 120);
+    await page.mouse.move(box.x + 320 + k * 60, box.y + 260);
     await page.mouse.down();
-    for (let i = 0; i < 10; i++) await page.mouse.move(box.x + 120 + k * 40 + i * 9, box.y + 120 + i * 6);
+    for (let i = 0; i < 10; i++) await page.mouse.move(box.x + 320 + k * 60 + i * 9, box.y + 260 + i * 6);
     await page.mouse.up();
     await sleep(150);
   }

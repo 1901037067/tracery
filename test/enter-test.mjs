@@ -165,7 +165,12 @@ const gapPt = await page.evaluate(() => {
 });
 await page.mouse.click(gapPt.x, gapPt.y);
 await sleep(300);
-const onBlank = await page.evaluate(() => !!document.querySelector('.md-blank.is-active'));
+const onBlank = await page.evaluate(() => {
+  // 空行现在恒占一行高、本身就是点击目标：光标应该落在 .md-blank 里
+  const a = getSelection()?.anchorNode;
+  const el = a?.nodeType === Node.TEXT_NODE ? a.parentElement : a;
+  return !!el?.closest?.('.md-blank');
+});
 await page.keyboard.type('补字');
 check('点段落间空白 → 落在空行上，输入成为新段落',
   onBlank && (await readNote(abs)) === '# 测试\n\n正文段落。\n\n补字\n\n## 小标题\n\n内容\n\n',

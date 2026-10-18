@@ -78,7 +78,9 @@ await sleep(900);
 const NOTE = path.join(VAULT, '菜单测试.md');
 // 实时预览模式下 #editor-source 不同步，直接读磁盘（顺带验证真的落盘）
 const mdOf = async () => { await sleep(1400); return fs.readFileSync(NOTE, 'utf8'); };
-const menuItems = () => page.evaluate(() => [...document.querySelectorAll('.context-menu button')].map((b) => b.textContent.replace(/^\S+\s*/, '').trim()));
+// 菜单项现在是「图标 + 标签 + 快捷键提示」三段，取标签那一段
+const menuItems = () => page.evaluate(() => [...document.querySelectorAll('.context-menu button')]
+  .map((b) => (b.querySelector('.mi-label')?.textContent || b.textContent).trim()));
 const clickMenuItem = async (label) => {
   const ok = await page.evaluate((l) => {
     const btn = [...document.querySelectorAll('.context-menu button')].find((b) => b.textContent.includes(l));
@@ -103,7 +105,9 @@ const rightClickOn = async (selector) => {
 };
 
 /* ---------- ① 文本右键菜单 ---------- */
-await rightClickOn('#editor-live p');
+// 注意选 :not(.md-blank)：空行现在是真实的一行高度，也能点/能右键，
+// 用裸 p 会先命中标题下面那条空行
+await rightClickOn('#editor-live p:not(.md-blank)');
 const textItems = await menuItems();
 check('文字右键 → 菜单出现且项齐全',
   ['新增链接', '新增外部链接', '加粗', '标题 1', '插入表格', '剪切', '复制', '粘贴', '全选'].every((l) => textItems.includes(l)),
@@ -181,7 +185,8 @@ const fileMenu = await page.evaluate(async () => {
   const r = item.getBoundingClientRect();
   item.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 20, clientY: r.top + 8 }));
   await new Promise((res) => setTimeout(res, 300));
-  return [...document.querySelectorAll('.context-menu button')].map((b) => b.textContent.replace(/^\S+\s*/, '').trim());
+  return [...document.querySelectorAll('.context-menu button')]
+    .map((b) => (b.querySelector('.mi-label')?.textContent || b.textContent).trim());
 });
 check('文件树右键 → 菜单项齐全（打开/副本/路径/重命名/删除）',
   ['在新标签页中打开', '创建副本', '复制路径', '复制相对路径', '重命名', '删除'].every((l) => fileMenu.includes(l)),

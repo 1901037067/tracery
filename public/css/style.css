@@ -106,9 +106,8 @@ input, textarea { font-family: inherit; color: inherit; }
   font-size: 30px;
   font-weight: 600;
   letter-spacing: -0.02em;
-  margin-bottom: 6px;
+  margin-bottom: 28px;
 }
-.welcome-sub { color: var(--text-secondary); font-size: 14px; margin-bottom: 32px; }
 .welcome-form { text-align: left; }
 .welcome-form label {
   display: block; font-size: 12px; font-weight: 500;
@@ -443,9 +442,9 @@ body.electron .electron-only { display: inline-flex !important; }
 .tree-children { margin-left: 13px; padding-left: 5px; }
 .tree-empty { color: var(--text-tertiary); font-size: 12.5px; padding: 24px 12px; text-align: center; line-height: 1.8; }
 
-/* 右键菜单 */
+/* 右键菜单（紧凑版：选项之间不留空，图标统一 15px 线性 SVG） */
 .context-menu {
-  position: fixed; z-index: 300; min-width: 168px; padding: 6px;
+  position: fixed; z-index: 300; min-width: 176px; padding: 4px;
   background: var(--bg-elevated);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -454,14 +453,46 @@ body.electron .electron-only { display: inline-flex !important; }
   animation: pop-in 140ms var(--ease);
 }
 .context-menu button {
-  display: flex; width: 100%; align-items: center; gap: 9px;
-  padding: 8px 11px; border-radius: var(--r-sm);
-  font-size: 13px; text-align: left; color: var(--text-primary);
+  display: flex; width: 100%; align-items: center; gap: 8px;
+  min-height: 24px; padding: 3px 9px; border-radius: var(--r-sm);
+  font-size: 12.5px; line-height: 18px; text-align: left; color: var(--text-primary);
   transition: background var(--dur) var(--ease);
 }
 .context-menu button:hover { background: var(--bg-fill); }
 .context-menu button.danger { color: var(--danger); }
-.context-menu .sep { height: 1px; background: var(--hairline); margin: 5px 8px; }
+.context-menu .mi-icon {
+  width: 15px; height: 15px; flex: 0 0 15px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-secondary);
+}
+.context-menu .mi-icon svg { width: 15px; height: 15px; display: block; }
+.context-menu .mi-icon.on svg { fill: currentColor; fill-opacity: 0.16; }
+.context-menu button:hover .mi-icon { color: var(--text-primary); }
+.context-menu button.danger .mi-icon { color: inherit; }
+.context-menu .mi-txt {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+  letter-spacing: -0.3px; line-height: 1;
+}
+.context-menu .mi-txt.it { font-family: var(--font-display); font-style: italic; font-size: 12px; }
+.context-menu .mi-txt.st { text-decoration: line-through; }
+.context-menu .mi-label { flex: 1; white-space: nowrap; }
+.context-menu .mi-kbd {
+  margin-left: 12px; font-family: var(--font-mono); font-size: 10px;
+  color: var(--text-tertiary); letter-spacing: 0.2px;
+}
+.context-menu .sep { height: 1px; background: var(--hairline-strong); margin: 3px 6px; }
+.context-menu button:disabled { opacity: 0.42; }
+.context-menu button:disabled:hover { background: none; }
+
+/* 实时预览行号槽（覆盖层，跟着滚动同步位移） */
+.live-gutter {
+  position: absolute; top: 10px; bottom: 10px; left: 0; width: 42px;
+  overflow: hidden; pointer-events: none; user-select: none;
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--text-tertiary); text-align: right;
+}
+.live-gutter .lg-inner { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
+.live-gutter .ln { position: absolute; right: 8px; height: 14px; line-height: 14px; }
 
 /* ============ 回收站 ============ */
 .trash-viewer {
@@ -715,10 +746,22 @@ body.electron .electron-only { display: inline-flex !important; }
   border-bottom: 1.5px solid var(--text-tertiary);
 }
 .embed-image:hover .img-grip { opacity: 1; }
-/* 段落分隔符占位段：零高不可见，但能接收光标。点段落间空白就落在这一行，
-   一打字它变成真段落（序列化时空的会被跳过，文件不会被动） */
-.md-blank { margin: 0 !important; padding: 0; height: 0; line-height: 0; overflow: hidden; }
-.md-blank.is-active { height: 1.7em; line-height: 1.78; }
+/* 段落分隔符占位段 = 源码里的那一行空行，在预览里也占一行的高度。
+   为什么不能再做成「零高 + 点中时临时撑开」：那样一点击下面的内容整体跳一下，
+   而且这一行根本点不到，光标只能靠猜。给它恒定的行高之后，空行成了真实的
+   点击/输入目标，布局不动、源码行号和预览位置也对得上。
+   序列化时空的会被跳过，文件不会被动（见 serializeBlocks）。 */
+#editor-live .md-blank {
+  margin: 0 !important;
+  padding: 0;
+  min-height: 1.78em;
+  line-height: 1.78;
+  overflow: visible;
+}
+/* 空行自己已经占了一整行：相邻块的上下外边距让位，
+   否则间距会变成「外边距 + 一整行」，比原来松一大截 */
+#editor-live > *:has(+ .md-blank) { margin-bottom: 0 !important; }
+#editor-live .md-blank + * { margin-top: 0 !important; }
 
 .markdown-body { word-break: break-word; }
 .markdown-body > *:first-child { margin-top: 0; }
@@ -1077,6 +1120,24 @@ body.electron .electron-only { display: inline-flex !important; }
 }
 [data-theme="dark"] .seg button.active { background: var(--bg-elevated); }
 
+/* 开关（设置里的布尔项） */
+.switch {
+  position: relative; width: 42px; height: 25px;
+  border-radius: 999px; background: var(--bg-fill);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.switch > span {
+  position: absolute; top: 2px; left: 2px;
+  width: 21px; height: 21px; border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  transition: transform var(--dur) var(--ease);
+}
+.switch.on { background: var(--accent); box-shadow: inset 0 0 0 1px transparent; }
+.switch.on > span { transform: translateX(17px); }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* 色板 */
 .swatches { display: flex; gap: 11px; }
 .swatches button {
@@ -1346,72 +1407,154 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
 .embed-file svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-secondary); }
 .md-image { max-width: 100%; display: block; border-radius: var(--r-md); margin: 0.5em 0; cursor: zoom-in; }
 
-/* ============ 内置绘图 ============ */
+/* ============ 内置绘图（Excalidraw 风格白板） ============ */
 .draw-overlay {
   position: fixed; inset: 0; z-index: 680;
   display: flex; flex-direction: column;
   background: var(--bg-window);
 }
 .draw-top {
-  height: 56px; flex-shrink: 0;
+  height: 52px; flex-shrink: 0;
   display: flex; align-items: center; gap: 12px;
   padding: 0 14px;
   background: var(--bg-sidebar);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border-bottom: 1px solid var(--hairline);
-  overflow-x: auto;
 }
-.draw-group { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
-.draw-tool {
-  padding: 5px 12px; border-radius: 8px;
-  font-size: 12.5px; color: var(--text-secondary);
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+.draw-brand {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 500; color: var(--text-primary);
 }
-.draw-tool:hover { background: var(--bg-fill); color: var(--text-primary); }
-.draw-tool.active { background: var(--accent-soft); color: var(--accent); }
-.draw-colors { gap: 6px; padding: 0 6px; }
-.draw-swatch {
-  width: 19px; height: 19px; border-radius: 50%;
-  background: var(--sw);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
-  transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+.draw-brand-dot {
+  width: 9px; height: 9px; border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
-.draw-swatch:hover { transform: scale(1.12); }
-.draw-swatch.active { box-shadow: 0 0 0 2px var(--bg-sidebar); outline: 1.5px solid var(--text-primary); outline-offset: 2px; }
-.draw-sizes { gap: 2px; padding-left: 6px; }
-.draw-size { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px; }
-.draw-size span { display: block; border-radius: 50%; background: var(--text-secondary); }
-.draw-size:hover { background: var(--bg-fill); }
-.draw-size.active { background: var(--bg-fill-hover); }
-.draw-size.active span { background: var(--accent); }
-.draw-history { padding-left: 10px; margin-left: 4px; gap: 2px; border-left: 1px solid var(--hairline); }
-.draw-icon {
-  width: 30px; height: 30px; display: grid; place-items: center;
-  border-radius: 8px; color: var(--text-secondary);
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+.draw-zoom {
+  display: flex; align-items: center; gap: 2px;
+  margin-left: 8px; padding: 2px;
+  background: var(--bg-fill); border-radius: 8px;
 }
-.draw-icon:hover { background: var(--bg-fill); color: var(--text-primary); }
-.draw-icon:disabled { opacity: 0.32; pointer-events: none; }
-.draw-icon svg { width: 17px; height: 17px; }
-.draw-actions { margin-left: auto; gap: 8px; }
-.draw-actions .btn-ghost { padding: 7px 14px; border-radius: var(--r-sm); font-size: 13px; color: var(--text-secondary); }
+.draw-zoom button {
+  min-width: 26px; height: 24px; padding: 0 6px;
+  border-radius: 6px; font-size: 12px; color: var(--text-secondary);
+}
+.draw-zoom button:hover { background: var(--bg-sheet); color: var(--text-primary); }
+.draw-zoom .draw-zoom-val { font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.draw-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.draw-actions .btn-ghost { padding: 6px 14px; border-radius: var(--r-sm); font-size: 13px; color: var(--text-secondary); }
 .draw-actions .btn-ghost:hover { background: var(--bg-fill); color: var(--text-primary); }
 .draw-actions .btn-primary { padding: 7px 16px; font-size: 13px; }
+
 .draw-stage {
-  flex: 1; min-height: 0;
-  margin: 16px 16px 6px;
+  position: relative; flex: 1; min-height: 0;
+  margin: 12px 12px 8px;
   border-radius: var(--r-lg);
   background: #fff;
   box-shadow: var(--shadow-float);
   overflow: hidden;
-  display: flex;
 }
 .draw-stage canvas { display: block; touch-action: none; }
+
+/* 顶部悬浮工具条（Excalidraw 同款位置） */
+.draw-tools {
+  position: absolute; left: 50%; top: 12px; transform: translateX(-50%);
+  z-index: 3;
+  display: flex; align-items: center; gap: 2px;
+  padding: 5px;
+  background: var(--bg-elevated);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.13), 0 0 0 1px var(--hairline);
+}
+.draw-tool {
+  width: 34px; height: 34px; display: grid; place-items: center;
+  border-radius: 8px; color: var(--text-secondary);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.draw-tool svg { width: 17px; height: 17px; }
+.draw-tool:hover { background: var(--bg-fill); color: var(--text-primary); }
+.draw-tool.active { background: var(--accent-soft); color: var(--accent); }
+.draw-tool:disabled { opacity: 0.3; pointer-events: none; }
+.draw-tool-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--hairline); }
+
+/* 左侧属性面板 */
+.draw-props {
+  position: absolute; left: 12px; top: 12px; z-index: 3;
+  width: 196px; padding: 10px 10px 8px;
+  background: var(--bg-elevated);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.13), 0 0 0 1px var(--hairline);
+  transition: opacity var(--dur) var(--ease);
+}
+.draw-props.disabled { opacity: 0.42; pointer-events: none; }
+.dp-group + .dp-group { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--hairline); }
+.dp-label {
+  font-size: 10.5px; letter-spacing: 0.02em;
+  color: var(--text-secondary); margin-bottom: 6px;
+}
+.dp-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.dp-row + .dp-row { margin-top: 6px; }
+
+.draw-swatch, .draw-bg {
+  position: relative;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--sw);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.draw-swatch:hover, .draw-bg:hover { transform: scale(1.12); }
+.draw-swatch.active, .draw-bg.active {
+  box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 3.5px var(--text-primary);
+}
+.draw-bg-none { background: #fff; overflow: hidden; }
+.draw-bg-none::after {
+  content: ''; position: absolute; inset: -2px;
+  background: linear-gradient(to top right, transparent 46%, #e5484d 46%, #e5484d 54%, transparent 54%);
+}
+.draw-bg-none.active { box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 3.5px var(--text-primary); }
+
+.draw-fill {
+  padding: 3px 8px; border-radius: 6px;
+  font-size: 11.5px; color: var(--text-secondary);
+  background: var(--bg-fill);
+}
+.draw-fill:hover { color: var(--text-primary); }
+.draw-fill.active { background: var(--accent-soft); color: var(--accent); }
+
+.draw-size, .draw-dash {
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 7px;
+}
+.draw-size span { display: block; border-radius: 50%; background: var(--text-secondary); }
+.draw-dash span { display: block; width: 15px; height: 0; border-top: 2px solid var(--text-secondary); }
+.draw-dash span.dash-dashed { border-top-style: dashed; }
+.draw-dash span.dash-dotted { border-top-style: dotted; border-top-width: 3px; }
+.draw-size:hover, .draw-dash:hover { background: var(--bg-fill); }
+.draw-size.active, .draw-dash.active { background: var(--bg-fill-hover); }
+.draw-size.active span, .draw-dash.active span { background: var(--accent); }
+.draw-dash.active span { border-top-color: var(--accent); }
+
 .draw-hint {
-  height: 32px; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 11.5px; color: var(--text-tertiary);
+  position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%);
+  z-index: 2; pointer-events: none;
+  padding: 5px 12px; border-radius: 999px;
+  font-size: 11px; color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
+}
+
+/* 文字编辑浮层：跟画布上的文字重叠，看着像就地编辑 */
+.draw-textedit {
+  position: absolute; z-index: 4;
+  min-width: 40px; min-height: 24px;
+  padding: 0; margin: 0;
+  border: none; outline: 1px dashed var(--accent);
+  background: rgba(255, 255, 255, 0.86);
+  resize: none; overflow: hidden;
+  font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  white-space: pre;
 }
 
 /* 同步：部署说明 */

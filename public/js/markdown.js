@@ -636,16 +636,28 @@ export function serializeHtml(rootEl) {
 /* ================= 光标位置映射 ================= */
 /** DOM 内某个 (node, offset) 的纯文本投影偏移 */
 export function textOffsetOf(root, node, offset) {
+  // 锚点是文本节点：数到它为止
+  if (node.nodeType === Node.TEXT_NODE) {
+    let count = 0;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const t = walker.currentNode;
+      if (t === node) return count + offset;
+      count += t.textContent.length;
+    }
+    return count;
+  }
+  // 锚点是元素（光标停在一个空块上、或块的边界处）：只数「光标之前」的文本。
+  // 旧实现走到这里会把整篇文本长度当成偏移，DOM 重建后光标直接被甩到全文末尾。
+  if (node.nodeType !== Node.ELEMENT_NODE) return 0;
+  const ref = node.childNodes[Math.min(offset, node.childNodes.length)] || node;
   let count = 0;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const t = walker.currentNode;
-    if (t === node) return count + offset;
-    count += t.textContent.length;
-  }
-  // node 本身是元素（如空块）：按其后所有文本长度近似
-  if (node === root || (root.contains?.(node) && node.nodeType === Node.ELEMENT_NODE)) {
-    return offset <= 0 ? count : count;
+    if (t === ref) return count;
+    if (t.compareDocumentPosition(ref) & Node.DOCUMENT_POSITION_FOLLOWING) count += t.textContent.length;
+    else return count;
   }
   return count;
 }
@@ -690,12 +702,29 @@ export function domPointToMd(root, node, offset) {
  * 元素锚点（选区落在元素上、offset 是子节点索引）时，累加到前 offset 个子节点。
  */
 function domOffsetBrAware(root, node, offset) {
+  // 递归计长：元素按内容算（<li> → <span>文字</span>，只认文本节点会算成 0）
   const len = (n) => {
+    if (n.nodeType === Node.TEXT_NODE) return n.textContent.length;
+    if (n.nodeType !== Node.ELEMENT_NODE) return 0;
+    if (n.tagName === 'BR') return 1;
+    let sum = 0;
+    for (const c of n.childNodes) sum += len(c);
+    return sum;
+  };
+  // 逐节点累加用「浅长度」：walker 会自己走进子节点，递归算会重复计
+  const shallowLen = (n) => {
     if (n.nodeType === Node.TEXT_NODE) return n.textContent.length;
     if (n.nodeType === Node.ELEMENT_NODE && n.tagName === 'BR') return 1;
     return 0;
   };
   let count = 0;
+  // 锚点就是块本身（光标停在空块上，或停在块的首尾边界）：只算前 offset 个子节点。
+  // 不特判的话下面的 walker 从块的孩子开始走，永远匹配不到锚点，会把整块的
+  // 长度全加进去——空行（只有一个 <br>）就变成「偏移 +1」，回车/输入整体错位。
+  if (node === root) {
+    for (let i = 0; i < offset && i < root.childNodes.length; i++) count += len(root.childNodes[i]);
+    return count;
+  }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL);
   let cur;
   while ((cur = walker.nextNode())) {
@@ -709,7 +738,7 @@ function domOffsetBrAware(root, node, offset) {
       }
       return count;
     }
-    count += len(cur);
+    count += shallowLen(cur);
   }
   return count;
 }

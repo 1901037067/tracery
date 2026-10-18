@@ -4,7 +4,7 @@
  *  - 输入防抖 → DOM 序列化回 Markdown → 重渲染 → 按字符偏移恢复光标
  *  - Enter 智能续行 / Tab 缩进 / Ctrl+B/I/S 包裹 / 复选框点击 / 双链点击与悬浮预览 / ![[嵌入]]
  */
-import { renderMarkdown, serializeHtml, textOffsetOf, nodeAtTextOffset, domPointToMd, mdOffsetToDom, inlineToHtml, escapeHtml } from './markdown.js';
+import { renderMarkdown, serializeHtml, domPointToMd, mdOffsetToDom, inlineToHtml, escapeHtml } from './markdown.js';
 import { Api, toast, debounce } from './api.js';
 import { getSettings, resolveAssetDir } from './settings.js';
 
@@ -49,6 +49,20 @@ export class LiveEditor {
     this.dirty = false;
     this.composing = false;
     this.previewTimer = null;
+
+    // 行号开关（设置面板「编辑器 → 行号」）：源码槽 + 实时预览槽共用
+    this.showLineNumbers = true;
+    this.liveGutterEl = null;      // 实时预览行号槽（懒创建）
+    this.liveGutterInner = null;
+
+    // 撤销栈：contenteditable 每次重渲染都会重建 DOM，浏览器自带的 undo 记不住，
+    // 所以自己按 Markdown 文本存快照（md + 光标偏移）。
+    this.history = [];
+    this.hIndex = -1;
+    this.hTimer = null;
+    this.historyLimit = 200;
+    this._applyingHistory = false;
+    this._resetHistory();
 
     this._bindEvents();
     this.autosaveMs = 900;
@@ -169,12 +183,19 @@ export class LiveEditor {
     });
     // 行号槽跟着源码区滚动
     this.sourceEl.addEventListener('scroll', () => this._updateGutter());
+
+    // 实时预览行号：滚动只做位移（不重算），窗口尺寸变化才重算对齐
+    el.addEventListener('scroll', () => this._syncGutterScroll());
+    window.addEventListener('resize', () => { if (this.mode === 'live') this._syncLiveGutter(); });
   }
 
   /** 刷新源码模式行号：行数变了才重建数字，滚动只同步 scrollTop */
   _updateGutter() {
     const gutter = this.gutterEl;
-    if (!gutter || this.mode !== 'source') return;
+    if (!gutter) return;
+    if (!this.showLineNumbers) { gutter.hidden = true; return; }
+    gutter.hidden = false;
+    if (this.mode !== 'source') return;
     const lines = this.sourceEl.value.split('\n').length;
     if (gutter.childElementCount !== lines) {
       const frag = document.createDocumentFragment();
@@ -188,9 +209,145 @@ export class LiveEditor {
     gutter.scrollTop = this.sourceEl.scrollTop;
   }
 
+  /* ---------- 实时预览行号 ----------
+   * 实时模式没有「源码行」这种 DOM 实体，只有渲染出来的块。所以按块测量：
+   *   · 每个块都带 data-md-line-start（源码字符偏移）→ 换成行号；
+   *   · 块内用 Range.getClientRects() 拿到「每个视觉行」的顶部，逐行编号
+   *     （软换行段落、代码块、表格行都靠这个对齐）；
+   *   · 列表按 li 编号，Callout 标题 + 正文分别编。
+   * 数字画在编辑区左侧的覆盖层里，滚动只位移不重算。
+   */
+  setLineNumbers(on) {
+    this.showLineNumbers = !!on;
+    this._updateGutter();
+    this._syncLiveGutter();
+  }
+
+  _ensureLiveGutter() {
+    if (this.liveGutterEl) return this.liveGutterEl;
+    const host = this.liveEl.parentElement;
+    if (!host) return null;
+    const g = document.createElement('div');
+    g.className = 'live-gutter';
+    g.hidden = true;
+    const inner = document.createElement('div');
+    inner.className = 'lg-inner';
+    g.appendChild(inner);
+    host.appendChild(g);
+    this.liveGutterEl = g;
+    this.liveGutterInner = inner;
+    return g;
+  }
+
+  _syncGutterScroll() {
+    if (!this.liveGutterEl || this.liveGutterEl.hidden) return;
+    this.liveGutterInner.style.transform = `translateY(${-this.liveEl.scrollTop}px)`;
+  }
+
+  _syncLiveGutter() {
+    const g = this._ensureLiveGutter();
+    if (!g) return;
+    if (!this.showLineNumbers || this.mode !== 'live' || this.liveEl.hidden) { g.hidden = true; return; }
+    const items = this._collectLineNumbers();
+    if (!items.length) { g.hidden = true; return; }
+
+    const edRect = this.liveEl.getBoundingClientRect();
+    const first = this.liveEl.firstElementChild?.getBoundingClientRect();
+    const left = first ? Math.round(first.left - edRect.left - 44) : 0;
+    g.style.left = `${Math.max(0, left)}px`;
+    g.hidden = false;
+
+    const frag = document.createDocumentFragment();
+    for (const it of items) {
+      const d = document.createElement('div');
+      d.className = 'ln';
+      d.textContent = String(it.n);
+      d.style.top = `${Math.round(it.y)}px`;
+      frag.appendChild(d);
+    }
+    this.liveGutterInner.replaceChildren(frag);
+    this._syncGutterScroll();
+  }
+
+  /** 收集 [{ 行号, 纵坐标 }]（纵坐标相对滚动内容顶部） */
+  _collectLineNumbers() {
+    const lineOf = new Map();
+    let ln = 1;
+    lineOf.set(0, 1);
+    for (let i = 0; i < this.md.length; i++) {
+      if (this.md[i] === '\n') { ln += 1; lineOf.set(i + 1, ln); }
+    }
+    const edRect = this.liveEl.getBoundingClientRect();
+    const scrollTop = this.liveEl.scrollTop;
+    const out = [];
+    const push = (lineNo, top, h) => {
+      if (!Number.isFinite(lineNo) || lineNo < 1) return;
+      out.push({ n: lineNo, y: top - edRect.top + scrollTop + Math.max(0, ((h || 14) - 14) / 2) });
+    };
+
+    for (const el of this.liveEl.children) {
+      const tag = el.tagName;
+
+      // 列表 / 表格：容器本身没有偏移标记，编号在 li / tr 上（要先于下面的判断）
+      if (tag === 'UL' || tag === 'OL') {
+        for (const li of el.querySelectorAll('li[data-md-line-start]')) {
+          const liLine = lineOf.get(Number(li.dataset.mdLineStart));
+          const r = li.getBoundingClientRect();
+          const lh = parseFloat(getComputedStyle(li).lineHeight) || 24;
+          push(liLine, r.top, Math.min(lh, r.height || lh));
+        }
+        continue;
+      }
+      if (tag === 'TABLE') {
+        for (const tr of el.querySelectorAll('tr')) {
+          const cell = tr.querySelector('th, td');
+          const trLine = cell?.dataset?.mdLineStart ? lineOf.get(Number(cell.dataset.mdLineStart)) : null;
+          const r = tr.getBoundingClientRect();
+          push(trLine, r.top, r.height);
+        }
+        continue;
+      }
+
+      const startOff = Number(el.dataset.mdLineStart);
+      if (!Number.isFinite(startOff)) continue;
+      const start = lineOf.get(startOff);
+      if (!start) continue;
+
+      if (tag === 'PRE') {
+        // 块首行是 ``` 围栏，代码行从下一行开始
+        const code = el.querySelector('code') || el;
+        lineBoxes(code).forEach((box, i) => push(start + 1 + i, box.top, box.h));
+        continue;
+      }
+      if (el.classList.contains('callout')) {
+        push(start, el.getBoundingClientRect().top, 20);
+        const body = el.querySelector('.callout-body');
+        const firstInner = body?.querySelector('[data-md-line-start]');
+        const bodyStart = firstInner ? lineOf.get(Number(firstInner.dataset.mdLineStart)) : null;
+        if (body && bodyStart) lineBoxes(body).forEach((box, i) => push(bodyStart + i, box.top, box.h));
+        continue;
+      }
+      lineBoxes(el).forEach((box, i) => push(start + i, box.top, box.h));
+    }
+
+    out.sort((a, b) => a.y - b.y || a.n - b.n);
+    const res = [];
+    for (const it of out) {
+      const prev = res[res.length - 1];
+      if (prev && Math.abs(prev.y - it.y) < 3) continue;   // 同一视觉行只留一个号
+      res.push(it);
+    }
+    return res;
+  }
+
   /* ---------- 加载 / 保存 ---------- */
   load(path, content, { keepMode = false } = {}) {
+    // 自己保存后 WS 会把文件变更广播回来、这里再读一次盘：内容一模一样就别重渲染了，
+    // 否则每次自动保存都会清空撤销栈、把光标弹回别处（用户感觉「刚撤销完就跳走」）。
+    if (path === this.path && content === this.md) return;
     this._flushSave();
+    // 换文件时先清掉选区：否则 _renderLive 会把上一篇的光标位置恢复到新文件里
+    window.getSelection()?.removeAllRanges();
     this.path = path;
     this.md = content;
     this.dirty = false;
@@ -198,6 +355,7 @@ export class LiveEditor {
     if (!keepMode) this.setMode('live');
     this._renderLive();
     this.sourceEl.value = content;
+    this._resetHistory();          // 撤销栈按笔记隔离，不能跨文件回滚
     this._updateGutter();
     this.opts.onChange?.(this.md);
   }
@@ -234,7 +392,8 @@ export class LiveEditor {
     this.liveEl.appendChild(frag);
     this.renderedMd = this.md;
     this._restoreEmbeds();
-    if (caret) this._restoreCaret(caret);
+    if (caret != null) this._restoreCaretMd(caret);
+    this._syncLiveGutter();
     this.opts.onChange?.(this.md);
   }
 
@@ -247,6 +406,7 @@ export class LiveEditor {
     this.opts.onDirtyChange?.(true);
     this.opts.onChange?.(md);
     this.autosave();
+    this._scheduleHistory(520);    // 一段连续的输入合并成一步撤销
     clearTimeout(this._rerenderTimer);
     this._rerenderTimer = setTimeout(() => {
       if (this.mode !== 'live') return;
@@ -255,29 +415,44 @@ export class LiveEditor {
     }, 220);
   }
 
-  /* ---------- 光标保存 / 恢复（按纯文本字符偏移） ---------- */
+  /* ---------- 光标保存 / 恢复 ----------
+   * 统一用 Markdown 源码偏移做坐标（不再用「纯文本第几个字符」）：
+   *   ① 纯文本偏移把 <br>、空行、块的边界全丢了。光标停在一个空块上时
+   *      （锚点是元素而不是文本节点）旧实现 textOffsetOf 会返回「全文文本长度」，
+   *      DOM 重建后光标被甩到全文最后一个字后面——实测就是「点空行打字，
+   *      打完光标却跑到了下一段末尾，接着输的字全进到那一行」。
+   *   ② 渲染时每个块都打了 data-md-content-start，domPointToMd / mdOffsetToDom
+   *      是同一套精确的双向映射，编辑操作（回车/Tab/包裹）本来就走它。
+   *      光标的保存/恢复也走它，全局只剩一套坐标，才不会互相打架。
+   */
   _saveCaret() {
     const sel = window.getSelection();
     if (!sel.rangeCount) return null;
     const range = sel.getRangeAt(0);
     if (!this.liveEl.contains(range.startContainer)) return null;
-    return textOffsetOf(this.liveEl, range.startContainer, range.startOffset);
+    const md = this._caretOffset();
+    if (md == null) return null;
+    // 在空行/空块上刚打的字，序列化后会「往下挪一行」——段落之间必须补一个空行，
+    // 这一块在 md 里前移了一个 \n。光标偏移要跟着 +1，否则重建后少走一格
+    // （实测：空行上打 "123"，光标停在 "12" 后面，继续输入就插到中间）。
+    const host = range.startContainer.nodeType === Node.TEXT_NODE
+      ? range.startContainer.parentElement
+      : range.startContainer;
+    const leaf = host?.closest?.('[data-md-content-start]');
+    if (leaf && leaf.textContent.trim() && this.md[Number(leaf.dataset.mdContentStart)] === '\n') {
+      return md + 1;
+    }
+    return md;
   }
 
-  _restoreCaret(offset) {
-    const { node, offset: off } = nodeAtTextOffset(this.liveEl, offset);
-    try {
-      const sel = window.getSelection();
-      const range = document.createRange();
-      if (node.nodeType === Node.TEXT_NODE) {
-        range.setStart(node, Math.min(off, node.textContent.length));
-      } else {
-        range.setStart(node, 0);
-      }
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    } catch { /* 光标恢复失败时保持默认 */ }
+  /** 光标的 Markdown 偏移（不做任何补偿，撤销栈用这个） */
+  _caretOffset() {
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return null;
+    const range = sel.getRangeAt(0);
+    if (!this.liveEl.contains(range.startContainer)) return null;
+    const md = domPointToMd(this.liveEl, range.startContainer, range.startOffset);
+    return md == null ? null : md;
   }
 
   _currentLineRange() {
@@ -294,6 +469,73 @@ export class LiveEditor {
     return { lineStart, lineEnd, offset };
   }
 
+  /* ---------- 撤销 / 重做（Markdown 快照栈） ----------
+   * 为什么不能用浏览器自带的 undo：编辑器每次输入都会 innerHTML 重建 DOM，
+   * 原生 undo 栈跟着节点一起没了（Ctrl+Z 只会在残骸上乱跳）。所以自己存快照：
+   *   { md, caret } —— md 是权威内容，caret 是当时的 Markdown 偏移。
+   * 连续输入合并成一步（520ms 静默后落账），结构操作（回车/缩进/加粗…）
+   * 立即落账，按操作回退，跟 Obsidian 的手感接近。
+   */
+  _resetHistory() {
+    clearTimeout(this.hTimer);
+    this.hTimer = null;
+    this.history = [{ md: this.md, caret: this._caretOffset() ?? 0 }];
+    this.hIndex = 0;
+  }
+
+  /** 把当前状态记进栈（跟上一张快照一样就跳过） */
+  _commitHistory() {
+    clearTimeout(this.hTimer);
+    this.hTimer = null;
+    if (this._applyingHistory) return;
+    const top = this.history[this.hIndex];
+    if (top && top.md === this.md) return;
+    if (this.hIndex < this.history.length - 1) this.history.length = this.hIndex + 1;  // 新分支，砍掉 redo 尾巴
+    this.history.push({ md: this.md, caret: this._caretOffset() ?? top?.caret ?? 0 });
+    this.hIndex = this.history.length - 1;
+    while (this.history.length > this.historyLimit) { this.history.shift(); this.hIndex -= 1; }
+  }
+
+  /** 延迟落账：打字用 520ms 合并，结构操作传 0（等 _placeCaret 放好光标） */
+  _scheduleHistory(delay = 520) {
+    if (this._applyingHistory) return;
+    clearTimeout(this.hTimer);
+    this.hTimer = setTimeout(() => this._commitHistory(), delay);
+  }
+
+  canUndo() { return this.mode === 'live' && (this.hIndex > 0 || !!this.hTimer); }
+  canRedo() { return this.mode === 'live' && this.hIndex < this.history.length - 1; }
+
+  undo() {
+    if (this.mode !== 'live') { document.execCommand('undo'); return; }   // 源码模式交给 textarea 原生
+    if (this.hTimer) this._commitHistory();                               // 还没落账的这次输入先记上
+    if (this.hIndex <= 0) { toast('没有可撤销的操作'); return; }
+    this._applyHistory(this.hIndex - 1);
+  }
+
+  redo() {
+    if (this.mode !== 'live') { document.execCommand('redo'); return; }
+    if (this.hTimer) this._commitHistory();
+    if (this.hIndex >= this.history.length - 1) { toast('没有可重做的操作'); return; }
+    this._applyHistory(this.hIndex + 1);
+  }
+
+  _applyHistory(idx) {
+    const snap = this.history[idx];
+    if (!snap) return;
+    this.hIndex = idx;
+    this._applyingHistory = true;
+    this.md = snap.md;
+    this.dirty = true;
+    this.opts.onDirtyChange?.(true);
+    this._renderLive();
+    this._restoreCaretMd(Math.min(snap.caret ?? 0, this.md.length));
+    this.sourceEl.value = this.md;
+    this._updateGutter();
+    this.autosave();
+    this._applyingHistory = false;
+  }
+
   /* ---------- 键盘 ---------- */
   _onKeydown(e) {
     if (this.mode !== 'live') {
@@ -302,6 +544,14 @@ export class LiveEditor {
       return;
     }
     const mod = e.ctrlKey || e.metaKey;
+
+    // 撤销 / 重做（Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y）
+    if (mod && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) this.redo(); else this.undo();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); this.redo(); return; }
 
     // Ctrl+E 切源码由外层处理
     if (mod && e.key === 'Enter') { e.preventDefault(); this._toggleCheckboxAtCaret(null); return; }
@@ -434,6 +684,7 @@ export class LiveEditor {
     this.dirty = true;
     this.opts.onDirtyChange?.(true);
     this._renderLive();
+    this._scheduleHistory(0);      // 结构操作单独成一步（0ms：等调用方把光标放好）
     this.autosave();
   }
 
@@ -862,6 +1113,7 @@ export class LiveEditor {
       this._flushSave();
       this.sourceEl.value = this.md;
       this.liveEl.hidden = true;
+      if (this.liveGutterEl) this.liveGutterEl.hidden = true;
       if (this.sourceWrap) this.sourceWrap.hidden = false;
       this.sourceEl.hidden = false;
       this.mode = 'source';
@@ -873,6 +1125,7 @@ export class LiveEditor {
       this.sourceEl.hidden = true;
       this.mode = 'live';
       this._renderLive();
+      this._resetHistory();   // 源码模式的改动交给 textarea 原生撤销，回来重新起栈
       this.autosave();
     }
     this.opts.onModeChange?.(this.mode);
@@ -897,4 +1150,30 @@ export class LiveEditor {
       setTimeout(() => { el.style.background = ''; }, 900);
     }
   }
+}
+
+/**
+ * 元素内「每个视觉行」的顶部与行高。
+ * Range.getClientRects() 一行一个 rect（软换行段落、代码块、引用都适用），
+ * 同一行里多个内联元素会给出多个 rect，按 top 合并。
+ */
+function lineBoxes(el) {
+  const cs = getComputedStyle(el);
+  const lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 14) * 1.6;
+  const out = [];
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    for (const r of range.getClientRects()) {
+      if (r.height < 1) continue;
+      if (!out.length || r.top - out[out.length - 1].top > 4) {
+        out.push({ top: r.top, h: Math.max(r.height, lh) });
+      }
+    }
+  } catch { /* 测量失败就退化成整块一行 */ }
+  if (!out.length) {
+    const b = el.getBoundingClientRect();
+    out.push({ top: b.top, h: lh });
+  }
+  return out;
 }

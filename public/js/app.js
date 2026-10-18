@@ -72,8 +72,10 @@ async function boot() {
     state.theme = document.documentElement.dataset.theme;
     state.themeName = s.themeName;
     editor.setAutosave(s.autosave);
+    editor.setLineNumbers(s.lineNumbers !== false);
   });
   editor.setAutosave(state.settings?.autosave ?? 900);
+  editor.setLineNumbers(getSettings().lineNumbers !== false);
   if (st.vault) {
     $('welcome').hidden = true;
     $('app').hidden = false;
@@ -220,6 +222,31 @@ const ICON = {
   image: S('<rect x="2" y="3" width="12" height="10" rx="1.8"/><circle cx="5.6" cy="6.4" r="1"/><path d="M2.6 11.6l3.2-3 2.5 2.3 2.2-2 2.9 2.7"/>'),
   pdf: S('<path d="M4 1.8h5l3.2 3.2v9H4z"/><path d="M9 1.8V5h3.2"/><path d="M6 9.2h4"/><path d="M6 11.2h2.6"/>'),
   paperclip: S('<path d="M10.8 4.6l-4.6 4.6a2 2 0 0 0 2.8 2.8l4.6-4.6a3.2 3.2 0 0 0-4.5-4.5L3.6 7.4a4.4 4.4 0 0 0 6.2 6.2l3.4-3.4"/>'),
+  // 右键菜单图标（统一 16 格线性，别再用 emoji：跨平台字形不一致、还发虚）
+  eye: S('<path d="M1.8 8S4.1 4.6 8 4.6 14.2 8 14.2 8 11.9 11.4 8 11.4 1.8 8 1.8 8z"/><circle cx="8" cy="8" r="1.6"/>'),
+  copy: S('<rect x="5.6" y="5.6" width="7.4" height="7.4" rx="1.4"/><path d="M10.4 5.6V4A1.2 1.2 0 0 0 9.2 2.8H4A1.2 1.2 0 0 0 2.8 4v5.2A1.2 1.2 0 0 0 4 10.4h1.6"/>'),
+  star: S('<path d="M8 2.6l1.7 3.4 3.7.55-2.7 2.6.64 3.7L8 11.1l-3.34 1.75L5.3 9.15 2.6 6.55l3.7-.55z"/>'),
+  link: S('<path d="M6.7 9.3a2.5 2.5 0 0 0 3.5 0l2-2a2.5 2.5 0 0 0-3.5-3.5l-.9.9"/><path d="M9.3 6.7a2.5 2.5 0 0 0-3.5 0l-2 2a2.5 2.5 0 0 0 3.5 3.5l.9-.9"/>'),
+  globe: S('<circle cx="8" cy="8" r="5.4"/><path d="M2.6 8h10.8"/><path d="M8 2.6c1.6 1.5 2.4 3.3 2.4 5.4S9.6 12 8 13.4C6.4 11.9 5.6 10.1 5.6 8S6.4 4.1 8 2.6z"/>'),
+  compass: S('<circle cx="8" cy="8" r="5.4"/><path d="M10.1 5.9L9.2 9.2 5.9 10.1l.9-3.3z"/>'),
+  external: S('<path d="M9.4 3.4h3.2v3.2"/><path d="M12.6 3.4L7.4 8.6"/><path d="M11.4 9.6v2a1.2 1.2 0 0 1-1.2 1.2H4a1.2 1.2 0 0 1-1.2-1.2V5.2A1.2 1.2 0 0 1 4 4h2"/>'),
+  pencil: S('<path d="M10.9 2.7l2.4 2.4-7.1 7.1-3.1.7.7-3.1z"/>'),
+  trash: S('<path d="M2.8 4.6h10.4"/><path d="M6.2 4.6V3.2h3.6v1.4"/><path d="M4.1 4.6l.6 8.1h6.6l.6-8.1"/>'),
+  zoom: S('<circle cx="7.1" cy="7.1" r="3.6"/><path d="M9.8 9.8l3.2 3.2"/>'),
+  tree: S('<path d="M3.3 4.6h.01M6.4 4.6h6.4M6.4 8h6.4M6.4 11.4h6.4"/><path d="M3.6 4.6v6.8"/><path d="M3.6 8h2.2"/>'),
+  scissors: S('<circle cx="4.4" cy="11.5" r="1.5"/><circle cx="11.6" cy="11.5" r="1.5"/><path d="M5.5 10.4L11.9 3M10.5 10.4L4.1 3"/>'),
+  clipboard: S('<rect x="4.2" y="3.4" width="7.6" height="10" rx="1.3"/><path d="M6.2 3.4v-.8h3.6v.8"/>'),
+  clipboardText: S('<rect x="4.2" y="3.4" width="7.6" height="10" rx="1.3"/><path d="M6.2 3.4v-.8h3.6v.8"/><path d="M6.2 7h3.6M6.2 9.4h2.4"/>'),
+  code: S('<path d="M6.1 5.3L3.2 8l2.9 2.7"/><path d="M9.9 5.3L12.8 8l-2.9 2.7"/>'),
+  codeBlock: S('<rect x="2.4" y="3.4" width="11.2" height="9.2" rx="1.4"/><path d="M6.2 6.9L4.7 8.3l1.5 1.4"/><path d="M9.8 6.9l1.5 1.4-1.5 1.4"/>'),
+  table: S('<rect x="2.4" y="3.4" width="11.2" height="9.2" rx="1.2"/><path d="M2.4 6.6h11.2M2.4 9.5h11.2M6.2 3.4v9.2"/>'),
+  rule: S('<path d="M2.4 8h11.2"/>'),
+  list: S('<path d="M3.3 4.4h.01M3.3 8h.01M3.3 11.6h.01"/><path d="M6.4 4.4h6.4M6.4 8h6.4M6.4 11.6h6.4"/>'),
+  task: S('<rect x="2.3" y="2.9" width="4.1" height="4.1" rx="1"/><path d="M3.2 4.9l.8.8 1.4-1.7"/><rect x="2.3" y="9" width="4.1" height="4.1" rx="1"/><path d="M8.9 4.9h4.6M8.9 11h4.6"/>'),
+  quote: S('<path d="M3 3.4v9.2"/><path d="M6.4 5h6.6M6.4 8h6.6M6.4 11h4.2"/>'),
+  selectAll: S('<rect x="2.6" y="2.6" width="10.8" height="10.8" rx="1.4" stroke-dasharray="2.6 2"/><path d="M6.2 6.6l4 1.6-1.6.8-.8 1.6z"/>'),
+  undo: S('<path d="M6 4.6L3.2 7.4 6 10.2"/><path d="M3.2 7.4h6.1a3.1 3.1 0 0 1 0 6.2H7.1"/>'),
+  redo: S('<path d="M10 4.6l2.8 2.8L10 10.2"/><path d="M12.8 7.4H6.7a3.1 3.1 0 0 0 0 6.2h2.2"/>'),
 };
 
 function iconForFile(name) {
@@ -456,6 +483,9 @@ let ctxMenu = null;
 function closeCtxMenu() { if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; } }
 document.addEventListener('click', closeCtxMenu);
 
+/** 字型图标（H1 / B / I / ¶ 这类排版项用文字比画图形更清楚） */
+const T = (txt, cls = '') => `<span class="mi-txt ${cls}">${txt}</span>`;
+
 function showMenu(x, y, items) {
   closeCtxMenu();
   ctxMenu = document.createElement('div');
@@ -464,7 +494,10 @@ function showMenu(x, y, items) {
     if (it === '-') { const s = document.createElement('div'); s.className = 'sep'; ctxMenu.appendChild(s); continue; }
     const btn = document.createElement('button');
     if (it.danger) btn.className = 'danger';
-    btn.innerHTML = `${it.icon || ''} ${it.label}`;
+    if (it.disabled) btn.disabled = true;
+    btn.innerHTML = `<span class="mi-icon${it.iconOn ? ' on' : ''}">${it.icon || ''}</span>`
+      + `<span class="mi-label">${it.label}</span>`
+      + (it.kbd ? `<span class="mi-kbd">${it.kbd}</span>` : '');
     btn.onclick = (e) => { e.stopPropagation(); closeCtxMenu(); it.action?.(); };
     ctxMenu.appendChild(btn);
   }
@@ -486,22 +519,27 @@ function showFileMenu(e, f) {
     openNote(f.path, null, { newTab: true });
   };
   const items = [
-    { label: isMd ? '在新标签页中打开' : '查看', icon: isMd ? '📄' : '👁', action: openIn },
+    { label: isMd ? '在新标签页中打开' : '查看', icon: isMd ? ICON.doc : ICON.eye, action: openIn },
   ];
-  if (isMd) items.push({ label: '创建副本', icon: '📑', action: () => duplicateFile(f) });
+  if (isMd) items.push({ label: '创建副本', icon: ICON.copy, action: () => duplicateFile(f) });
   const pinned = state.pinned.has(f.path);
-  items.push({ label: pinned ? '取消星标' : '星标', icon: pinned ? '★' : '☆', action: () => togglePin(f.path) });
+  items.push({
+    label: pinned ? '取消星标' : '星标',
+    icon: ICON.star,
+    iconOn: pinned,
+    action: () => togglePin(f.path),
+  });
   items.push('-');
-  items.push({ label: '复制路径', icon: '🔗', action: () => copyText(abs) });
-  items.push({ label: '复制相对路径', icon: '🧭', action: () => copyText(f.path) });
+  items.push({ label: '复制路径', icon: ICON.link, action: () => copyText(abs) });
+  items.push({ label: '复制相对路径', icon: ICON.compass, action: () => copyText(f.path) });
   items.push('-');
   if (inElectron) {
-    items.push({ label: '使用默认应用打开', icon: '↗', action: () => window.electronAPI.openPath(abs) });
-    items.push({ label: '在系统资源管理器中显示', icon: '📂', action: () => window.electronAPI.reveal(abs) });
+    items.push({ label: '使用默认应用打开', icon: ICON.external, action: () => window.electronAPI.openPath(abs) });
+    items.push({ label: '在系统资源管理器中显示', icon: ICON.folder, action: () => window.electronAPI.reveal(abs) });
     items.push('-');
   }
-  items.push({ label: '重命名', icon: '✏️', action: () => renameNote(f) });
-  items.push({ label: '删除', icon: '🗑️', danger: true, action: () => deleteNote(f) });
+  items.push({ label: '重命名', icon: ICON.pencil, action: () => renameNote(f) });
+  items.push({ label: '删除', icon: ICON.trash, danger: true, action: () => deleteNote(f) });
   showMenu(e.clientX, e.clientY, items);
 }
 
@@ -524,8 +562,8 @@ async function duplicateFile(f) {
 
 function showDirMenu(e, dirName) {
   showMenu(e.clientX, e.clientY, [
-    { label: '在此新建笔记', icon: '📄', action: () => createNoteIn(dirName) },
-    { label: '在此新建文件夹', icon: '📁', action: () => createFolderIn(dirName) },
+    { label: '在此新建笔记', icon: ICON.doc, action: () => createNoteIn(dirName) },
+    { label: '在此新建文件夹', icon: ICON.folder, action: () => createFolderIn(dirName) },
   ]);
 }
 
@@ -851,34 +889,39 @@ async function pasteFromClipboard() {
 
 function showTextMenu(e) {
   // 所有动作都先还原右键时的选区（点菜单会把选区清掉）
-  const item = (icon, label, fn) => ({ icon, label, action: withSelection(fn) });
+  const item = (ic, label, fn) => ({ icon: ic, label, action: withSelection(fn) });
+  const canUndo = editor.canUndo();
+  const canRedo = editor.canRedo();
   showMenu(e.clientX, e.clientY, [
-    item('🔗', '新增链接', () => editor.wrapSelection('[[', ']]')),
-    item('🌐', '新增外部链接', () => editor.wrapSelection('[', '](https://)')),
+    { icon: ICON.undo, label: '撤销', kbd: 'Ctrl Z', disabled: !canUndo, action: withSelection(() => editor.undo()) },
+    { icon: ICON.redo, label: '重做', kbd: 'Ctrl ⇧ Z', disabled: !canRedo, action: withSelection(() => editor.redo()) },
     '-',
-    item('𝐁', '加粗', () => editor.wrapSelection('**', '**')),
-    item('𝐼', '斜体', () => editor.wrapSelection('*', '*')),
-    item('S̶', '删除线', () => editor.wrapSelection('~~', '~~')),
-    item('🖍', '高亮', () => editor.wrapSelection('==', '==')),
-    item('<>', '行内代码', () => editor.wrapSelection('`', '`')),
+    item(ICON.link, '新增链接', () => editor.wrapSelection('[[', ']]')),
+    item(ICON.globe, '新增外部链接', () => editor.wrapSelection('[', '](https://)')),
     '-',
-    item('H1', '标题 1', () => editor.setLinePrefix('# ')),
-    item('H2', '标题 2', () => editor.setLinePrefix('## ')),
-    item('H3', '标题 3', () => editor.setLinePrefix('### ')),
-    item('¶', '正文', () => editor.setLinePrefix('')),
-    item('•', '无序列表', () => editor.setLinePrefix('- ')),
-    item('☑', '任务', () => editor.setLinePrefix('- [ ] ')),
-    item('❝', '引用', () => editor.setLinePrefix('> ')),
+    item(T('B'), '加粗', () => editor.wrapSelection('**', '**')),
+    item(T('I', 'it'), '斜体', () => editor.wrapSelection('*', '*')),
+    item(T('S', 'st'), '删除线', () => editor.wrapSelection('~~', '~~')),
+    item(ICON.pencil, '高亮', () => editor.wrapSelection('==', '==')),
+    item(ICON.code, '行内代码', () => editor.wrapSelection('`', '`')),
     '-',
-    item('▦', '插入表格', () => editor.insertSnippet('| 列 1 | 列 2 |\n| --- | --- |\n|  |  |')),
-    item('⛓', '插入代码块', () => editor.insertSnippet('```\n\n```')),
-    item('—', '插入分割线', () => editor.insertSnippet('---')),
+    item(T('H1'), '标题 1', () => editor.setLinePrefix('# ')),
+    item(T('H2'), '标题 2', () => editor.setLinePrefix('## ')),
+    item(T('H3'), '标题 3', () => editor.setLinePrefix('### ')),
+    item(T('¶'), '正文', () => editor.setLinePrefix('')),
+    item(ICON.list, '无序列表', () => editor.setLinePrefix('- ')),
+    item(ICON.task, '任务', () => editor.setLinePrefix('- [ ] ')),
+    item(ICON.quote, '引用', () => editor.setLinePrefix('> ')),
     '-',
-    item('✂', '剪切', () => document.execCommand('cut')),
-    item('⧉', '复制', () => document.execCommand('copy')),
-    item('📋', '粘贴', pasteFromClipboard),
-    item('📄', '以纯文本形式粘贴', pasteFromClipboard),
-    item('▭', '全选', () => editor.selectAll()),
+    item(ICON.table, '插入表格', () => editor.insertSnippet('| 列 1 | 列 2 |\n| --- | --- |\n|  |  |')),
+    item(ICON.codeBlock, '插入代码块', () => editor.insertSnippet('```\n\n```')),
+    item(ICON.rule, '插入分割线', () => editor.insertSnippet('---')),
+    '-',
+    item(ICON.scissors, '剪切', () => document.execCommand('cut')),
+    item(ICON.copy, '复制', () => document.execCommand('copy')),
+    item(ICON.clipboard, '粘贴', pasteFromClipboard),
+    item(ICON.clipboardText, '以纯文本形式粘贴', pasteFromClipboard),
+    item(ICON.selectAll, '全选', () => editor.selectAll()),
   ]);
 }
 
@@ -935,16 +978,16 @@ function showImageMenu(e, target) {
   const src = img?.getAttribute('src') || '';
   const inElectron = !!window.electronAPI;
   showMenu(e.clientX, e.clientY, [
-    { icon: '📋', label: '复制图片', action: () => copyImageToClipboard(src) },
-    { icon: '🔍', label: '查看大图', action: () => openLightbox(src, img?.alt || '') },
-    { icon: '🔗', label: '复制路径', action: () => copyText(resolved) },
+    { icon: ICON.copy, label: '复制图片', action: () => copyImageToClipboard(src) },
+    { icon: ICON.zoom, label: '查看大图', action: () => openLightbox(src, img?.alt || '') },
+    { icon: ICON.link, label: '复制路径', action: () => copyText(resolved) },
     '-',
-    { icon: '📂', label: '在资源管理器中显示', action: () => (inElectron ? window.electronAPI.reveal(abs) : toast('仅桌面版支持')) },
-    { icon: '↗', label: '使用默认应用打开', action: () => (inElectron ? window.electronAPI.openPath(abs) : toast('仅桌面版支持')) },
-    { icon: '🌲', label: '在文件列表中显示', action: () => revealInTree(resolved) },
+    { icon: ICON.folder, label: '在资源管理器中显示', action: () => (inElectron ? window.electronAPI.reveal(abs) : toast('仅桌面版支持')) },
+    { icon: ICON.external, label: '使用默认应用打开', action: () => (inElectron ? window.electronAPI.openPath(abs) : toast('仅桌面版支持')) },
+    { icon: ICON.tree, label: '在文件列表中显示', action: () => revealInTree(resolved) },
     '-',
-    { icon: '✂️', label: '移除图片', action: () => editor.removeImageAt(img) },
-    { icon: '🗑️', label: '删除图片文件', danger: true, action: () => deleteAssetFile(resolved) },
+    { icon: ICON.scissors, label: '移除图片', action: () => editor.removeImageAt(img) },
+    { icon: ICON.trash, label: '删除图片文件', danger: true, action: () => deleteAssetFile(resolved) },
   ]);
 }
 
@@ -1488,6 +1531,8 @@ function renderPalette(q) {
     { icon: '📄', name: '新建笔记', sub: '命令', action: () => createNoteIn('') },
     { icon: '🌗', name: '切换亮色 / 暗色主题', sub: '外观', action: toggleTheme },
     { icon: '⚙️', name: '打开设置', sub: '设置', action: () => openSettings() },
+    { icon: '↶', name: '撤销（Ctrl+Z）', sub: '命令', action: () => editor.undo() },
+    { icon: '↷', name: '重做（Ctrl+Shift+Z）', sub: '命令', action: () => editor.redo() },
     { icon: '🎨', name: '切换主题皮肤（Apple 风 / Obsidian 风）', sub: '外观', action: cycleThemeSkin },
     { icon: '👁', name: '切换实时预览 / 源码模式', sub: '命令', action: () => editor.toggleMode() },
     { icon: '🕸️', name: '打开图谱视图', sub: '命令', action: () => switchPanel('graph') },
@@ -1656,14 +1701,31 @@ $('editor-live').addEventListener('contextmenu', onEditorContextMenu);
 $('editor-source').addEventListener('contextmenu', onEditorContextMenu);
 
 /**
- * 点段落之间的空白（含文档末尾空白）时的光标落点。
- * 单空行是段落分隔符，渲染模型里没有实体行（源码模式才有），浏览器默认会把
- * 光标塞进最近的一个文字节点——实测点正文和标题之间，光标跑进标题，一打字就
- * 改到标题上。这里改成确定性落点：点空隙上半 → 上一段末尾，下半 → 下一段开头。
+ * 点击落点（实时预览）。
+ * 渲染模型里「源码的一行」必须对应一块可点的区域。空行现在是真的占一行高的
+ * placeholder（见 style.css 的 .md-blank），点它就是点那一行，这里显式落光标——
+ * 浏览器对「只有 <br> 的空块」默认会把光标塞进附近的文字节点，一点就打错地方。
+ * 剩下的空隙只可能是块的外边距（e.target 就是编辑区本身），按距离就近落：
+ * 靠上一块 → 上一块末尾，靠下一块 → 下一块开头。
+ * 标题例外：绝不接受这种「补字」——点到标题下方的空隙再打字，字补进标题里
+ * 是最不容易发现、破坏性最大的操作，直接落到下一块开头。
  */
 $('editor-live').addEventListener('mousedown', (e) => {
-  if (e.button !== 0 || e.target !== e.currentTarget) return;
+  if (e.button !== 0) return;
   const root = e.currentTarget;
+
+  // ① 点空行：光标固定在这一行（等它已经有字了才交给浏览器按字定位）
+  const blank = e.target.closest?.('.md-blank');
+  if (blank && root.contains(blank)) {
+    if (blank.textContent.trim()) return;
+    placeCaretAtBlock(blank);
+    e.preventDefault();
+    root.focus();
+    return;
+  }
+
+  // ② 点在外边距上：既不在上一块里也不在下一块里
+  if (e.target !== root) return;
   const blocks = [...root.children].filter((el) => el.offsetHeight > 0);
   if (!blocks.length) return;
   let prev = null;
@@ -1676,37 +1738,38 @@ $('editor-live').addEventListener('mousedown', (e) => {
   let target = null;
   let atEnd = true;
   if (prev && next) {
-    // 优先落在两者之间的「段落分隔符占位段」上——那一行是真的可以点、可以打字的
-    const between = prev.nextElementSibling;
-    if (between && between.classList?.contains('md-blank')) {
-      const range = document.createRange();
-      range.setStart(between, 0);
-      range.collapse(true);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-      between.classList.add('is-active');
-      e.preventDefault();
-      root.focus();
-      return;
-    }
-    const gapMid = (prev.getBoundingClientRect().bottom + next.getBoundingClientRect().top) / 2;
-    atEnd = e.clientY <= gapMid;
+    const pr = prev.getBoundingClientRect();
+    const nr = next.getBoundingClientRect();
+    atEnd = e.clientY - pr.bottom <= nr.top - e.clientY;
     target = atEnd ? prev : next;
-  } else if (prev) { target = prev; }
-  else if (next) { target = next; atEnd = false; }
+  } else if (prev) {
+    target = prev;
+  } else if (next) {
+    target = next;
+    atEnd = false;
+  }
+  // 标题不接收「补字」：改落到下一块开头（没有下一块时才允许落在标题末尾）
+  if (target && atEnd && /^H[1-6]$/.test(target.tagName) && next) {
+    target = next;
+    atEnd = false;
+  }
   if (!target || !placeCaretInBlock(target, atEnd)) return;
   e.preventDefault();
   root.focus();
 });
 
-// 光标离开占位段后收起它（不留一道空线）
-document.addEventListener('selectionchange', () => {
-  const anchor = window.getSelection()?.anchorNode;
-  for (const el of document.querySelectorAll('.md-blank.is-active')) {
-    if (!anchor || !el.contains(anchor)) el.classList.remove('is-active');
-  }
-});
+/** 把光标放到块的首行（空块 <p><br></p> 也接得住） */
+function placeCaretAtBlock(block) {
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  const first = walker.nextNode();
+  const range = document.createRange();
+  if (first) range.setStart(first, 0);
+  else range.setStart(block, 0);
+  range.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
 
 /** 把光标放到块的末尾（atEnd）或开头 */
 function placeCaretInBlock(block, atEnd) {
@@ -1715,10 +1778,14 @@ function placeCaretInBlock(block, atEnd) {
   let last = null;
   let t;
   while ((t = walker.nextNode())) { if (!first) first = t; last = t; }
-  if (!first) return false;
-  const node = atEnd ? last : first;
   const range = document.createRange();
-  range.setStart(node, atEnd ? node.textContent.length : 0);
+  if (!first) {
+    // 空块：光标直接放进块里，否则浏览器会把它甩到别的块
+    range.setStart(block, 0);
+  } else {
+    const node = atEnd ? last : first;
+    range.setStart(node, atEnd ? node.textContent.length : 0);
+  }
   range.collapse(true);
   const sel = window.getSelection();
   sel.removeAllRanges();
@@ -1896,8 +1963,8 @@ function bindGlobalEvents() {
   $('btn-new-note').oncontextmenu = (e) => {
     e.preventDefault();
     showMenu(e.clientX, e.clientY, [
-      { label: '新建笔记', icon: '📄', action: () => createNoteIn('') },
-      { label: '新建文件夹', icon: '📁', action: () => createFolderIn('') },
+      { label: '新建笔记', icon: ICON.doc, action: () => createNoteIn('') },
+      { label: '新建文件夹', icon: ICON.folder, action: () => createFolderIn('') },
     ]);
   };
   $('btn-new-note-2').onclick = () => createNoteIn('');

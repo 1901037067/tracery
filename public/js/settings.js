@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS = {
   fontSize: 16,
   editorWidth: 720,
   autosave: 900,
+  lineNumbers: true,   // 行号：源码模式与实时预览共用同一个开关
   startup: 'last',
   // 附件管理：新图片/文件（粘贴、拖入、绘图）的落点
   attachment: {
@@ -190,6 +191,10 @@ const ROW = (title, desc, control) => `
     <div class="set-control">${control}</div>
   </div>`;
 
+const TOGGLE = (key, on) => `
+  <button class="switch ${on ? 'on' : ''}" role="switch" aria-checked="${on ? 'true' : 'false'}"
+          data-toggle="${key}" aria-label="开关"><span></span></button>`;
+
 function build() {
   const el = document.createElement('div');
   el.id = 'settings';
@@ -225,6 +230,7 @@ function build() {
           ${ROW('正文宽度', `${settings.editorWidth} px`,
             `<input type="range" class="rng" data-key="editorWidth" min="560" max="1000" step="20" value="${settings.editorWidth}" />`)}
           ${ROW('自动保存', '停止输入后多久落盘', SEG('autosave', [[300, '0.3 秒'], [600, '0.6 秒'], [900, '0.9 秒'], [1500, '1.5 秒']], settings.autosave))}
+          ${ROW('行号', '在正文左侧显示行号（源码模式与实时预览共用）', TOGGLE('lineNumbers', settings.lineNumbers !== false))}
         </div>
 
         <div class="settings-pane" data-pane="attachment">
@@ -265,7 +271,7 @@ function build() {
             <img src="/icon.png" alt="Tracery" />
             <div>
               <div class="about-name">Tracery</div>
-              <div class="about-ver">v1.0.0 · MIT 开源</div>
+              <div class="about-ver">v1.1.0 · MIT 开源</div>
             </div>
           </div>
           <p class="set-note">
@@ -322,6 +328,16 @@ function bind(el) {
       const b = e.target.closest('button[data-value]');
       if (!b) return;
       updateSettings({ accent: b.dataset.value });
+    });
+  }
+  // 开关（布尔项）
+  for (const tg of el.querySelectorAll('.switch[data-toggle]')) {
+    tg.addEventListener('click', () => {
+      const key = tg.dataset.toggle;
+      const next = !(getByPath(key) !== false);
+      updateSettings(patchByPath(key, next));
+      tg.classList.toggle('on', next);
+      tg.setAttribute('aria-checked', String(next));
     });
   }
   // 滑块
@@ -406,6 +422,11 @@ function renderActiveControls() {
   for (const rng of modalEl.querySelectorAll('.rng')) {
     const key = rng.dataset.key;
     if (rng.value !== String(settings[key])) rng.value = String(settings[key]);
+  }
+  for (const tg of modalEl.querySelectorAll('.switch[data-toggle]')) {
+    const on = getByPath(tg.dataset.toggle) !== false;
+    tg.classList.toggle('on', on);
+    tg.setAttribute('aria-checked', String(on));
   }
   // 皮肤文件名提示
   const note = modalEl.querySelector('[data-pane="general"] .set-note code');

@@ -6,6 +6,8 @@ tracery.config.json
 evnote.config.json
 .tracery/
 .evnote/
+history/
+trash/
 
 # 构建/调试日志
 *.log

@@ -27,10 +27,12 @@ npm run test:sync-ui         # 13  同步面板 + 部署说明 + 局域网区块
 npm run test:merge           # 10  三方合并单测
 npm run test:roundtrip       # 7   Markdown 双向引擎属性测试（恒等/不动点/内容不丢/渲染确定性，含 300 篇模糊 + demo-vault 全量）
 npm run test:enter           # 10  编辑器回车行为回归（段尾/行中/连续回车、列表续行与退出、软换行段、段尾插空行）
+npm run test:gap             # 12  实时预览空行/落点回归（空行占一行高、点它不位移、打字/回车光标不跑偏）
+npm run test:polish          # 18  撤销/重做、实时预览行号 + 设置开关、右键菜单紧凑化与去 emoji
 npm run test:menu            # 10  编辑区右键菜单（文字/图片）+ 文件树菜单 + PDF 阅读器 + 侧栏折叠
 npm run test:trash           # 10  回收站（删除入站/恢复/彻底删除/清空）
 npm run test:features        # 13  右栏切换/代码高亮/表格 Tab/星标/最近/导出/图片缩放/替换/历史
-npm run test:draw            # 12  绘图
+npm run test:draw            # 20  绘图（Excalidraw 风格白板）
 npm run test:lan             # 10  局域网直连
 npm run test:layout          # 12  侧栏折叠回归 / 紧凑头栏
 npm run test:asset           # 15  附件落点 / 粘贴拖拽 / 路径穿越
@@ -57,7 +59,7 @@ npm run release -- --shortcut  # 同上，并生成桌面快捷方式（手写 .
   markdown.js   Markdown ↔ DOM 双向（图片 ![]()、嵌入 ![[..]]、序列化、光标映射）
   settings.js   设置面板（外观/编辑器/同步/通用），CSS 变量即时生效
   sync-ui.js    同步面板（表单/已连接/部署说明/局域网直连）
-  draw.js       内置绘图（快照历史、笔/荧光/橡皮、导出 PNG）
+  draw.js       内置绘图白板（Excalidraw 风格：rough 手绘渲染 + 场景模型 + 选择/缩放/文字）
   lightbox.js   图片灯箱（滚轮缩放/拖动/双击复位）
   dialog.js     askText/askConfirm（替代 prompt/confirm，见 §6）
   api.js        API + WebSocket
@@ -82,7 +84,7 @@ test/*.mjs              九个测试套件（见 §2）
 - 图片：`![[图]]` `![[目录/图]]` `![[图|400]]` `![](相对路径)` + 点击灯箱看大图
 - **附件管理**：粘贴 / 拖入图片与文档自动落盘并插入 `![[路径]]`；落点三档可配
   （指定文件夹 / 跟随笔记目录 / 仓库根目录，设置 → 附件）；绘图也按此落盘
-- 内置绘图：`Ctrl+Shift+D` 或左下角笔图标；保存 PNG 到附件目录并插入光标处
+- 内置绘图：`Ctrl+Shift+D` 或左下角笔图标；工具 选择/抓手/矩形/椭圆/菱形/箭头/直线/画笔/文字/橡皮，快捷键 V H R O D A L P T E；保存 PNG 到附件目录并插入光标处
 - 多标签页：树点击开新标签、`Ctrl+W`/`Ctrl+Tab`、持久化、外删自清理
 - **Tab 栏即标题栏**：标签条在窗口最顶部，与最小化/最大化/关闭按钮同一行
   （VS Code / Obsidian「Tab 标题栏」模式），编辑区直接从笔记头开始
@@ -122,7 +124,7 @@ test/*.mjs              九个测试套件（见 §2）
 23. **文件树右键菜单**（Obsidian 式）：在新标签页中打开 / 创建副本 / 复制路径（绝对+相对）/ 默认应用打开 / 资源管理器定位 / 重命名 / 删除。`renameNote` 已泛化：非 .md 文件保留原扩展名（原来会把 pdf 改成 .md）。
 24. **面板切换必须按栏隔离**：`switchPanel` 原来用 `.sidebar .panel`，会连右栏（大纲/反链/标签）一起命中——切到「文件」时它们 id 不匹配、`active` 被摘掉，表现就是「右侧大纲莫名消失」。必须写 `#sidebar .panel`。右栏三块现在是常驻同屏，空块自动 `.hidden`（反链为空 / 笔记无标签时收起）。
 25. **回收站**：删除不再 `unlink`，文件移到 `TRACERY_HOME/trash/<仓库路径 sha1 前 12 位>/<id>__原名` + `index.json` 记原始相对路径。放数据目录而非仓库：不污染笔记目录、不进同步、文件树看不见。**跨盘要兜底**：仓库在 D:/E:、数据目录在 C:，`rename` 会抛 `EXDEV`，必须 `copyFile + unlink`。上限 200 项，超出自动清最旧的。恢复时重名自动加 ` (n)`。
-26. **单空行是占位段不是空行**：单个空行 = 段落分隔符，渲染成零高 `<p class="md-blank">`（序列化跳过、文件不变），点段落间空白时把光标放进去并加 `.is-active`（撑成一行高），一打字它就成了真段落。**不要**把它做成可见空段落——那会让每次点空隙都被序列化写成新行（幽灵编辑）。
+26. **单空行恒占一行高**（2026-10-18 重写）：单个空行 = 段落分隔符，渲染成 `<p class="md-blank">`（序列化跳过、文件不变）。它**必须恒定占一行高**（`min-height: 1.78em`），不能再是「零高 + 点中时 `.is-active` 撑开」：零高时那一行根本点不到，光标只能靠「点空隙上半/下半」的启发式去猜；点中又瞬间撑开会把下面的内容整体推一下（用户 2026-10-18 报的「点一下就变了、字还打错地方」）。相邻块的外边距用 `#editor-live > *:has(+ .md-blank)` 与 `.md-blank + *` 让位，净间距仍约等于一行，不会明显变松。**不要**退回零高，也不要把占位段做成「有内容的真段落」——序列化仍要跳过空的占位段（否则每点一次空隙就多一行，幽灵编辑）。`test/gap-test.mjs` 锁死这套行为。
 27. **代码高亮是渲染层的事**：`highlightCode()` 只在渲染时把代码切成 `tok-*` span，序列化仍走 `code.textContent`，所以 md 字节不受影响。改高亮规则只需动 `CODE_KEYWORDS` / 分支正则。
 28. **表格键位要抢在编辑器前面**：编辑器自己的 Tab 是「缩进」，表格 Tab 跳格必须用**捕获阶段**监听并 `stopPropagation()`，否则缩进逻辑先命中。回车加行是直接改 DOM 再 `dispatchEvent(new InputEvent('input'))`，让正常序列化流程接住。
 29. **右栏是三按钮切换**（大纲/反链/标签），`switchRightPanel()` 维护 `.rs-tab.active` + 面板 `.active`，选择记在 `tracery.rsTab`。别再改回常驻同屏——用户明确要求三按钮切换。
@@ -130,6 +132,18 @@ test/*.mjs              九个测试套件（见 §2）
 31. **图片拖拽调宽**：`![[img|宽]]` 的右下角手柄拖拽 → `setImageWidth()` 改写 token 里的数字（0 = 去掉尺寸，双击手柄还原）。手柄 pointerdown 必须 stopPropagation，否则会触发灯箱。
 32. **全文替换会留快照**：`/api/replace` 逐篇 `split/join`（纯文本、非正则），写之前调用 `snapshotHistory()`——所以替换错了可以用版本历史回滚。遍历用 `vault.notes.keys()`（Map，只含 .md）。
 33. **版本历史**：保存前把旧内容写到 `TRACERY_HOME/history/<仓库哈希>/<相对路径>/<时间戳>.md`，每个文件留 20 个；`/api/history*` 提供列表/内容/恢复；UI 在命令面板「查看历史版本」，点行展开预览、点恢复先给当前内容再存一份快照。
+34. **光标坐标只准用一套（Markdown 偏移）**（2026-10-18 修）：`_saveCaret()` 必须返回 `domPointToMd()` 的 md 偏移，`_renderLive()` 重建 DOM 后用 `_restoreCaretMd()`（即 `mdOffsetToDom()`）还原。旧实现用「纯文本第几个字符」，当光标停在一个空块上（锚点是元素而不是文本节点）时 `textOffsetOf` 会返回整篇文本长度 → 重建后光标被甩到全文末尾（用户看到的「在空行打字，打完光标跑到下一段行尾，再输的字全进那一行」）。配套两条：① `domOffsetBrAware` 必须特判「锚点 === 块本身」（只累加前 offset 个子节点），否则空块里的 `<br>` 被算成 +1，回车/输入整体错位一格；② 在空行上刚打的字序列化后会往下挪一行（段落之间要补空行），`_saveCaret` 要跟着 +1，否则光标少走一格、字插进中间。`load()` 换文件前先清选区，别把上一篇的光标带过来。
+35. **撤销必须自己实现快照栈**（2026-10-18）：contenteditable 每次输入都 `innerHTML` 重建 DOM，浏览器原生 undo 栈跟着节点一起没了。`editor.history = [{md, caret}]` + `hIndex`：连续输入 520ms 静默合并成一步，结构操作（回车/缩进/加粗/插入片段）走 `_scheduleHistory(0)` 单独成一步；`undo()/redo()` 直接换 `md` 再 `_renderLive()` + `_restoreCaretMd()`，**不经过** `_replaceRange`（否则会再入历史）。快捷键 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y，右键菜单和命令面板也能进。三条容易踩的：① `load()` 里「内容一模一样」必须直接 return——自动保存后 WS 会把文件变更广播回来，再 `load()` 一次就会清空撤销栈（表现为「刚撤完就跳走」）；② 源码模式用 textarea 原生撤销，切回实时模式时 `_resetHistory()` 重新起栈；③ 撤销后再输入要砍掉 redo 尾巴（`history.length = hIndex + 1`）。
+36. **实时预览行号是测量出来的**：`_collectLineNumbers()` 遍历编辑区顶层块，用 `data-md-line-start`（源码字符偏移）换行号，块内用 `Range.getClientRects()` 拿每个视觉行（软换行段落、代码块逐行、表格按 tr、列表按 li）。数字画在 `.live-gutter` 覆盖层里，滚动只改 `translateY`。代码块首行是 ``` 围栏、预览里看不见，所以行号会从 `start+1` 开始（7 → 9 这种跳号是正常的）。开关：设置「编辑器 → 行号」（`lineNumbers`），源码槽与实时槽共用；**新增设置项记得同步 `server/server.js` 的 `DEFAULT_SETTINGS` 与 `mergeSettings` 白名单**，否则保存后被服务端丢掉、WS 再广播回来又把开关弹回默认（这个坑当场踩过一次）。
+37. **右键菜单不用 emoji**：图标统一走 `ICON`（16 格线性 SVG，`S()` 包一层），排版类选项用 `.mi-txt` 字型（H1/B/I/¶）。行高 24px、`gap: 8px`、分隔线 `--hairline-strong`——emoji 会把行撑到 44px，菜单长得离谱（22 项直接占满一屏）。
+
+38. **绘图白板（Excalidraw 风格，2026-10-18 重写）**：`draw.js` 是 canvas 2D 的场景图，不是「一堆笔画」。要点：
+   ① **rough 渲染**用 `mulberry32(seed)` 生成确定性抖动折线（同 seed 重绘画面不会「呼吸」），每条线描两遍；椭圆按角度抖动半径；填充用「裁剪到形状 + 45° 扫线」做排线（solid 直接填精确路径）。
+   ② **坐标系**：元素存世界坐标（`x,y,w,h,points`），`view{x,y,zoom}` 负责平移缩放，绘制时 `setTransform`，命中检测时临时切回单位矩阵再 `isPointInPath`（否则路径会跟着变换跑偏）。
+   ③ **交互**：pointerdown 分派到 pan / select（缩放柄→resize、命中→move、空白→marquee）/ erase / text / create 五种 drag 模式；形状画完自动切回选择工具并选中它（Excalidraw 默认 lock=off 的手感）。选中时改样式 = 直接改选中元素（`styleForSelected`），并 `adoptSelectionStyle()` 让面板回显。
+   ④ **撤销**用整个 `elements` 数组快照，`snapshot()` 里做了 JSON 去重；**文字元素必须在 commitText 时才入历史**——创建时入历史会把「空文本」存进去，撤销时刚打的字全没（踩过）。
+   ⑤ 保存：`exportPng()` 只截内容包围盒 + 28px 留白、白底、2 倍超采样；场景存 `{v:2, elements}`。代码块 ```` ``` ```` 围栏这种「源码有、预览没有」的行同理适用于行号跳号。
+
 
 ## 6. 已知坑（踩过的，直接抄结论）
 
@@ -149,7 +163,7 @@ test/*.mjs              九个测试套件（见 §2）
 ## 7. 新对话怎么继续（按优先级）
 
 1. **同步 v3：端到端加密**。路线：scrypt(密码) 派生 masterKey → 内容 AES-GCM 加密后再上传 → manifest 路径用 HMAC 存。服务端接口不用改（本来就只认 blob+sha）。注意：合并会失效（服务端看不到明文），需改成「客户端持有 base 明文」策略。
-2. **绘图二次编辑**：笔画 JSON 已存 `附件/*.draw.json`，做「右键图片 → 编辑绘图」回填 draw.js 即可；跨设备时 JSON 也参与同步。
+2. **绘图二次编辑**：场景 JSON 已存 `附件/*.draw.json`（v2：`{v:2, elements:[...]}`），做「右键图片 → 编辑绘图」把它回填进 draw.js 的 `elements` 即可；跨设备时 JSON 也参与同步。
 3. **PWA + 响应式**（ROADMAP P0 最后一项）：manifest + service worker + 移动三栏。
 4. **大仓库性能**：文件树虚拟滚动 + 增量索引落盘。
 5. **mDNS 精细发现**（替代当前 UDP 广播启发式）。

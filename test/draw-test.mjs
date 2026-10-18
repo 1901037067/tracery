@@ -1,6 +1,8 @@
 /**
- * 内置绘图：端到端验证
- * 打开绘图 → 画两笔 → 换色/粗细 → 撤销 → 保存 → 笔记里出现图片并真正渲染
+ * 内置绘图（Excalidraw 风格白板）：端到端验证
+ * ------------------------------------------------------------------
+ * 打开绘图 → 画矩形 + 手绘 → 换背景/填充 → 选择并拖动 → 撤销/重做 →
+ * Delete 删除 → 文字 → 保存插入笔记（PNG + 场景 JSON）
  */
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
@@ -61,7 +63,7 @@ async function main() {
   await page.evaluate(() => [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('画布'))?.click());
   await sleep(900);
 
-  // 1. 打开绘图
+  /* ---------- 1. 打开面板 ---------- */
   await page.evaluate(() => document.getElementById('btn-draw').click());
   await sleep(600);
   const opened = await page.evaluate(() => {
@@ -71,60 +73,117 @@ async function main() {
       visible: !!ov && !ov.hidden,
       w: cv ? Math.round(cv.getBoundingClientRect().width) : 0,
       h: cv ? Math.round(cv.getBoundingClientRect().height) : 0,
-      tools: document.querySelectorAll('.draw-tool').length,
+      tools: document.querySelectorAll('.draw-tool[data-tool]').length,
       colors: document.querySelectorAll('.draw-swatch').length,
+      bgs: document.querySelectorAll('.draw-bg').length,
       sizes: document.querySelectorAll('.draw-size').length,
+      fills: document.querySelectorAll('.draw-fill').length,
+      dashes: document.querySelectorAll('.draw-dash').length,
+      hasText: !!document.getElementById('draw-textedit'),
     };
   });
   check('绘图面板可打开且画布铺满', opened.visible && opened.w > 600 && opened.h > 300, JSON.stringify(opened));
-  check('工具栏完整（3 工具/8 色/3 粗细）', opened.tools === 3 && opened.colors === 8 && opened.sizes === 3);
+  check('工具栏完整（10 工具 / 8 描边色 / 9 背景 / 3 线宽）',
+    opened.tools === 10 && opened.colors === 8 && opened.bgs === 9 && opened.sizes === 3,
+    `${opened.tools}/${opened.colors}/${opened.bgs}/${opened.sizes}`);
+  check('属性面板有填充与线型 + 文字输入浮层',
+    opened.fills === 3 && opened.dashes === 3 && opened.hasText);
 
-  // 2. 空画布保存应被拒绝
+  /* ---------- 2. 空画布保存应被拒绝 ---------- */
   await page.evaluate(() => document.getElementById('draw-save').click());
   await sleep(400);
   const stillOpen = await page.evaluate(() => !document.querySelector('.draw-overlay').hidden);
   check('空画布点保存不生成文件', stillOpen);
 
-  // 3. 画两笔（第一笔黑，第二笔换红 + 粗）
   const box = await page.evaluate(() => {
     const r = document.getElementById('draw-canvas').getBoundingClientRect();
     return { x: r.x, y: r.y, w: r.width, h: r.height };
   });
-  await page.mouse.move(box.x + 140, box.y + 130);
+  const P = (dx, dy) => ({ x: box.x + dx, y: box.y + dy });
+  const pickTool = async (t) => {
+    await page.evaluate((tt) => document.querySelector(`.draw-tool[data-tool="${tt}"]`).click(), t);
+    await sleep(80);
+  };
+  const drag = async (from, to, steps = 10) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (let i = 1; i <= steps; i++) {
+      await page.mouse.move(from.x + ((to.x - from.x) * i) / steps, from.y + ((to.y - from.y) * i) / steps);
+    }
+    await page.mouse.up();
+    await sleep(140);
+  };
+  const counts = () => page.evaluate(() => ({
+    n: Number(document.getElementById('draw-canvas').dataset.strokes),
+    sel: Number(document.getElementById('draw-canvas').dataset.selected),
+  }));
+
+  /* ---------- 3. 形状 + 手绘 ---------- */
+  await pickTool('rect');
+  await drag(P(220, 150), P(420, 280));
+  check('拖拽画出矩形（1 个元素）', (await counts()).n === 1, JSON.stringify(await counts()));
+
+  await pickTool('freedraw');
+  await page.mouse.move(P(240, 360).x, P(240, 360).y);
   await page.mouse.down();
-  for (let i = 0; i <= 24; i++) {
-    await page.mouse.move(box.x + 140 + i * 12, box.y + 130 + Math.sin(i / 3) * 40);
+  for (let i = 0; i <= 20; i++) {
+    await page.mouse.move(P(240 + i * 11, 360 + Math.sin(i / 2.5) * 34).x, P(240 + i * 11, 360 + Math.sin(i / 2.5) * 34).y);
   }
   await page.mouse.up();
-  await sleep(150);
+  await sleep(200);
+  check('画笔手绘记录为独立元素', (await counts()).n === 2, JSON.stringify(await counts()));
 
-  await page.evaluate(() => {
-    document.querySelector('.draw-swatch[data-color="#e5484d"]').click();
-    document.querySelector('.draw-size[data-size="9"]').click();
-  });
-  await page.mouse.move(box.x + 160, box.y + 300);
-  await page.mouse.down();
-  for (let i = 0; i <= 20; i++) await page.mouse.move(box.x + 160 + i * 14, box.y + 300 + i * 6);
-  await page.mouse.up();
-  await sleep(250);
-  const afterDraw = await page.evaluate(() => document.getElementById('draw-canvas').dataset.strokes);
-  check('两笔都记录到画布', afterDraw === '2', `strokes=${afterDraw}`);
+  /* ---------- 4. 形状样式：背景 + 排线填充 ---------- */
+  await pickTool('select');
+  await page.mouse.click(P(300, 210).x, P(300, 210).y);
+  await sleep(120);
+  const afterPick = await counts();
+  check('点选矩形 → 选中 1 个', afterPick.sel === 1, JSON.stringify(afterPick));
+  await page.evaluate(() => document.querySelector('.draw-bg[data-color="#a5d8ff"]').click());
+  await sleep(150);
+  const bgApplied = await page.evaluate(() => document.querySelector('.draw-bg[data-color="#a5d8ff"]').classList.contains('active'));
+  check('给选中形状加背景色（应用到选区）', bgApplied);
   await page.screenshot({ path: path.join(SHOTS, 'draw-canvas.png') });
 
-  // 4. 撤销 / 重做
+  /* ---------- 5. 拖动移动 ---------- */
+  await drag(P(300, 210), P(360, 250), 8);
+  check('拖动后仍保持选中', (await counts()).sel === 1, JSON.stringify(await counts()));
+
+  /* ---------- 6. 撤销 / 重做 ---------- */
+  const undoEnabled = await page.evaluate(() => !document.getElementById('draw-undo').disabled);
   await page.evaluate(() => document.getElementById('draw-undo').click());
   await sleep(150);
-  const afterUndo = await page.evaluate(() => document.getElementById('draw-canvas').dataset.strokes);
   await page.evaluate(() => document.getElementById('draw-redo').click());
   await sleep(150);
-  const afterRedo = await page.evaluate(() => document.getElementById('draw-canvas').dataset.strokes);
-  check('撤销 / 重做生效', afterUndo === '1' && afterRedo === '2', `${afterDraw} → ${afterUndo} → ${afterRedo}`);
+  check('撤销 / 重做可用且不丢元素', undoEnabled && (await counts()).n === 2, JSON.stringify(await counts()));
 
-  // 5. 保存并插入笔记
+  /* ---------- 7. Delete 删除选中 ---------- */
+  await pickTool('select');
+  await page.mouse.click(P(360, 250).x, P(360, 250).y);
+  await sleep(100);
+  await page.keyboard.press('Delete');
+  await sleep(200);
+  const afterDel = (await counts()).n;
+  await page.evaluate(() => document.getElementById('draw-undo').click());
+  await sleep(200);
+  check('Delete 删除选中元素且可撤销', afterDel === 1 && (await counts()).n === 2, `${afterDel} → ${(await counts()).n}`);
+
+  /* ---------- 8. 文字 ---------- */
+  await pickTool('text');
+  await page.mouse.click(P(470, 200).x, P(470, 200).y);
+  await sleep(200);
+  const editorVisible = await page.evaluate(() => !document.getElementById('draw-textedit').hidden);
+  await page.keyboard.type('示意图');
+  await sleep(120);
+  await page.keyboard.press('Escape');
+  await sleep(250);
+  check('文字工具出现就地输入框并能落字', editorVisible && (await counts()).n === 3,
+    `editor=${editorVisible} n=${(await counts()).n}`);
+
+  /* ---------- 9. 保存并插入笔记 ---------- */
   await page.evaluate(() => document.getElementById('draw-save').click());
-  await sleep(2000);
-  const closed = await page.evaluate(() => document.querySelector('.draw-overlay').hidden);
-  check('保存后关闭绘图面板', closed);
+  await sleep(2200);
+  check('保存后关闭绘图面板', await page.evaluate(() => document.querySelector('.draw-overlay').hidden));
 
   const note = await (await fetch(`http://localhost:${PORT}/api/note?path=` + encodeURIComponent('画布.md'))).json();
   const embed = /!\[\[(附件\/绘图[^\]]+\.png)\|640\]\]/.exec(note.content || '');
@@ -133,9 +192,16 @@ async function main() {
   check('PNG 文件真的写到磁盘', !!imgPath && fs.existsSync(imgPath));
   if (imgPath && fs.existsSync(imgPath)) {
     const buf = fs.readFileSync(imgPath);
-    check('文件是合法 PNG', buf.subarray(1, 4).toString() === 'PNG', `${buf.length} 字节`);
+    check('文件是合法 PNG 且不是空白图', buf.subarray(1, 4).toString() === 'PNG' && buf.length > 4000, `${buf.length} 字节`);
     const sidecar = imgPath.replace(/\.png$/, '.draw.json');
-    check('笔画数据另存为 .draw.json', fs.existsSync(sidecar));
+    check('场景数据另存为 .draw.json', fs.existsSync(sidecar));
+    if (fs.existsSync(sidecar)) {
+      const scene = JSON.parse(fs.readFileSync(sidecar, 'utf8'));
+      const types = (scene.elements || []).map((e) => e.type);
+      check('场景 JSON 是 v2 且有形状/手绘/文字',
+        scene.v === 2 && types.includes('rect') && types.includes('freedraw') && types.includes('text'),
+        `v=${scene.v} types=${types.join(',')}`);
+    }
   }
 
   await sleep(600);
