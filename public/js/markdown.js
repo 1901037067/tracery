@@ -155,10 +155,13 @@ export function renderMarkdown(md, opts = {}) {
         // 光标还会掉到别处。只吃前面的内容块、且后面还有内容时才补。
         let j = i;
         while (j < stop && /^\s*$/.test(lines[j])) j++;
-        if (out.length && j < stop && j - i >= 2) {
+        if (out.length && j < stop) {
           const p = document.createElement('p');
           p.appendChild(document.createElement('br'));
           tagLeaf(p, i, 0);
+          // 单个空行 = 段落分隔符：做成零高「占位段」——看不见、序列化时跳过，
+          // 但能接收光标。点段落间空白就落在这一行上，输入后它自然变成真段落。
+          if (j - i === 1) { p.className = 'md-blank'; p.dataset.mdBlank = '1'; }
           out.push(p);
         }
         i = j;
@@ -504,6 +507,10 @@ function serializeBlocks(root) {
     } else if (tag === 'P' || (tag === 'DIV' && !el.classList.contains('callout'))) {
       const raw = [...el.childNodes].map(serializeInline).join('');
       const md = raw.trim();
+      // 段落分隔符占位段：空的直接跳过——它代表的就是那个单空行，
+      // 不该产生新块（产生块会把 "A\n\nB" 写成 "A\n\n\n\nB"，每次都长）。
+      // 一旦用户往里打了字（md 非空），它就是正常段落，走下面的分支。
+      if (el.dataset?.mdBlank && !md) continue;
       // 空段落（只有 <br> 或真的空）→ 空块：渲染器为「行尾空行」补的 <p><br></p>
       // 靠它活下来——丢了它，用户打回车造出的新行会在下次输入时被吞
       if (md) out.push(md);

@@ -7,6 +7,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { SyncEngine, vaultConfigDir } from './sync.js';
@@ -18,6 +19,90 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
 // 打包进 Electron 后 asar 是只读的：TRACERY_HOME 指向可写的用户数据目录
 // （兼容旧环境变量名 EVNOTE_HOME：老脚本/便携启动器不用改）
 const HOME = process.env.TRACERY_HOME || process.env.EVNOTE_HOME || ROOT;
+
+/* ================= 回收站 =================
+ * 删除不再直接 unlink，而是移进 TRACERY_HOME/trash/<仓库哈希>/，
+ * 每项 id__原文件名 + index.json 记录原始相对路径，可恢复。
+ * 放在数据目录而不是仓库里：不污染笔记目录、不会被同步、文件树也看不见。
+ */
+function trashDir(root) {
+  const h = crypto.createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 12);
+  return path.join(HOME, 'trash', h);
+}
+function readTrashIndex(dir) {
+  try { return JSON.parse(fs.readFileSync(path.join(dir, 'index.json'), 'utf8')) || []; } catch { return []; }
+}
+function writeTrashIndex(dir, items) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.json'), JSON.stringify(items, null, 2), 'utf8');
+}
+const TRASH_LIMIT = 200;
+async function moveToTrash(root, rel, abs) {
+  const dir = trashDir(root);
+  fs.mkdirSync(dir, { recursive: true });
+  const id = `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+  const name = path.basename(abs);
+  const dest = path.join(dir, `${id}__${name}`);
+  let size = 0;
+  try { size = (await fsp.stat(abs)).size; } catch { /* ignore */ }
+  try {
+    await fsp.rename(abs, dest);          // 同盘：秒移
+  } catch (e) {
+    if (e.code !== 'EXDEV') throw e;      // 跨盘（仓库在 D/E，数据目录在 C）：复制后删
+    await fsp.copyFile(abs, dest);
+    await fsp.unlink(abs);
+  }
+  const items = readTrashIndex(dir);
+  items.unshift({ id, path: rel.replace(/\\/g, '/'), name, deletedAt: Date.now(), size });
+  const trimmed = items.slice(0, TRASH_LIMIT);
+  for (const drop of items.slice(TRASH_LIMIT)) {
+    try { await fsp.unlink(path.join(dir, `${drop.id}__${drop.name}`)); } catch { /* ignore */ }
+  }
+  writeTrashIndex(dir, trimmed);
+}
+async function restoreFromTrash(root, id) {
+  const dir = trashDir(root);
+  const items = readTrashIndex(dir);
+  const i = items.findIndex((x) => x.id === id);
+  if (i < 0) return null;
+  const item = items[i];
+  const src = path.join(dir, `${item.id}__${item.name}`);
+  if (!fs.existsSync(src)) { items.splice(i, 1); writeTrashIndex(dir, items); return null; }
+  const dest = path.join(root, item.path);
+  let target = dest;
+  let n = 1;
+  while (fs.existsSync(target)) {
+    const ext = path.extname(dest);
+    target = `${dest.slice(0, dest.length - ext.length)} (${n})${ext}`;
+    n += 1;
+  }
+  await fsp.mkdir(path.dirname(target), { recursive: true });
+  try { await fsp.rename(src, target); } catch (e) {
+    if (e.code !== 'EXDEV') throw e;
+    await fsp.copyFile(src, target);
+    await fsp.unlink(src);
+  }
+  items.splice(i, 1);
+  writeTrashIndex(dir, items);
+  return path.relative(root, target).replace(/\\/g, '/');
+}
+async function purgeTrashItem(root, id) {
+  const dir = trashDir(root);
+  const items = readTrashIndex(dir);
+  const i = items.findIndex((x) => x.id === id);
+  if (i < 0) return;
+  const item = items[i];
+  try { await fsp.unlink(path.join(dir, `${item.id}__${item.name}`)); } catch { /* ignore */ }
+  items.splice(i, 1);
+  writeTrashIndex(dir, items);
+}
+async function emptyTrash(root) {
+  const dir = trashDir(root);
+  for (const item of readTrashIndex(dir)) {
+    try { await fsp.unlink(path.join(dir, `${item.id}__${item.name}`)); } catch { /* ignore */ }
+  }
+  writeTrashIndex(dir, []);
+}
 const CONFIG_FILE = path.join(HOME, 'tracery.config.json');
 const LEGACY_CONFIG_FILE = path.join(HOME, 'evnote.config.json');
 const DEFAULT_VAULT = path.join(ROOT, 'demo-vault');
@@ -645,9 +730,31 @@ const server = http.createServer(async (req, res) => {
       const { path: rel } = await readBody(req);
       const abs = path.join(vault.root, rel);
       if (!fs.existsSync(abs)) return sendJson(res, 404, { error: '文件不存在' });
-      await fsp.unlink(abs);
+      // 不再直接 unlink：先进回收站，可以恢复（回收站目录在 TRACERY_HOME 下，
+      // 不污染仓库本身，也不会被同步 / 文件树看到）
+      await moveToTrash(vault.root, rel, abs);
       await vault.applyChange(rel);
       broadcast({ type: 'fs-change', paths: [rel] });
+      return sendJson(res, 200, { ok: true });
+    }
+    if (p === '/api/trash' && req.method === 'GET') {
+      return sendJson(res, 200, { items: readTrashIndex(trashDir(vault.root)) });
+    }
+    if (p === '/api/trash/restore' && req.method === 'POST') {
+      const { id } = await readBody(req);
+      const restored = await restoreFromTrash(vault.root, id);
+      if (!restored) return sendJson(res, 404, { error: '回收站里没有这一项' });
+      await vault.open();
+      broadcast({ type: 'fs-change', paths: [restored] });
+      return sendJson(res, 200, { ok: true, path: restored });
+    }
+    if (p === '/api/trash/purge' && req.method === 'POST') {
+      const { id } = await readBody(req);
+      await purgeTrashItem(vault.root, id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (p === '/api/trash/empty' && req.method === 'POST') {
+      await emptyTrash(vault.root);
       return sendJson(res, 200, { ok: true });
     }
     if (p === '/api/links') {

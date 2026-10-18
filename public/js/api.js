@@ -23,6 +23,11 @@ export const Api = {
   saveAsset: (payload) => api('/api/asset', { method: 'POST', body: payload }),
   rename: (path, newPath) => api('/api/rename', { method: 'POST', body: { path, newPath } }),
   remove: (path) => api('/api/delete', { method: 'POST', body: { path } }),
+  // 回收站：删除先进这里，可恢复
+  trash: () => api('/api/trash'),
+  trashRestore: (id) => api('/api/trash/restore', { method: 'POST', body: { id } }),
+  trashPurge: (id) => api('/api/trash/purge', { method: 'POST', body: { id } }),
+  trashEmpty: () => api('/api/trash/empty', { method: 'POST', body: {} }),
   links: (path) => api(`/api/links?path=${encodeURIComponent(path)}`),
   search: (q) => api(`/api/search?q=${encodeURIComponent(q)}`),
   tags: () => api('/api/tags'),

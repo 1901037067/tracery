@@ -476,6 +476,115 @@ function showDirMenu(e, dirName) {
   ]);
 }
 
+/* ================= 回收站 ================= */
+let trashKeyHandler = null;
+
+function closeTrash() {
+  const box = document.getElementById('trash-viewer');
+  if (box) box.hidden = true;
+  if (trashKeyHandler) {
+    document.removeEventListener('keydown', trashKeyHandler, true);
+    trashKeyHandler = null;
+  }
+}
+
+function openTrash() {
+  let box = document.getElementById('trash-viewer');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'trash-viewer';
+    box.id = 'trash-viewer';
+    box.innerHTML = `
+      <div class="trash-panel" role="dialog" aria-label="回收站">
+        <header class="trash-head">
+          <span class="trash-title">回收站</span>
+          <span class="trash-sub"></span>
+          <span class="trash-actions">
+            <button class="mini-btn trash-empty" title="彻底删除全部">清空</button>
+            <button class="mini-btn trash-close" title="关闭 (Esc)">✕</button>
+          </span>
+        </header>
+        <div class="trash-list"></div>
+      </div>`;
+    document.body.appendChild(box);
+    box.querySelector('.trash-close').onclick = closeTrash;
+    box.addEventListener('mousedown', (e) => { if (e.target === box) closeTrash(); });
+    box.querySelector('.trash-empty').onclick = async () => {
+      const ok = await askConfirm({
+        title: '清空回收站？',
+        desc: '里面的文件会被彻底删除，无法恢复。',
+        okText: '清空',
+        danger: true,
+      });
+      if (!ok) return;
+      try { await Api.trashEmpty(); renderTrashList(); } catch (e) { toast(e.message); }
+    };
+  }
+  box.hidden = false;
+  trashKeyHandler = (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); closeTrash(); }
+  };
+  document.addEventListener('keydown', trashKeyHandler, true);
+  renderTrashList();
+}
+
+const fmtSize = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
+
+async function renderTrashList() {
+  const box = document.getElementById('trash-viewer');
+  if (!box) return;
+  const list = box.querySelector('.trash-list');
+  const sub = box.querySelector('.trash-sub');
+  list.textContent = '加载中…';
+  let items = [];
+  try { ({ items } = await Api.trash()); } catch (e) { list.textContent = `读取失败：${e.message}`; return; }
+  sub.textContent = items.length ? `${items.length} 项` : '';
+  if (!items.length) {
+    list.innerHTML = '<div class="panel-empty">回收站是空的（删除的笔记和附件会先放到这里）</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const it of items) {
+    const row = document.createElement('div');
+    row.className = 'trash-item';
+    const main = document.createElement('div');
+    main.className = 'trash-main';
+    const name = document.createElement('div');
+    name.className = 'trash-name';
+    name.textContent = it.name;
+    const meta = document.createElement('div');
+    meta.className = 'trash-meta';
+    const when = new Date(it.deletedAt).toLocaleString('zh-CN', { hour12: false });
+    meta.textContent = `${it.path} · ${when} · ${fmtSize(it.size || 0)}`;
+    main.append(name, meta);
+    const restore = document.createElement('button');
+    restore.className = 'mini-btn';
+    restore.textContent = '恢复';
+    restore.onclick = async () => {
+      try {
+        const r = await Api.trashRestore(it.id);
+        await refreshTree(); refreshGraph(); refreshTags();
+        toast(`已恢复：${r.path}`);
+        if (/\.md$/i.test(r.path)) openNote(r.path, null, { newTab: true });
+        renderTrashList();
+      } catch (e) { toast(`恢复失败：${e.message}`); }
+    };
+    const purge = document.createElement('button');
+    purge.className = 'mini-btn trash-purge';
+    purge.textContent = '彻底删除';
+    purge.onclick = async () => {
+      const ok = await askConfirm({ title: `彻底删除「${it.name}」？`, desc: '这一步不可恢复。', okText: '彻底删除', danger: true });
+      if (!ok) return;
+      try { await Api.trashPurge(it.id); renderTrashList(); } catch (e) { toast(e.message); }
+    };
+    const actions = document.createElement('div');
+    actions.className = 'trash-item-actions';
+    actions.append(restore, purge);
+    row.append(main, actions);
+    list.appendChild(row);
+  }
+}
+
 /* ================= 编辑区右键菜单（仿 Obsidian） ================= */
 // 点菜单项会让 contenteditable 失焦、选区丢失 —— 右键时先存一份，动作前还原，
 // 否则「标题/加粗」这类要靠光标位置的动作全部落空
@@ -659,7 +768,7 @@ async function renameNote(f) {
 async function deleteNote(f) {
   const ok = await askConfirm({
     title: `删除「${f.name}」？`,
-    desc: '文件会从磁盘删除，无法恢复。',
+    desc: '文件会移入回收站，之后可以恢复（文件面板顶部扫帚图标）。',
     okText: '删除',
     danger: true,
   });
@@ -930,6 +1039,7 @@ function refreshRightPanels(content) {
   }
   const tagBox = $('note-tags-list');
   tagBox.innerHTML = '';
+  $('panel-note-tags').classList.toggle('hidden', !tags.size);
   if (!tags.size) {
     tagBox.innerHTML = '<div class="panel-empty">当前笔记没有标签</div>';
   } else {
@@ -950,11 +1060,17 @@ function refreshRightPanels(content) {
 
 const refreshBacklinks = debounce(async () => {
   const box = $('backlinks-list');
-  if (!state.currentPath) { box.innerHTML = '<div class="panel-empty">打开一篇笔记后显示反链</div>'; return; }
+  if (!state.currentPath) {
+    $('panel-backlinks').classList.add('hidden');
+    box.innerHTML = '<div class="panel-empty">打开一篇笔记后显示反链</div>';
+    return;
+  }
   try {
     const { backlinks, unresolved } = await Api.links(state.currentPath);
     box.innerHTML = '';
     $('backlink-count').textContent = String(backlinks.length);
+    // 右侧栏常驻三块：没反链时整块收起，别占着地方
+    $('panel-backlinks').classList.toggle('hidden', !backlinks.length && !unresolved.length);
     if (!backlinks.length && !unresolved.length) {
       box.innerHTML = '<div class="panel-empty">还没有笔记链接到当前笔记</div>';
     }
@@ -1014,7 +1130,9 @@ function switchPanel(name) {
   for (const btn of document.querySelectorAll('.ribbon-btn[data-panel]')) {
     btn.classList.toggle('active', btn.dataset.panel === name);
   }
-  for (const panel of document.querySelectorAll('.sidebar .panel')) {
+  // 只切左栏的面板！用 .sidebar .panel 会连右侧栏（大纲/反链/标签）一起命中，
+  // 切到「文件」时它们因为 id 不匹配被摘掉 active —— 表现就是右侧大纲消失。
+  for (const panel of document.querySelectorAll('#sidebar .panel')) {
     panel.classList.toggle('active', panel.id === `panel-${name}`);
   }
   // 切到别的面板就退出图谱全屏
@@ -1238,6 +1356,20 @@ $('editor-live').addEventListener('mousedown', (e) => {
   let target = null;
   let atEnd = true;
   if (prev && next) {
+    // 优先落在两者之间的「段落分隔符占位段」上——那一行是真的可以点、可以打字的
+    const between = prev.nextElementSibling;
+    if (between && between.classList?.contains('md-blank')) {
+      const range = document.createRange();
+      range.setStart(between, 0);
+      range.collapse(true);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      between.classList.add('is-active');
+      e.preventDefault();
+      root.focus();
+      return;
+    }
     const gapMid = (prev.getBoundingClientRect().bottom + next.getBoundingClientRect().top) / 2;
     atEnd = e.clientY <= gapMid;
     target = atEnd ? prev : next;
@@ -1246,6 +1378,14 @@ $('editor-live').addEventListener('mousedown', (e) => {
   if (!target || !placeCaretInBlock(target, atEnd)) return;
   e.preventDefault();
   root.focus();
+});
+
+// 光标离开占位段后收起它（不留一道空线）
+document.addEventListener('selectionchange', () => {
+  const anchor = window.getSelection()?.anchorNode;
+  for (const el of document.querySelectorAll('.md-blank.is-active')) {
+    if (!anchor || !el.contains(anchor)) el.classList.remove('is-active');
+  }
 });
 
 /** 把光标放到块的末尾（atEnd）或开头 */
@@ -1436,6 +1576,7 @@ function bindGlobalEvents() {
     ]);
   };
   $('btn-new-note-2').onclick = () => createNoteIn('');
+  $('btn-trash').onclick = () => openTrash();
   $('btn-new-folder').onclick = () => createFolderIn('');
   $('btn-collapse-tree').onclick = () => {
     const all = new Set();

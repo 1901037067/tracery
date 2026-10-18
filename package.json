@@ -26,6 +26,7 @@
     "test:merge": "node test/merge-test.mjs",
     "test:enter": "node test/enter-test.mjs",
     "test:menu": "node test/menu-test.mjs",
+    "test:trash": "node test/trash-test.mjs",
     "test:roundtrip": "node test/roundtrip-test.mjs",
     "test:draw": "node test/draw-test.mjs",
     "test:lan": "node test/lan-test.mjs",

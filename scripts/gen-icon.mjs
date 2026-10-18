@@ -1,4 +1,7 @@
-// 生成 Tracery 品牌图标：Apple 蓝渐变圆角方块 + 白色页面（无依赖）
+// 生成 Tracery 品牌图标：蓝底 + 白色「窗棂」格窗（田字格）
+// 取名 Tracery（窗花格），标志就用一个极简格窗：圆角方框 + 十字棂条。
+// 小尺寸（16px）退化成蓝底白「田」，仍然可辨；大尺寸看得到圆角与抗锯齿。
+// 无第三方依赖：直接写像素 → PNG（zlib）→ ICO 包装。
 import zlib from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,7 +21,7 @@ const crc32 = (buf) => {
   return (crc ^ 0xffffffff) >>> 0;
 };
 const alpha = (x, y, col, a) => {
-  if (x < 0 || y < 0 || x >= W || y >= H) return;
+  if (x < 0 || y < 0 || x >= W || y >= H || a <= 0) return;
   const i = (y * W + x) * 4;
   const k = a / 255;
   px[i] = Math.round(px[i] * (1 - k) + col[0] * k);
@@ -27,47 +30,62 @@ const alpha = (x, y, col, a) => {
   px[i + 3] = Math.max(px[i + 3], a);
 };
 
-// 1. Apple squircle（超椭圆）+ 蓝色渐变
+/** 圆角矩形有向距离（<0 在内部），用于画框并做 1px 抗锯齿 */
+const sdRoundRect = (x, y, x0, y0, x1, y1, r) => {
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  const hw = (x1 - x0) / 2 - r;
+  const hh = (y1 - y0) / 2 - r;
+  const qx = Math.abs(x - cx) - hw;
+  const qy = Math.abs(y - cy) - hh;
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+};
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+// 1) 底：超椭圆（Apple squircle 风格）+ 对角蓝渐变
 const N = 5;
 for (let y = 0; y < H; y++) {
   for (let x = 0; x < W; x++) {
     const nx = Math.abs((x - W / 2 + 0.5) / (W / 2 - 8));
     const ny = Math.abs((y - H / 2 + 0.5) / (H / 2 - 8));
     if (Math.pow(nx, N) + Math.pow(ny, N) <= 1) {
-      const t = (x + y) / (W + H);
+      const t = (x * 0.45 + y * 0.55) / (W + H);   // 左上亮 → 右下深
       const i = (y * W + x) * 4;
-      px[i] = Math.round(18 - 18 * t);        // #0A84FF → #0066CC
-      px[i + 1] = Math.round(140 - 38 * t);
-      px[i + 2] = Math.round(255 - 51 * t);
+      px[i] = Math.round(74 - 30 * t * 2);         // #4A7DFF → #1E46D8
+      px[i + 1] = Math.round(125 - 61 * t * 2);
+      px[i + 2] = Math.round(255 - 39 * t * 2);
       px[i + 3] = 255;
     }
   }
 }
 
-// 2. 白色页面（圆角矩形）
-const page = { x0: 74, y0: 54, x1: 182, y1: 202, r: 18 };
-for (let y = page.y0; y <= page.y1; y++) {
-  for (let x = page.x0; x <= page.x1; x++) {
-    const dx = Math.max(page.x0 + page.r - x, x - (page.x1 - page.r), 0);
-    const dy = Math.max(page.y0 + page.r - y, y - (page.y1 - page.r), 0);
-    if (dx * dx + dy * dy <= page.r * page.r) alpha(x, y, [255, 255, 255], 255);
+// 2) 白色格窗：外框（圆角方）+ 十字棂条
+const FX0 = 62, FY0 = 62, FX1 = 194, FY1 = 194, FR = 34;   // 外框
+const STROKE = 22;                                          // 棂条粗
+const half = STROKE / 2;
+const WHITE = [255, 255, 255];
+for (let y = 0; y < H; y++) {
+  for (let x = 0; x < W; x++) {
+    let a = 0;
+    // 外框：到「外框内缩半个线宽」的圆角矩形边界的距离
+    const sd = sdRoundRect(x + 0.5, y + 0.5, FX0 + half, FY0 + half, FX1 - half, FY1 - half, FR - half);
+    a = Math.max(a, clamp01(half - Math.abs(sd) + 0.5));
+    // 十字棂条（只在框内画）
+    const inFrame = x > FX0 && x < FX1 && y > FY0 && y < FY1;
+    if (inFrame) {
+      const dx = Math.abs(x + 0.5 - 128);
+      const dy = Math.abs(y + 0.5 - 128);
+      a = Math.max(a, clamp01(half - dx + 0.5));
+      a = Math.max(a, clamp01(half - dy + 0.5));
+    }
+    if (a > 0) alpha(x, y, WHITE, Math.round(a * 255));
   }
 }
 
-// 3. 笔记线 + 双链节点（白底上的系统蓝）
-for (const [y, x1] of [[84, 156], [104, 166], [124, 146]]) {
-  for (let x = 94; x <= x1; x++) {
-    for (let dy = 0; dy < 7; dy++) alpha(x, y + dy, [10, 132, 255], 140);
-  }
-}
-for (let y = 144; y <= 180; y++) {
-  for (let x = 90; x <= 166; x++) {
-    const d1 = Math.hypot(x - 102, y - 170);
-    const d2 = Math.hypot(x - 154, y - 152);
-    const onLine = x >= 102 && x <= 154
-      && Math.abs((y - 170) - ((x - 102) * (152 - 170)) / (154 - 102)) < 3;
-    if (d1 <= 10 || d2 <= 10) alpha(x, y, [10, 132, 255], 245);
-    else if (onLine) alpha(x, y, [10, 132, 255], 125);
+// 3) 右下格里放两条极短的「文字线」：大尺寸读作「一格笔记」，小尺寸自然消失
+for (const [y0, x0, x1] of [[146, 148, 168], [162, 148, 160]]) {
+  for (let y = y0; y < y0 + 6; y++) {
+    for (let x = x0; x <= x1; x++) alpha(x, y, WHITE, 150);
   }
 }
 
