@@ -13,4 +13,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pickVault: () => ipcRenderer.invoke('tracery:pick-vault'),
   reveal: (p) => ipcRenderer.send('tracery:reveal', p),
   openPath: (p) => ipcRenderer.send('tracery:open-path', p),
+  exportPdf: (html, name) => ipcRenderer.invoke('tracery:export-pdf', { html, name }),
 });

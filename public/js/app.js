@@ -12,6 +12,7 @@ import {
 } from './settings.js';
 import { onSyncStatus } from './sync-ui.js';
 import { askText, askConfirm } from './dialog.js';
+import { renderMarkdown } from './markdown.js';
 import { openLightbox } from './lightbox.js';
 import { openPdfViewer } from './pdf-viewer.js';
 import { openDraw } from './draw.js';
@@ -50,6 +51,8 @@ const state = {
   activeTab: -1,
   nameIndex: new Map(),      // 笔记名(小写) -> path，供 resolveLink 用
   collapsed: new Set(JSON.parse(lsGet('tracery.collapsed') || '[]')),
+  pinned: new Set(JSON.parse(lsGet('tracery.pinned') || '[]')),   // 星标笔记（仓库相对路径）
+  recent: JSON.parse(lsGet('tracery.recent') || '[]'),            // 最近打开（最多 8 条）
   graph: null,
   theme: 'dark',
   themeName: 'apple',
@@ -59,7 +62,7 @@ const state = {
 /* ================= 启动 ================= */
 async function boot() {
   // 调试/测试钩子
-  window.__tracery = { editor, state, Api, openNote, switchPanel };
+  window.__tracery = { editor, state, Api, openNote, switchPanel, switchRightPanel, exportHtml, exportPdf, togglePin, openTrash };
   const st = await Api.state();
   state.settings = st.settings || null;
   initSettings(st.settings || {});
@@ -325,8 +328,56 @@ function renderTree() {
     box.innerHTML = '<div class="tree-empty">仓库是空的<br>点右上角 ＋ 新建第一篇笔记</div>';
     return;
   }
+  renderPinnedSection(box);
   box.appendChild(renderTreeNode(state.tree, 0, true));
   updateCollapseTreeIcon();
+}
+
+/** 文件树顶部的星标区（有星标才显示） */
+function renderPinnedSection(box) {
+  if (!state.pinned.size) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'pinned-section';
+  const head = document.createElement('div');
+  head.className = 'pinned-head';
+  head.textContent = '星标';
+  wrap.appendChild(head);
+  for (const p of state.pinned) {
+    const item = document.createElement('div');
+    item.className = 'tree-item pinned-item';
+    item.dataset.path = p;
+    const icon = document.createElement('span');
+    icon.className = 'tree-icon';
+    icon.textContent = '★';
+    const label = document.createElement('span');
+    label.className = 'tree-label';
+    label.textContent = p.split('/').pop().replace(/\.md$/i, '');
+    item.append(icon, label);
+    item.onclick = () => openNote(p, null, { newTab: false });
+    item.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showFileMenu(e, { path: p, name: p.split('/').pop() });
+    };
+    wrap.appendChild(item);
+  }
+  box.appendChild(wrap);
+}
+
+/** 星标开关（右键菜单用） */
+function togglePin(relPath) {
+  if (state.pinned.has(relPath)) state.pinned.delete(relPath);
+  else state.pinned.add(relPath);
+  localStorage.setItem('tracery.pinned', JSON.stringify([...state.pinned]));
+  renderTree();
+  toast(state.pinned.has(relPath) ? '已加星标' : '已取消星标');
+}
+
+/** 记录最近打开（最多 8 条，去重） */
+function pushRecent(relPath) {
+  if (!relPath) return;
+  state.recent = [relPath, ...state.recent.filter((p) => p !== relPath)].slice(0, 8);
+  localStorage.setItem('tracery.recent', JSON.stringify(state.recent));
 }
 
 function renderTreeNode(node, depth, isRoot = false) {
@@ -438,6 +489,8 @@ function showFileMenu(e, f) {
     { label: isMd ? '在新标签页中打开' : '查看', icon: isMd ? '📄' : '👁', action: openIn },
   ];
   if (isMd) items.push({ label: '创建副本', icon: '📑', action: () => duplicateFile(f) });
+  const pinned = state.pinned.has(f.path);
+  items.push({ label: pinned ? '取消星标' : '星标', icon: pinned ? '★' : '☆', action: () => togglePin(f.path) });
   items.push('-');
   items.push({ label: '复制路径', icon: '🔗', action: () => copyText(abs) });
   items.push({ label: '复制相对路径', icon: '🧭', action: () => copyText(f.path) });
@@ -474,6 +527,71 @@ function showDirMenu(e, dirName) {
     { label: '在此新建笔记', icon: '📄', action: () => createNoteIn(dirName) },
     { label: '在此新建文件夹', icon: '📁', action: () => createFolderIn(dirName) },
   ]);
+}
+
+/* ================= 导出（HTML / PDF） ================= */
+/** 生成自包含的导出 HTML：内联样式 + 图片转 data URL，发给别人也能直接看 */
+async function buildExportHtml() {
+  const md = editor.getContent();
+  const root = renderMarkdown(md, { tagOffsets: false });
+  // 图片转 data URL（导出文件不依赖本机服务）
+  for (const img of root.querySelectorAll('img')) {
+    const src = img.getAttribute('src') || '';
+    if (!src || src.startsWith('data:')) continue;
+    try {
+      const blob = await (await fetch(src)).blob();
+      const dataUrl = await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = rej;
+        fr.readAsDataURL(blob);
+      });
+      img.setAttribute('src', dataUrl);
+    } catch { /* 拿不到就保留原地址 */ }
+  }
+  let css = '';
+  try { css = await (await fetch('/css/style.css')).text(); } catch { /* 忽略 */ }
+  const title = (state.currentPath || '笔记').split('/').pop().replace(/\.md$/i, '');
+  return `<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeText(title)}</title>
+<style>${css}</style>
+<style>
+  html, body { background: #fff; }
+  body { margin: 0; padding: 48px 56px; }
+  .export-body { max-width: 780px; margin: 0 auto; }
+  .export-body pre { overflow-x: auto; }
+</style>
+</head>
+<body><div class="markdown-body export-body">${root.innerHTML}</div></body>
+</html>`;
+}
+
+async function exportHtml() {
+  try {
+    const html = await buildExportHtml();
+    const name = (state.currentPath || '笔记').split('/').pop().replace(/\.md$/i, '');
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${name}.html`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast('已导出 HTML');
+  } catch (e) { toast(`导出失败：${e.message}`); }
+}
+
+async function exportPdf() {
+  if (!window.electronAPI?.exportPdf) { toast('PDF 导出仅桌面版支持，浏览器里可以用 HTML 导出后打印'); return; }
+  try {
+    const html = await buildExportHtml();
+    const name = (state.currentPath || '笔记').split('/').pop().replace(/\.md$/i, '');
+    const saved = await window.electronAPI.exportPdf(html, `${name}.pdf`);
+    if (saved) toast('PDF 已保存');
+  } catch (e) { toast(`导出失败：${e.message}`); }
 }
 
 /* ================= 回收站 ================= */
@@ -906,6 +1024,7 @@ async function loadTab(path, heading) {
     $('note-path').textContent = path;
     editor.load(path, content);
     renderTree(); // 高亮
+    pushRecent(path);
     refreshRightPanels(content);
     if (graphView) graphView.opts.activePath = path;
     if (heading) setTimeout(() => editor.scrollToHeading(heading), 60);
@@ -1039,7 +1158,6 @@ function refreshRightPanels(content) {
   }
   const tagBox = $('note-tags-list');
   tagBox.innerHTML = '';
-  $('panel-note-tags').classList.toggle('hidden', !tags.size);
   if (!tags.size) {
     tagBox.innerHTML = '<div class="panel-empty">当前笔记没有标签</div>';
   } else {
@@ -1061,7 +1179,6 @@ function refreshRightPanels(content) {
 const refreshBacklinks = debounce(async () => {
   const box = $('backlinks-list');
   if (!state.currentPath) {
-    $('panel-backlinks').classList.add('hidden');
     box.innerHTML = '<div class="panel-empty">打开一篇笔记后显示反链</div>';
     return;
   }
@@ -1069,8 +1186,6 @@ const refreshBacklinks = debounce(async () => {
     const { backlinks, unresolved } = await Api.links(state.currentPath);
     box.innerHTML = '';
     $('backlink-count').textContent = String(backlinks.length);
-    // 右侧栏常驻三块：没反链时整块收起，别占着地方
-    $('panel-backlinks').classList.toggle('hidden', !backlinks.length && !unresolved.length);
     if (!backlinks.length && !unresolved.length) {
       box.innerHTML = '<div class="panel-empty">还没有笔记链接到当前笔记</div>';
     }
@@ -1141,8 +1256,20 @@ function switchPanel(name) {
     graphView.opts.activePath = state.currentPath;
     graphView.setData(state.graph);
   }
-  if (name === 'search') setTimeout(() => $('search-input').focus(), 30);
+  if (name === 'search') {
+    setTimeout(() => $('search-input').focus(), 30);
+    if (!$('search-input').value.trim()) renderRecentList($('search-results'));
+  }
   if (name === 'tags') refreshTags();
+}
+
+/** 右侧栏切换（大纲 / 反链 / 标签）：三个按钮 + 一次只显示一个面板 */
+function switchRightPanel(name) {
+  for (const b of document.querySelectorAll('.rs-tab')) b.classList.toggle('active', b.dataset.rs === name);
+  for (const p of document.querySelectorAll('#sidebar-right .panel')) {
+    p.classList.toggle('active', p.id === `panel-${name}`);
+  }
+  localStorage.setItem('tracery.rsTab', name);
 }
 
 /** 图谱全屏：把左侧面板撑满窗口（保留功能区图标栏），专注看图 */
@@ -1166,9 +1293,36 @@ function toggleGraphFocus(force) {
 }
 
 /* ================= 搜索 ================= */
+/** 搜索面板空查询时的「最近打开」 */
+function renderRecentList(box) {
+  box.innerHTML = '';
+  const list = state.recent || [];
+  if (!list.length) {
+    box.innerHTML = '<div class="search-empty">输入关键词搜索全文<br>打开过的笔记会出现在这里</div>';
+    return;
+  }
+  const head = document.createElement('div');
+  head.className = 'search-section';
+  head.textContent = '最近打开';
+  box.appendChild(head);
+  for (const p of list) {
+    const item = document.createElement('div');
+    item.className = 'search-result';
+    const n = document.createElement('div');
+    n.className = 'sr-name';
+    n.textContent = p.split('/').pop().replace(/\.md$/i, '');
+    const path = document.createElement('div');
+    path.className = 'sr-line';
+    path.textContent = p;
+    item.append(n, path);
+    item.onclick = () => openNote(p, null, { newTab: false });
+    box.appendChild(item);
+  }
+}
+
 const runSearch = debounce(async (q) => {
   const box = $('search-results');
-  if (!q.trim()) { box.innerHTML = ''; return; }
+  if (!q.trim()) { renderRecentList(box); return; }
   let results = [];
   try { results = (await Api.search(q)).results; } catch { /* ignore */ }
   box.innerHTML = '';
@@ -1226,6 +1380,8 @@ function renderPalette(q) {
     { icon: '👁', name: '切换实时预览 / 源码模式', sub: '命令', action: () => editor.toggleMode() },
     { icon: '🕸️', name: '打开图谱视图', sub: '命令', action: () => switchPanel('graph') },
     { icon: '🔍', name: '搜索笔记内容', sub: '命令', action: () => { switchPanel('search'); $('search-input').focus(); } },
+    { icon: '📤', name: '导出为 HTML', sub: '命令', action: () => exportHtml() },
+    { icon: '📄', name: '导出为 PDF', sub: '命令', action: () => exportPdf() },
     { icon: '🏷️', name: '查看所有标签', sub: '命令', action: () => switchPanel('tags') },
     { icon: '📂', name: '切换 / 管理仓库…', sub: '命令', action: openVaultPicker },
     { icon: '✏️', name: '新建绘图并插入笔记', sub: '命令', action: openDrawPanel },
@@ -1331,7 +1487,58 @@ const editor = new LiveEditor({
   },
 });
 
-// 编辑区右键菜单：文字 / 图片两套（仿 Obsidian）
+// 表格里：Tab / Shift+Tab 在单元格间跳，回车在当前行下方加一行（仿 Obsidian）
+// 用捕获阶段：编辑器自己的 Tab 是「缩进」，必须抢在它前面，并阻止冒泡
+$('editor-live').addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab' && e.key !== 'Enter') return;
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  const anchor = sel.anchorNode;
+  const cell = (anchor?.nodeType === 1 ? anchor : anchor?.parentElement)?.closest?.('td, th');
+  if (!cell) return;
+  const table = cell.closest('table');
+  if (!table) return;
+  e.stopPropagation();
+
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const cells = [...table.querySelectorAll('th, td')];
+    const next = cells[cells.indexOf(cell) + (e.shiftKey ? -1 : 1)];
+    if (!next) return;
+    if (!placeCaretInBlock(next, false)) {
+      const r = document.createRange();
+      r.setStart(next, 0);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+    return;
+  }
+
+  // 回车：在表头里不处理；拖到最后一行下面加一行同列数的新行
+  const tr = cell.closest('tr');
+  const tbody = table.querySelector('tbody');
+  if (!tr || !tbody || !tbody.contains(tr)) return;
+  e.preventDefault();
+  const col = [...tr.children].indexOf(cell);
+  const newTr = document.createElement('tr');
+  const cols = tr.children.length;
+  for (let i = 0; i < cols; i++) {
+    const td = document.createElement('td');
+    td.appendChild(document.createElement('br'));
+    newTr.appendChild(td);
+  }
+  tr.after(newTr);
+  const target = newTr.children[Math.max(0, col)];
+  const r = document.createRange();
+  r.setStart(target, 0);
+  r.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(r);
+  $('editor-live').focus();
+  // 让输入事件走一遍：序列化 + 自动保存
+  $('editor-live').dispatchEvent(new InputEvent('input', { bubbles: true }));
+}, true);
 $('editor-live').addEventListener('contextmenu', onEditorContextMenu);
 $('editor-source').addEventListener('contextmenu', onEditorContextMenu);
 
@@ -1566,6 +1773,11 @@ function bindGlobalEvents() {
   for (const btn of document.querySelectorAll('.ribbon-btn[data-panel]')) {
     btn.onclick = () => switchPanel(btn.dataset.panel);
   }
+  // 右侧栏三个切换按钮（记住上次选的）
+  for (const btn of document.querySelectorAll('.rs-tab')) {
+    btn.onclick = () => switchRightPanel(btn.dataset.rs);
+  }
+  switchRightPanel(localStorage.getItem('tracery.rsTab') || 'outline');
   $('btn-new-note').onclick = () => createNoteIn('');
   // 右键「+」：新建笔记 / 新建文件夹
   $('btn-new-note').oncontextmenu = (e) => {

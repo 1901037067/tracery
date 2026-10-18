@@ -12,6 +12,49 @@
 
 const INLINE_TOKEN = '\u0001';
 
+/* ================= 代码高亮（轻量自研，够用的范围：注释/字符串/数字/关键字） =================
+ * 不引三方库：只做「一眼能分清」的着色，覆盖常用语言即可。
+ * 渲染用，序列化仍走 code.textContent，不影响 Markdown 字节。 */
+const CODE_KEYWORDS = {
+  js: 'const let var function return if else for while do switch case break continue new class extends super this typeof instanceof in of try catch finally throw async await yield delete void import export from default static get set null true false undefined this',
+  py: 'def class return if elif else for while in not and or is None True False import from as pass raise try except finally with lambda global nonlocal yield assert del break continue async await print self',
+  json: 'true false null',
+  bash: 'if then else fi for while do done case esac function return local export echo cd ls mkdir rm cp mv cat grep sed awk curl sudo npm node git',
+  sql: 'select from where insert into values update set delete join left right inner outer on group by order having limit offset as and or not null distinct count sum avg min max create table drop alter',
+};
+const LANG_ALIAS = {
+  javascript: 'js', jsx: 'js', ts: 'js', typescript: 'js', mjs: 'js', cjs: 'js',
+  python: 'py', py3: 'py',
+  sh: 'bash', shell: 'bash', zsh: 'bash', console: 'bash',
+  postgresql: 'sql', mysql: 'sql',
+};
+
+/** 把代码文本转成带 <span class="tok-*"> 的 HTML（未知语言只转义、不着色） */
+export function highlightCode(text, lang) {
+  const key = LANG_ALIAS[lang] || lang;
+  const kws = CODE_KEYWORDS[key];
+  if (!kws) return escapeHtml(text);
+  const esc = escapeHtml;
+  const kw = kws.trim().split(/\s+/).join('|');
+  // python/bash 用 # 注释；其余用 // 与 /* */
+  const comment = key === 'py' || key === 'bash' ? '#[^\\n]*' : '\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/';
+  const str = '"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\'|`(?:\\\\.|[^`\\\\])*`';
+  const re = new RegExp(`(${comment})|(${str})|(\\b\\d+(?:\\.\\d+)?\\b)|\\b(${kw})\\b`, 'g');
+  let out = '';
+  let last = 0;
+  let m;
+  while ((m = re.exec(text))) {
+    out += esc(text.slice(last, m.index));
+    if (m[1]) out += `<span class="tok-com">${esc(m[1])}</span>`;
+    else if (m[2]) out += `<span class="tok-str">${esc(m[2])}</span>`;
+    else if (m[3]) out += `<span class="tok-num">${esc(m[3])}</span>`;
+    else out += `<span class="tok-kw">${esc(m[4])}</span>`;
+    last = m.index + m[0].length;
+  }
+  out += esc(text.slice(last));
+  return out;
+}
+
 export function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -180,7 +223,7 @@ export function renderMarkdown(md, opts = {}) {
         const pre = document.createElement('pre');
         const code = document.createElement('code');
         if (lang) code.className = `language-${lang}`;
-        code.textContent = buf.join('\n');
+        code.innerHTML = highlightCode(buf.join('\n'), lang);
         pre.appendChild(code);
         if (lang) {
           const tag = document.createElement('span');

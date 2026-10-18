@@ -353,12 +353,32 @@ body.electron .electron-only { display: inline-flex !important; }
 .panel { display: none; flex-direction: column; min-height: 0; flex: 1; }
 .panel.active { display: flex; }
 /* 右侧栏三个面板常驻同屏：大纲在上占满，反链/标签在下（没内容时 JS 加 .hidden） */
-#sidebar-right .panel { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--hairline); }
-#sidebar-right .panel:first-child { border-top: 0; }
-#sidebar-right .panel.hidden { display: none; }
-#sidebar-right #panel-outline { flex: 1 1 auto; }
-#sidebar-right #panel-backlinks,
-#sidebar-right #panel-note-tags { flex: 0 0 auto; max-height: 36%; }
+/* 右侧栏顶部三个切换按钮（大纲 / 反链 / 标签） */
+.rs-tabs {
+  display: flex; gap: 3px;
+  padding: 8px 8px 6px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 4px;
+}
+.rs-tab {
+  flex: 1; min-width: 0;
+  padding: 5px 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.rs-tab:hover { background: var(--bg-fill); color: var(--text-primary); }
+.rs-tab.active { background: var(--bg-sheet); color: var(--text-primary); font-weight: 550; box-shadow: 0 0 0 1px var(--hairline) inset; }
+.rs-badge {
+  font-size: 10px; line-height: 1.5;
+  padding: 0 5px; border-radius: 999px;
+  background: var(--bg-fill); color: var(--text-tertiary);
+}
+.rs-tab.active .rs-badge { background: var(--accent-soft); color: var(--accent); }
+#sidebar-right .panel { flex: 1; min-height: 0; }
 .panel-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 16px 8px;
@@ -634,6 +654,29 @@ body.electron .electron-only { display: inline-flex !important; }
 }
 
 /* ============ Markdown 渲染 ============ */
+/* 代码高亮配色（浅色主题） */
+:root {
+  --syn-com: #8d97a8;
+  --syn-str: #1f8f5f;
+  --syn-num: #b06a12;
+  --syn-kw: #7a4ff0;
+}
+[data-theme="dark"] {
+  --syn-com: #6f7a89;
+  --syn-str: #7fd8a4;
+  --syn-num: #e8b567;
+  --syn-kw: #a98bff;
+}
+.tok-com { color: var(--syn-com); font-style: italic; }
+.tok-str { color: var(--syn-str); }
+.tok-num { color: var(--syn-num); }
+.tok-kw { color: var(--syn-kw); }
+/* 文件树星标区 */
+.pinned-section { padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--hairline); }
+.pinned-head { font-size: 11px; color: var(--text-tertiary); padding: 2px 8px 4px; letter-spacing: 0.3px; }
+.pinned-item .tree-icon { color: var(--accent); font-size: 11px; }
+.search-section { font-size: 11px; color: var(--text-tertiary); padding: 4px 8px 6px; letter-spacing: 0.3px; }
+
 /* 段落分隔符占位段：零高不可见，但能接收光标。点段落间空白就落在这一行，
    一打字它变成真段落（序列化时空的会被跳过，文件不会被动） */
 .md-blank { margin: 0 !important; padding: 0; height: 0; line-height: 0; overflow: hidden; }

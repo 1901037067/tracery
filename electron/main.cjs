@@ -114,6 +114,27 @@ function createWindow() {
     if (typeof p === 'string' && path.isAbsolute(p)) shell.openPath(p);
   });
 
+  // 导出 PDF：隐藏窗口渲染 HTML → printToPDF → 保存对话框
+  ipcMain.handle('tracery:export-pdf', async (e, { html, name } = {}) => {
+    if (typeof html !== 'string') return null;
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: '导出 PDF',
+      defaultPath: name || 'note.pdf',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (canceled || !filePath) return null;
+    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+    try {
+      await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      await new Promise((r) => setTimeout(r, 400));   // 等字体/图片就位
+      const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
+      fs.writeFileSync(filePath, pdf);
+      return filePath;
+    } finally {
+      win.destroy();
+    }
+  });
+
   // 原生「选择仓库文件夹」对话框
   ipcMain.handle('tracery:pick-vault', async () => {
     const res = await dialog.showOpenDialog(mainWindow, {

@@ -226,18 +226,20 @@
 
       <div class="resizer" id="resizer-right" title="拖动调节宽度，双击复位"></div>
 
-      <!-- 右侧面板 -->
+      <!-- 右侧面板：三个按钮切换（大纲 / 反向链接 / 标签） -->
       <aside class="sidebar sidebar-right" id="sidebar-right">
+        <div class="rs-tabs" id="rs-tabs">
+          <button class="rs-tab active" data-rs="outline">大纲</button>
+          <button class="rs-tab" data-rs="backlinks">反链<span class="rs-badge" id="backlink-count">0</span></button>
+          <button class="rs-tab" data-rs="note-tags">标签</button>
+        </div>
         <section class="panel active" id="panel-outline">
-          <div class="panel-header"><span>大纲</span></div>
           <div class="panel-body" id="outline-list"></div>
         </section>
         <section class="panel" id="panel-backlinks">
-          <div class="panel-header"><span>反向链接</span><span class="panel-badge" id="backlink-count">0</span></div>
           <div class="panel-body" id="backlinks-list"></div>
         </section>
         <section class="panel" id="panel-note-tags">
-          <div class="panel-header"><span>标签</span></div>
           <div class="panel-body" id="note-tags-list"></div>
         </section>
       </aside>
