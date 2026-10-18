@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](/)
-[![Tests](https://img.shields.io/badge/tests-210%2F210%20passed-brightgreen)](test)
+[![Tests](https://img.shields.io/badge/tests-248%2F248%20passed-brightgreen)](test)
 
 一个文件夹就是一座仓库，`.md` 文件就是笔记，`[[双链]]` 把它们织成网络。
 **纯 Markdown 存储，完全兼容 Obsidian 仓库** —— 拿来就能用，随时能回去。
