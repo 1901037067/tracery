@@ -143,6 +143,65 @@ check('导出 HTML 自包含（内联样式 + 高亮）',
   files.length > 0 && exported.includes('.markdown-body') && exported.includes('tok-kw') && exported.includes('<!DOCTYPE html>'),
   `${files[0] || '(无)'} ${exported.length}B`);
 
+/* ---------- ⑦ 图片拖拽调尺寸 ---------- */
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAGQAAABkCAIAAAD/gAIDAAAAJklEQVR4nO3BAQ0AAADCoPdPbQ8HFAAAAAAAAAAAAAAAAAAAAHwbXQAAAQ1l6X0AAAAASUVORK5CYII=', 'base64');
+fs.mkdirSync(path.join(VAULT, '附件'), { recursive: true });
+fs.writeFileSync(path.join(VAULT, '附件', 'pic.png'), PNG);
+fs.writeFileSync(path.join(VAULT, '图.md'), '# 图片\n\n![[附件/pic.png|120]]\n', 'utf8');
+await sleep(400);
+await page.evaluate(async () => { await (await fetch('/api/tree')).json(); });
+await page.evaluate(() => window.__tracery.openNote('图.md', null, { newTab: false }));
+await sleep(900);
+const grip = await page.evaluate(() => {
+  const fig = document.querySelector('.embed-image');
+  const g = fig?.querySelector('.img-grip');
+  if (!g) return null;
+  const r = g.getBoundingClientRect();
+  return { x: r.left + 7, y: r.top + 7 };
+});
+if (grip) {
+  await page.mouse.move(grip.x, grip.y);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + 120, grip.y, { steps: 8 });
+  await page.mouse.up();
+}
+await sleep(1500);
+const imgMd = fs.readFileSync(path.join(VAULT, '图.md'), 'utf8');
+check('拖拽图片右下角手柄改写尺寸', !!grip && /!\[\[附件\/pic\.png\|2\d\d\]\]/.test(imgMd), imgMd.trim());
+
+/* ---------- ⑧ 全文替换 ---------- */
+await page.evaluate(() => document.querySelector('.ribbon-btn[data-panel="search"]').click());
+await sleep(400);
+await page.evaluate(() => {
+  const i = document.getElementById('search-input');
+  i.value = '图片';
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await sleep(600);
+const repVisible = await page.evaluate(() => !document.getElementById('search-replace').hidden);
+await page.evaluate(() => {
+  document.getElementById('replace-input').value = '插图';
+  document.getElementById('btn-replace-all').click();
+});
+await sleep(400);
+await page.evaluate(() => document.querySelector('.dialog-ok')?.click());
+await sleep(1600);
+const replaced = fs.readFileSync(path.join(VAULT, '图.md'), 'utf8');
+check('搜索面板出现替换行并全部替换', repVisible && replaced.includes('# 插图'), JSON.stringify(replaced.trim().split('\n')[0]));
+
+/* ---------- ⑨ 版本历史 ---------- */
+const hist = await page.evaluate(async () => (await (await fetch(`/api/history?path=${encodeURIComponent('图.md')}`)).json()).items);
+check('保存前自动留版本快照', Array.isArray(hist) && hist.length >= 1, `版本数=${hist.length}`);
+if (hist.length) {
+  const restore = await page.evaluate(async (id) => {
+    const r = await fetch('/api/history/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '图.md', id }) });
+    return r.ok;
+  }, hist[0].id);
+  await sleep(600);
+  const back = fs.readFileSync(path.join(VAULT, '图.md'), 'utf8');
+  check('可恢复到历史版本', restore && back.includes('# 图片'), JSON.stringify(back.trim().split('\n')[0]));
+}
+
 check('无渲染错误', errors.length === 0, errors.join(' | '));
 
 await browser.close();

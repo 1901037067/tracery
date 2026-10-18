@@ -157,6 +157,11 @@
           <div class="panel-header"><span>搜索</span></div>
           <div class="panel-body">
             <input id="search-input" class="search-input" type="search" placeholder="搜索笔记内容…" />
+            <!-- 替换行：有查询词才显示 -->
+            <div class="search-replace" id="search-replace" hidden>
+              <input id="replace-input" class="search-input replace-input" type="text" placeholder="替换为…" />
+              <button id="btn-replace-all" class="mini-btn" title="在全部笔记里替换">全部替换</button>
+            </div>
             <div id="search-results" class="search-results"></div>
           </div>
         </section>

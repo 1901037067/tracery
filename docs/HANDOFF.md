@@ -7,7 +7,7 @@
 
 ## 1. 一句话现状
 
-Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、PDF 应用内阅读器、图谱全屏、多标签页（Tab 栏即标题栏）、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）、文件树图片直阅、源码模式行号、编辑区右键菜单（仿 Obsidian 文本/图片两套）、回收站（删除可恢复）。测试 207/207，打包版可发布。
+Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、PDF 应用内阅读器、图谱全屏、多标签页（Tab 栏即标题栏）、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）、文件树图片直阅、源码模式行号、编辑区右键菜单（仿 Obsidian 文本/图片两套）、回收站（删除可恢复）。测试 210/210，打包版可发布。
 
 ## 2. 环境与常用命令
 
@@ -29,7 +29,7 @@ npm run test:roundtrip       # 7   Markdown 双向引擎属性测试（恒等/�
 npm run test:enter           # 10  编辑器回车行为回归（段尾/行中/连续回车、列表续行与退出、软换行段、段尾插空行）
 npm run test:menu            # 10  编辑区右键菜单（文字/图片）+ 文件树菜单 + PDF 阅读器 + 侧栏折叠
 npm run test:trash           # 10  回收站（删除入站/恢复/彻底删除/清空）
-npm run test:features        # 10  右栏切换/代码高亮/表格 Tab/星标/最近/导出
+npm run test:features        # 13  右栏切换/代码高亮/表格 Tab/星标/最近/导出/图片缩放/替换/历史
 npm run test:draw            # 12  绘图
 npm run test:lan             # 10  局域网直连
 npm run test:layout          # 12  侧栏折叠回归 / 紧凑头栏
@@ -127,6 +127,9 @@ test/*.mjs              九个测试套件（见 §2）
 28. **表格键位要抢在编辑器前面**：编辑器自己的 Tab 是「缩进」，表格 Tab 跳格必须用**捕获阶段**监听并 `stopPropagation()`，否则缩进逻辑先命中。回车加行是直接改 DOM 再 `dispatchEvent(new InputEvent('input'))`，让正常序列化流程接住。
 29. **右栏是三按钮切换**（大纲/反链/标签），`switchRightPanel()` 维护 `.rs-tab.active` + 面板 `.active`，选择记在 `tracery.rsTab`。别再改回常驻同屏——用户明确要求三按钮切换。
 30. **导出**：`buildExportHtml()` 内联全站 CSS + 图片转 data URL → 自包含 HTML；PDF 走 Electron `tracery:export-pdf`（隐藏 BrowserWindow → printToPDF → 保存对话框）。入口在命令面板。
+31. **图片拖拽调宽**：`![[img|宽]]` 的右下角手柄拖拽 → `setImageWidth()` 改写 token 里的数字（0 = 去掉尺寸，双击手柄还原）。手柄 pointerdown 必须 stopPropagation，否则会触发灯箱。
+32. **全文替换会留快照**：`/api/replace` 逐篇 `split/join`（纯文本、非正则），写之前调用 `snapshotHistory()`——所以替换错了可以用版本历史回滚。遍历用 `vault.notes.keys()`（Map，只含 .md）。
+33. **版本历史**：保存前把旧内容写到 `TRACERY_HOME/history/<仓库哈希>/<相对路径>/<时间戳>.md`，每个文件留 20 个；`/api/history*` 提供列表/内容/恢复；UI 在命令面板「查看历史版本」，点行展开预览、点恢复先给当前内容再存一份快照。
 
 ## 6. 已知坑（踩过的，直接抄结论）
 

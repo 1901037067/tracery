@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](/)
-[![Tests](https://img.shields.io/badge/tests-207%2F207%20passed-brightgreen)](test)
+[![Tests](https://img.shields.io/badge/tests-210%2F210%20passed-brightgreen)](test)
 
 一个文件夹就是一座仓库，`.md` 文件就是笔记，`[[双链]]` 把它们织成网络。
 **纯 Markdown 存储，完全兼容 Obsidian 仓库** —— 拿来就能用，随时能回去。
@@ -132,7 +132,7 @@ npm run test:roundtrip  # 7 项：Markdown 双向引擎属性测试（恒等/不
 npm run test:enter      # 10 项：编辑器回车行为回归（段尾/行中/连续回车、列表续行、软换行段、段尾插空行）
 npm run test:menu       # 10 项：编辑区右键菜单（文字/图片）+ 文件树菜单 + PDF 阅读器 + 侧栏折叠
 npm run test:trash      # 10 项：回收站（删除入站/恢复/彻底删除/清空）
-npm run test:features   # 10 项：右栏切换/代码高亮/表格 Tab/星标/最近/导出 HTML
+npm run test:features   # 13 项：右栏切换/代码高亮/表格 Tab/星标/最近/导出/图片缩放/替换/历史
 npm run test:lan        # 10 项：局域网直连（通行码发现 / 配对 / 双向同步 / 停止）
 npm run test:layout      # 12 项：侧栏折叠回归 / 紧凑头栏（标签行 + 笔记头）
 npm run test:asset       # 15 项：附件三种落点 / 粘贴拖拽入库 / 路径穿越拦截

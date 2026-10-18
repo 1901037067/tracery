@@ -18,6 +18,26 @@ const ROOT = path.resolve(__dirname, '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 // 打包进 Electron 后 asar 是只读的：TRACERY_HOME 指向可写的用户数据目录
 // （兼容旧环境变量名 EVNOTE_HOME：老脚本/便携启动器不用改）
+/* ================= 本地版本历史 =================
+ * 每次保存前把「旧内容」快照进 TRACERY_HOME/history/<仓库哈希>/<笔记相对路径>/<时间戳>.md
+ * 每个文件最多留 20 个快照（按时间滚动删除）。
+ */
+function historyDir(root, rel) {
+  const h = crypto.createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 12);
+  const safe = rel.split('/').map((s) => s.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_')).join('/');
+  return path.join(HOME, 'history', h, safe);
+}
+async function snapshotHistory(root, rel, prevContent) {
+  if (prevContent == null) return;
+  const dir = historyDir(root, rel);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${Date.now()}.md`), prevContent, 'utf8');
+  const files = fs.readdirSync(dir).filter((f) => /^\d+\.md$/.test(f)).sort();
+  for (const f of files.slice(0, Math.max(0, files.length - 20))) {
+    try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignore */ }
+  }
+}
+
 const HOME = process.env.TRACERY_HOME || process.env.EVNOTE_HOME || ROOT;
 
 /* ================= 回收站 =================
@@ -655,9 +675,73 @@ const server = http.createServer(async (req, res) => {
       if (!rel) return sendJson(res, 400, { error: '缺少 path' });
       const abs = path.join(vault.root, rel);
       await fsp.mkdir(path.dirname(abs), { recursive: true });
+      // 覆盖前先快照旧内容（内容没变就不留）
+      let prev = null;
+      try { prev = await fsp.readFile(abs, 'utf8'); } catch { /* 新文件 */ }
+      if (prev !== null && prev !== content) await snapshotHistory(vault.root, rel, prev);
       await fsp.writeFile(abs, content, 'utf8');
       await vault.applyChange(rel);
       return sendJson(res, 200, { ok: true });
+    }
+    if (p === '/api/history' && req.method === 'GET') {
+      const rel = u.searchParams.get('path');
+      if (!rel) return sendJson(res, 400, { error: '缺少 path' });
+      const dir = historyDir(vault.root, rel);
+      let items = [];
+      try {
+        items = fs.readdirSync(dir)
+          .filter((f) => /^\d+\.md$/.test(f))
+          .map((f) => {
+            const st = fs.statSync(path.join(dir, f));
+            return { id: f.replace(/\.md$/, ''), time: Number(f.replace(/\.md$/, '')), size: st.size };
+          })
+          .sort((a, b) => b.time - a.time);
+      } catch { /* 没有历史 */ }
+      return sendJson(res, 200, { items });
+    }
+    if (p === '/api/history/content' && req.method === 'GET') {
+      const rel = u.searchParams.get('path');
+      const id = u.searchParams.get('id');
+      const file = path.join(historyDir(vault.root, rel || ''), `${id}.md`);
+      if (!rel || !/^\d+$/.test(id || '') || !fs.existsSync(file)) return sendJson(res, 404, { error: '版本不存在' });
+      return sendJson(res, 200, { content: await fsp.readFile(file, 'utf8') });
+    }
+    if (p === '/api/history/restore' && req.method === 'POST') {
+      const { path: rel, id } = await readBody(req);
+      const dir = historyDir(vault.root, rel || '');
+      const file = path.join(dir, `${id}.md`);
+      if (!rel || !/^\d+$/.test(String(id || '')) || !fs.existsSync(file)) return sendJson(res, 404, { error: '版本不存在' });
+      const abs = path.join(vault.root, rel);
+      let cur = null;
+      try { cur = await fsp.readFile(abs, 'utf8'); } catch { /* 可能已被删 */ }
+      if (cur !== null) await snapshotHistory(vault.root, rel, cur);   // 恢复前也留一份当前内容
+      await fsp.writeFile(abs, await fsp.readFile(file, 'utf8'), 'utf8');
+      await vault.applyChange(rel);
+      broadcast({ type: 'fs-change', paths: [rel] });
+      return sendJson(res, 200, { ok: true });
+    }
+    if (p === '/api/replace' && req.method === 'POST') {
+      const { query, replacement } = await readBody(req);
+      if (!query) return sendJson(res, 400, { error: '查询为空' });
+      const rep = String(replacement ?? '');
+      const touched = [];
+      let count = 0;
+      for (const rel of vault.notes.keys()) {
+        const abs = path.join(vault.root, rel);
+        let text;
+        try { text = await fsp.readFile(abs, 'utf8'); } catch { continue; }
+        if (!text.includes(query)) continue;
+        const parts = text.split(query);
+        count += parts.length - 1;
+        await snapshotHistory(vault.root, rel, text);   // 替换前留快照，可回滚
+        await fsp.writeFile(abs, parts.join(rep), 'utf8');
+        touched.push(rel);
+      }
+      if (touched.length) {
+        await vault.open();
+        broadcast({ type: 'fs-change', paths: touched });
+      }
+      return sendJson(res, 200, { ok: true, files: touched, count });
     }
     // 保存资源文件（粘贴/拖入的图片和文档、绘图）：base64 → <dir>/xxx.ext
     // dir 由客户端按「附件设置」算好；服务端独立清洗——API 调用方永远不可信

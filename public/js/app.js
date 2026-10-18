@@ -594,6 +594,116 @@ async function exportPdf() {
   } catch (e) { toast(`导出失败：${e.message}`); }
 }
 
+/* ================= 版本历史 ================= */
+let historyKeyHandler = null;
+
+function closeHistory() {
+  const box = document.getElementById('history-viewer');
+  if (box) box.hidden = true;
+  if (historyKeyHandler) {
+    document.removeEventListener('keydown', historyKeyHandler, true);
+    historyKeyHandler = null;
+  }
+}
+
+/** 重新载入当前笔记（恢复历史 / 批量替换后用） */
+async function reloadCurrentNote() {
+  if (!state.currentPath) return;
+  try {
+    const { content } = await Api.note(state.currentPath);
+    editor.load(state.currentPath, content);
+  } catch { /* 文件可能已不在 */ }
+}
+
+async function openHistory() {
+  if (!state.currentPath) { toast('先打开一篇笔记'); return; }
+  const notePath = state.currentPath;
+  let box = document.getElementById('history-viewer');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'trash-viewer';
+    box.id = 'history-viewer';
+    box.innerHTML = `
+      <div class="trash-panel" role="dialog" aria-label="版本历史">
+        <header class="trash-head">
+          <span class="trash-title">版本历史</span>
+          <span class="trash-sub"></span>
+          <span class="trash-actions"><button class="mini-btn hist-close" title="关闭 (Esc)">✕</button></span>
+        </header>
+        <div class="trash-list"></div>
+      </div>`;
+    document.body.appendChild(box);
+    box.querySelector('.hist-close').onclick = closeHistory;
+    box.addEventListener('mousedown', (e) => { if (e.target === box) closeHistory(); });
+  }
+  box.hidden = false;
+  historyKeyHandler = (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); closeHistory(); }
+  };
+  document.addEventListener('keydown', historyKeyHandler, true);
+
+  const list = box.querySelector('.trash-list');
+  const sub = box.querySelector('.trash-sub');
+  sub.textContent = notePath;
+  list.textContent = '加载中…';
+  let items = [];
+  try { ({ items } = await Api.history(notePath)); } catch (e) { list.textContent = `读取失败：${e.message}`; return; }
+  if (!items.length) {
+    list.innerHTML = '<div class="panel-empty">还没有历史版本（每次保存前会自动留一份，最多 20 个）</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const it of items) {
+    const row = document.createElement('div');
+    row.className = 'trash-item hist-item';
+    const main = document.createElement('div');
+    main.className = 'trash-main';
+    const name = document.createElement('div');
+    name.className = 'trash-name';
+    name.textContent = new Date(it.time).toLocaleString('zh-CN', { hour12: false });
+    const meta = document.createElement('div');
+    meta.className = 'trash-meta';
+    meta.textContent = `${fmtSize(it.size || 0)} · 点击看内容`;
+    main.append(name, meta);
+    const actions = document.createElement('div');
+    actions.className = 'trash-item-actions';
+    const restore = document.createElement('button');
+    restore.className = 'mini-btn';
+    restore.textContent = '恢复';
+    restore.onclick = async (e) => {
+      e.stopPropagation();
+      const ok = await askConfirm({
+        title: '恢复到这一版？',
+        desc: '当前内容会先存一份新快照，随时可以再回来。',
+        okText: '恢复',
+      });
+      if (!ok) return;
+      try {
+        await Api.historyRestore(notePath, it.id);
+        await reloadCurrentNote();
+        await refreshTree();
+        toast('已恢复到这个版本');
+        closeHistory();
+      } catch (err) { toast(`恢复失败：${err.message}`); }
+    };
+    actions.appendChild(restore);
+    row.append(main, actions);
+    // 点行展开内容预览
+    row.onclick = async () => {
+      let pre = row.querySelector('.hist-preview');
+      if (pre) { pre.remove(); return; }
+      try {
+        const { content } = await Api.historyContent(notePath, it.id);
+        pre = document.createElement('pre');
+        pre.className = 'hist-preview';
+        pre.textContent = content;
+        row.appendChild(pre);
+      } catch (err) { toast(`读取失败：${err.message}`); }
+    };
+    list.appendChild(row);
+  }
+}
+
 /* ================= 回收站 ================= */
 let trashKeyHandler = null;
 
@@ -1322,6 +1432,8 @@ function renderRecentList(box) {
 
 const runSearch = debounce(async (q) => {
   const box = $('search-results');
+  const repRow = $('search-replace');
+  if (repRow) repRow.hidden = !q.trim();
   if (!q.trim()) { renderRecentList(box); return; }
   let results = [];
   try { results = (await Api.search(q)).results; } catch { /* ignore */ }
@@ -1382,6 +1494,7 @@ function renderPalette(q) {
     { icon: '🔍', name: '搜索笔记内容', sub: '命令', action: () => { switchPanel('search'); $('search-input').focus(); } },
     { icon: '📤', name: '导出为 HTML', sub: '命令', action: () => exportHtml() },
     { icon: '📄', name: '导出为 PDF', sub: '命令', action: () => exportPdf() },
+    { icon: '🕘', name: '查看历史版本', sub: '命令', action: () => openHistory() },
     { icon: '🏷️', name: '查看所有标签', sub: '命令', action: () => switchPanel('tags') },
     { icon: '📂', name: '切换 / 管理仓库…', sub: '命令', action: openVaultPicker },
     { icon: '✏️', name: '新建绘图并插入笔记', sub: '命令', action: openDrawPanel },
@@ -1812,6 +1925,27 @@ function bindGlobalEvents() {
 
   // 搜索
   $('search-input').addEventListener('input', (e) => runSearch(e.target.value));
+  // 全部替换（替换前服务端会自动留版本快照，可回滚）
+  $('btn-replace-all').onclick = async () => {
+    const q = $('search-input').value;
+    if (!q.trim()) { toast('先输入要查找的内容'); return; }
+    const rep = $('replace-input').value;
+    const ok = await askConfirm({
+      title: '在全部笔记里替换？',
+      desc: `把「${q}」替换成「${rep}」——会改所有匹配的笔记，替换前每篇都会自动留一份版本快照。`,
+      okText: '全部替换',
+    });
+    if (!ok) return;
+    try {
+      const r = await Api.replace(q, rep);
+      await refreshTree();
+      refreshGraph();
+      refreshTags();
+      if (r.files.includes(state.currentPath)) await reloadCurrentNote();
+      toast(`已替换 ${r.count} 处，涉及 ${r.files.length} 篇`);
+      runSearch(q);
+    } catch (e) { toast(`替换失败：${e.message}`); }
+  };
   $('search-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       const first = $('search-results').querySelector('.search-result');

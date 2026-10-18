@@ -28,6 +28,11 @@ export const Api = {
   trashRestore: (id) => api('/api/trash/restore', { method: 'POST', body: { id } }),
   trashPurge: (id) => api('/api/trash/purge', { method: 'POST', body: { id } }),
   trashEmpty: () => api('/api/trash/empty', { method: 'POST', body: {} }),
+  // 版本历史 + 全文替换
+  history: (path) => api(`/api/history?path=${encodeURIComponent(path)}`),
+  historyContent: (path, id) => api(`/api/history/content?path=${encodeURIComponent(path)}&id=${encodeURIComponent(id)}`),
+  historyRestore: (path, id) => api('/api/history/restore', { method: 'POST', body: { path, id } }),
+  replace: (query, replacement) => api('/api/replace', { method: 'POST', body: { query, replacement } }),
   links: (path) => api(`/api/links?path=${encodeURIComponent(path)}`),
   search: (q) => api(`/api/search?q=${encodeURIComponent(q)}`),
   tags: () => api('/api/tags'),

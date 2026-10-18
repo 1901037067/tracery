@@ -803,11 +803,56 @@ export class LiveEditor {
     cap.textContent = name;
     fig.appendChild(cap);
 
+    // 右下角拖拽手柄：调宽度 → 改写 ![[name|宽]] 里的数字
+    const grip = document.createElement('span');
+    grip.className = 'img-grip';
+    grip.title = '拖动调整宽度（双击还原）';
+    fig.appendChild(grip);
+    grip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startW = img.getBoundingClientRect().width;
+      const capW = 1200;   // 上限，避免拖出天际
+      const move = (ev) => {
+        const w = Math.round(Math.min(capW, Math.max(80, startW + ev.clientX - startX)));
+        img.style.width = `${w}px`;
+        img.style.maxWidth = '100%';
+        grip.dataset.w = String(w);
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        const w = Number(grip.dataset.w);
+        if (w > 0) this.setImageWidth(fig, w);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+    grip.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      img.style.width = '';
+      this.setImageWidth(fig, 0);   // 0 = 去掉尺寸
+    });
+    grip.addEventListener('click', (e) => e.stopPropagation());
+
     fig.addEventListener('click', (e) => {
       e.stopPropagation();
       this.opts.onImageClick?.(Api.fileUrl(filePath), name);
     });
     slot.replaceWith(fig);
+  }
+
+  /** 改写嵌入图片的宽度（0 = 去掉尺寸）；raw 就是 ![[...]] 括号里的内容 */
+  setImageWidth(fig, width) {
+    const raw = fig?.dataset?.target || '';
+    if (!raw) return;
+    const token = `![[${raw}]]`;
+    const idx = this.md.indexOf(token);
+    if (idx < 0) { toast('没找到图片在源码里的位置'); return; }
+    const name = raw.split('|')[0].replace(/#.*$/, '').trim();
+    const next = width > 0 ? `![[${name}|${Math.round(width)}]]` : `![[${name}]]`;
+    this._replaceRange(idx, idx + token.length, next);
   }
 
   /* ---------- 模式切换 ---------- */

@@ -502,6 +502,20 @@ body.electron .electron-only { display: inline-flex !important; }
 .trash-meta { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trash-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .trash-purge:hover { color: var(--danger); }
+/* 版本历史：点行展开的内容预览 */
+.hist-item { flex-wrap: wrap; cursor: pointer; }
+.hist-preview {
+  flex-basis: 100%;
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  background: var(--bg-fill);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: 11.5px; line-height: 1.6;
+  color: var(--text-secondary);
+  max-height: 220px; overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+}
 
 /* ============ PDF 查看器 ============ */
 .pdf-viewer {
@@ -557,6 +571,10 @@ body.electron .electron-only { display: inline-flex !important; }
 }
 .search-input:focus { background: var(--bg-sheet); box-shadow: 0 0 0 3px var(--accent-soft); }
 .search-results { display: flex; flex-direction: column; gap: 2px; }
+/* 替换行：输入框 + 全部替换按钮 */
+.search-replace { display: flex; gap: 6px; margin: -4px 0 10px; }
+.search-replace .replace-input { margin-bottom: 0; flex: 1; min-width: 0; }
+.search-replace .mini-btn { flex-shrink: 0; white-space: nowrap; }
 .search-result {
   padding: 9px 11px; border-radius: var(--r-sm); cursor: pointer;
   transition: background var(--dur) var(--ease);
@@ -677,6 +695,26 @@ body.electron .electron-only { display: inline-flex !important; }
 .pinned-item .tree-icon { color: var(--accent); font-size: 11px; }
 .search-section { font-size: 11px; color: var(--text-tertiary); padding: 4px 8px 6px; letter-spacing: 0.3px; }
 
+/* 嵌入图片的右下角拖拽手柄 */
+.embed-image { position: relative; }
+.embed-image .img-grip {
+  position: absolute;
+  right: 10px; bottom: 26px;
+  width: 14px; height: 14px;
+  border-radius: 4px;
+  background: var(--bg-sheet);
+  box-shadow: 0 0 0 1px var(--hairline-strong), 0 1px 3px rgba(0, 0, 0, 0.18);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.embed-image .img-grip::before {
+  content: '';
+  position: absolute; inset: 4px;
+  border-right: 1.5px solid var(--text-tertiary);
+  border-bottom: 1.5px solid var(--text-tertiary);
+}
+.embed-image:hover .img-grip { opacity: 1; }
 /* 段落分隔符占位段：零高不可见，但能接收光标。点段落间空白就落在这一行，
    一打字它变成真段落（序列化时空的会被跳过，文件不会被动） */
 .md-blank { margin: 0 !important; padding: 0; height: 0; line-height: 0; overflow: hidden; }
