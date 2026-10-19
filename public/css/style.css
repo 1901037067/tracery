@@ -670,7 +670,7 @@ body.electron .electron-only { display: inline-flex !important; }
   /* 上/右内缩 10/8px：Electron 的覆盖式滚动条浮在滚动区右缘，滚到顶部时
      会压在纸的圆角边框上。让滚动区整体内缩，滚动条就落在直边里，不再交叉。
      上边距 10 + padding 26 = 原来 36，正文位置不变 */
-  margin: 10px 8px 10px 0;
+  margin: 10px 0 10px 0;
   padding: 26px 48px 40vh;
   caret-color: var(--accent);
   line-height: 1.78;
@@ -679,7 +679,7 @@ body.electron .electron-only { display: inline-flex !important; }
 .editor > * { max-width: var(--editor-width, 720px); margin-left: auto; margin-right: auto; }
 
 /* ============ 源码模式（行号槽 + 等宽编辑区，实时预览模式不显示） ============ */
-.source-wrap { position: absolute; inset: 0; margin: 10px 8px 10px 0; display: flex; min-width: 0; }
+.source-wrap { position: absolute; inset: 0; margin: 10px 0 10px 0; display: flex; min-width: 0; }
 .source-gutter {
   flex-shrink: 0; width: 46px;
   overflow: hidden;
@@ -728,6 +728,9 @@ body.electron .electron-only { display: inline-flex !important; }
 
 /* 嵌入图片的右下角拖拽手柄 */
 .embed-image { position: relative; }
+/* 图片的虚线框只在鼠标悬停时出现（用户 2026-10-19 反馈：常显示太吵）。
+   用 outline 而不是 border —— border 会改变盒尺寸，行内图片一 hover 就触发重排。 */
+.embed-image:hover { outline: 1px dashed var(--hairline-strong); outline-offset: 4px; }
 .embed-image .img-grip {
   position: absolute;
   right: 10px; bottom: 26px;

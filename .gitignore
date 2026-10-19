@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# 并行打包输出（HANDOFF §6：dist/win-unpacked 被运行中的旧包锁住时，
+# 用 --config.directories.output=dist-1.2.1 出到另一个目录）
+dist-*/
 
 # 运行时配置与仓库配置目录（不提交用户数据）
 tracery.config.json

@@ -1,7 +1,7 @@
 # Tracery 交接文档（Handoff）
 
 > 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
-> 最后更新：2026-10-19 11:30（对应代码状态：v1.2.0 + **cm 三处渲染缺口已补齐**；
+> 最后更新：2026-10-19 12:10（对应代码状态：**v1.2.1 已发布**；
 > 测试套件已参数化 —— **block / cm 双引擎各跑一遍全绿**；打包链路打通（`dist:dir:nosign`）；打包版验证 14/14）
 >
 > **✅ 编辑区内核迁移已完成主体**：从「块级实时预览」迁到「行级 CodeMirror 6」，**默认内核 = cm**
@@ -9,7 +9,9 @@
 > 全过程与逐阶段结论在 **`docs/EDITOR-MIGRATION.md`**（P0~P5 + 7.1~7.12）。
 > **cm 与块级的渲染断层已消除**（7.12）：行内 `![[图片]]`、`![](路径)` 都出图（带 `|宽` 与拖宽手柄），
 > 未解析双链有 `.cm-lp-unresolved`；跑套件的测试门控已拆（ui-ux 4 条 + e2e #11）。
-> **剩余**：发版 1.2.1（可选）、cm 表格单元格编辑，见 §7。
+> **v1.2.1 已发布**：除渲染缺口外，还打磨了两处视觉 —— 图片的虚线框/拖宽手柄改成**悬停才出现**、
+> 滚动条**贴编辑区右缘**（宽窗口下不再跑到纸张中间），见 §5 #44/#45。
+> **剩余**：cm 表格单元格编辑等，见 §7。
 
 ---
 
@@ -208,6 +210,20 @@ test/*.mjs              九个测试套件（见 §2）
 
 43. **CM6 迁移主体完成：默认内核已切 cm（2026-10-19）**：P2 行内编辑（`cm/editing.js`：Enter 续列表/任务列表、Tab 缩进、Ctrl+B/I/S/K、粘贴拖入拦截）、P3 块级 widget（`cm/widgets.js`：图片嵌入+拖宽、复选框、Callout、表格行、双链/标签事件）、P4 引擎适配器（`cm/engine.js` + app.js 工厂 + `settings.editorEngine`）、P5 收尾（`public/css/cm.css` 补齐 CM 样式并用 app 的 CSS 变量、17 个套件参数化为 `TRACERY_TEST_ENGINE`、全量双引擎回归、打包链路打通）全部完成，逐阶段结论在 `docs/EDITOR-MIGRATION.md` **7.3~7.11**。**顺带修掉 6 个真 bug**：cm 附件回调漏 import（7.7 结论 4）；`#editor-live` 滚动关链接预览在 cm 失效（7.7 结论 3）；右键把 CM 选区收拢成光标（7.10）；空列表项/空引用回车在 cm 里不退出列表（7.10）；`.cm-widgetBuffer` 把 2em 标题行撑高 23px（7.10）；cm 粘贴图片不改名 + **CRLF 笔记大纲为空**（7.11）。**默认保留 `settings.editorEngine` 一键回退**，旧块级内核不删（它是回归网，也是回退路）。
 
+44. **图片的虚线框与拖宽手柄只在悬停时出现**（2026-10-19 用户反馈「常驻虚线框 + 橘色方块太丑」）：
+    默认态只剩图片本身（圆角 + 阴影）；悬停时用 **outline** 画虚线框（**不能用 border**——border 会改盒尺寸，
+    行内图片一 hover 就重排、还要惊动 CM 重新测量）；拖宽手柄平时 `opacity:0 + pointer-events:none`，
+    悬停浮现，外观对齐块级 `.img-grip`（纸色小方块 + 发丝描边 + 右下角折线，**不再是 accent 色方块**）。
+    实现上 `.embed-image:hover` 写在 `style.css`，两个内核共用（cm 的 widget 也带 `.embed-image`）。
+45. **滚动条必须贴着编辑区右缘**（同一天用户截图反馈「宽窗口下滚动条跑到纸张中间」）：cm 的 `.cm-editor`
+    **不能吃** `.editor > * { max-width: 720px; margin:auto }` 那条居中规则——滚动条属于它内部的 `.cm-scroller`，
+    `.cm-editor` 只剩 720 宽时滚动条就停在纸中间。正确配方：`.cm-editor` 整宽（`max-width:none`），
+    正文列宽由 `.cm-content` 的左右 padding 居中：
+    `max(48px, calc((100% - var(--cm-gutter-w) - var(--editor-width))/2))`（gutter 45px，实测文本列 721px）。
+    同时 `.editor` / `.source-wrap` 去掉右侧那 8px 内缩——`::-webkit-scrollbar-track{margin:14px 0}` 已经足够
+    避开纸张圆角，不需要再挤进来。**副作用**：块级内核的正文列其实一直是左对齐（`.markdown-body p/h*`
+    的 `margin` 简写盖掉了 `.editor > *` 的 auto 左右边距），与 cm 的居中不一致；属历史遗留，暂未动。
+
 ## 6. 已知坑（踩过的，直接抄结论）
 
 | 坑 | 结论 |
@@ -225,6 +241,7 @@ test/*.mjs              九个测试套件（见 §2）
 | 打包时 electron-builder 解 winCodeSign 报「客户端没有所需的特权」（创建符号链接） | 那条路需要管理员 / 开启 Windows 开发者模式；**本机更稳的是 `npm run dist:dir:nosign`**（= `electron-builder --dir --config.win.signAndEditExecutable=false`，跳过签名 + 改 exe 资源，于是不需要 winCodeSign）。代价：**exe 文件本身**没有自定义图标/版本信息（窗口/任务栏图标正常，`main.cjs` 显式设了 `icon: build/icon.png`） |
 | 打包时 winCodeSign 从 GitHub 下载超时（`connect ETIMEDOUT 20.205.243.166:443`） | 这台机器上 GitHub 连不上（`git push github` 同样超时）→ 标准 `dist:dir` 是**网络 + 权限双重卡死**；`dist:dir:nosign` 完全离线可跑。补推 GitHub：网络好了跑 `git push github main` |
 | 右栏「大纲」对 CRLF 笔记显示「当前笔记没有标题」 | `refreshRightPanels` 用 `^(#{1,6})\s+(.*)$` 逐行扫标题，而 **JS 正则里 `.` 不匹配 `\r`、`$` 也不会落在 `\r` 之前** → Windows 上 git 检出的 CRLF 笔记一条标题都扫不到。修法：扫之前统一 `replace(/\r\n?/g, '\n')`。**凡「逐行正则 + `$` 锚点」都要先归一化换行**（Mac/Linux 上永远跑不出来） |
+| 打包报 `remove dist\win-unpacked\d3dcompiler_47.dll: Access is denied` | 有打包版正在运行（句柄锁），先关掉应用再打包；或在另一个输出目录出包（`--config.directories.output=dist-x`）。`tasklist \| grep -i tracery` 能确认 |
 | 跑套件会重写 `test/screenshots/*.png` 与 `demo-vault/Markdown 语法.md` | 前者是截图存档的副作用，后者是**块级内核的序列化 bug**（`- 嵌入笔记：![[常用代码]]` 被拆成三行，见 #41 / 7.7 结论 6）。跑完一律 `git checkout -- test/screenshots "demo-vault/Markdown 语法.md"` 复原，别提交 |
 
 ## 7. 新对话怎么继续（按优先级）
@@ -232,10 +249,13 @@ test/*.mjs              九个测试套件（见 §2）
 1. ~~cm 侧 3 处渲染缺口~~ ✅ **已完成（7.12）**：行内 `![[图片]]`/`![](路径)` 出图、双链 `unresolved` 类；
    e2e #11 与 `ui-ux` 的 4 条图片断言已拆掉门控。仍未回收的 3 条门控（features ②③、layout ②、backspace ④）
    与渲染无关，理由写在 7.12「门控清单变化」。
-2. **发版 v1.2.1（建议）**：渲染缺口修复是用户可见变化。`package.json` bump 到 **1.2.1**，照
-   `docs/RELEASE-1.1.1.md` 的格式写 `docs/RELEASE-1.2.1.md`，`npm run dist:dir:nosign` + `npm run release`
-   → `dist/Tracery-1.2.1-win32-x64.zip` 传 Gitee Releases。代价：exe 文件本身没有自定义图标/版本信息、zip ~110MB。
-   升级前先跑 `node test/verify-exe.mjs`（应 14/14）。
+2. ~~发版 v1.2.1~~ ✅ **已完成（2026-10-19）**：`package.json` → 1.2.1，发布说明 `docs/RELEASE-1.2.1.md`，
+   `npm run dist:dir:nosign` + `npm run release` 出包，打包版 `verify-exe` **14/14**；
+   还剩「zip 上传到 Gitee Releases」这一步（需要在网页上手动传，见 §2 末尾）。
+   **踩坑**：打包时若 `dist/win-unpacked` 里还有旧包在跑，electron-builder 会报
+   `remove ...d3dcompiler_47.dll: Access is denied`——先关掉应用；急的话用
+   `npx electron-builder --dir --config.win.signAndEditExecutable=false --config.directories.output=dist-x`
+   出到另一个目录，验证/压包完再删。
 3. **cm 表格单元格编辑**：表格现在只有行装饰（`.cm-lp-tr`），Tab 跳格/回车加行仍是块级专用。
 4. **同步 v3：端到端加密**。路线：scrypt(密码) 派生 masterKey → 内容 AES-GCM 加密后再上传 → manifest 路径用 HMAC 存。服务端接口不用改（本来就只认 blob+sha）。注意：合并会失效（服务端看不到明文），需改成「客户端持有 base 明文」策略。
 5. **绘图二次编辑**：场景 JSON 已存 `附件/*.draw.json`（v2：`{v:2, elements:[...]}`），做「右键图片 → 编辑绘图」把它回填进 draw.js 的 `elements` 即可；跨设备时 JSON 也参与同步。
