@@ -302,7 +302,8 @@ test/*.mjs              九个测试套件（见 §2）
 1. ~~cm 侧 3 处渲染缺口~~ ✅ **已完成（7.12）**：行内 `![[图片]]`/`![](路径)` 出图、双链 `unresolved` 类；
    e2e #11 与 `ui-ux` 的 4 条图片断言已拆掉门控。仍未回收的 3 条门控（features ②③、layout ②、backspace ④）
    与渲染无关，理由写在 7.12「门控清单变化」。
-2. ~~发版 v1.2.1~~ ✅ **已完成（2026-10-19）**：`package.json` → 1.2.1，发布说明 `docs/RELEASE-1.2.1.md`，
+2. ~~发版 v1.2.1~~ ✅ **已完成（2026-10-19）**；**v1.3.0 也已打包**（`dist/Tracery-1.3.0-win32-x64.zip`，
+   verify-exe 14/14，tag 已推两个远端，只剩 Gitee Releases 网页上传）。v1.2.1 的说明保留在这里：`package.json` → 1.2.1，发布说明 `docs/RELEASE-1.2.1.md`，
    `npm run dist:dir:nosign` + `npm run release` 出包，打包版 `verify-exe` **14/14**；
    还剩「zip 上传到 Gitee Releases」这一步（需要在网页上手动传，见 §2 末尾）。
    **踩坑**：打包时若 `dist/win-unpacked` 里还有旧包在跑，electron-builder 会报
