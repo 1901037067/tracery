@@ -1,17 +1,19 @@
 # Tracery 交接文档（Handoff）
 
 > 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
-> 最后更新：2026-10-18 20:00（对应代码状态：v1.1.0 — 绘图白板重写 / 撤销重做 / 实时预览行号 / 右键菜单紧凑化 / 空行与回车按 Obsidian 语义重做 / **CM6 迁移 P0 探针 + P1 只读装饰完成** / 跨行删除模型层修复）
+> 最后更新：2026-10-19 10:40（对应代码状态：v1.1.1 + **CM6 迁移 P2~P5 全部完成、默认编辑内核已切 cm**；
+> 测试套件已参数化 —— **block / cm 双引擎各跑一遍全绿**；打包链路打通（`dist:dir:nosign`）；打包版验证 14/14）
 >
-> **⚠️ 迁移进行中：编辑区内核从「块级实时预览」迁到「行级 CodeMirror 6」**
-> 详见 **`docs/EDITOR-MIGRATION.md`**（目标验收表 / 两条路线 / P0~P5 分阶段 / 必须保留的 API 与 DOM 契约 / 已知坑的处置）。
-> **P0 已完成**（探针 5/5，结论 7.1）、**P1 已完成**（parse/render 拆分 + `cm/decorations.js`，结论 7.2）；**下一步 P2 行内编辑**（开工提示词在文档第 8 节）。
+> **✅ 编辑区内核迁移已完成主体**：从「块级实时预览」迁到「行级 CodeMirror 6」，**默认内核 = cm**
+> （设置 → 编辑器 一键回退块级；`?engine=block|cm` 可按页覆盖，测试用它跑双口径）。
+> 全过程与逐阶段结论在 **`docs/EDITOR-MIGRATION.md`**（P0~P5 + 7.1~7.11）。
+> **剩余**：cm 侧 3 处渲染缺口（行内 `![[图片]]` / `![](路径)` 不出图、未解析双链没有 `unresolved` 类）+ 可选发版。
 
 ---
 
 ## 1. 一句话现状
 
-Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、PDF 应用内阅读器、图谱全屏、多标签页（Tab 栏即标题栏）、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）、文件树图片直阅、源码模式行号、编辑区右键菜单（仿 Obsidian 文本/图片两套）、回收站（删除可恢复）。测试 249/249，打包版可发布。
+Tracery 是一个 **仓库型 Markdown 笔记软件**（Obsidian 兼容的学习复刻版）：Node 服务端负责文件/索引，前端是纯 ES Module + CSS 变量主题，Electron 壳可选。**核心差异化已落地：自托管同步 v2（自动合并 + 分块续传）+ 局域网六位通行码直连**，另有内置绘图、图片灯箱、PDF 应用内阅读器、图谱全屏、多标签页（Tab 栏即标题栏）、可拖拽栏宽、附件管理（可配置落点 + 粘贴/拖拽入库）、文件树图片直阅、源码模式行号、编辑区右键菜单（仿 Obsidian 文本/图片两套）、回收站（删除可恢复）。**编辑内核已是 CodeMirror 6（默认 cm，可一键回退块级）**；全量套件 **block / cm 双引擎各跑一遍全绿**（见 §2、§4b），打包版可发布（验证 14/14）。
 
 ## 2. 环境与常用命令
 
@@ -41,15 +43,27 @@ npm run test:lan             # 10  局域网直连
 npm run test:layout          # 12  侧栏折叠回归 / 紧凑头栏
 npm run test:asset           # 15  附件落点 / 粘贴拖拽 / 路径穿越
 npm run test:tabs            # 12  多标签/栏宽/绘图历史
+npm run test:engine          # 12  CM6 内核「真实 app」冒烟（撤销重做/行号开关/Enter 续任务/粘贴附件/双链跳转）
+npm run test:cmlab           # 8 + IME  CM6 探针页（纯引擎单页，不依赖 app；P0~P4 的断言都在这）
+npm run test:backspace       # 19  跨行删除走模型层（块级内核回归网）
+
+# 双内核口径：套件默认跑 block（回归网），加 TRACERY_TEST_ENGINE=cm 跑同一套的 cm 口径
+$env:TRACERY_TEST_ENGINE='cm'; npm run test:enter     # PowerShell；清掉环境变量即回到 block
+node test/design-check.mjs                            # 界面存档截图（同理会覆盖 design-*.png）
+node test/img-probe.mjs                               # 图片嵌入探针（打印信息，无断言）
 
 # 同步服务端（可选，常驻机器）
 npm run sync -- --data ./tracery-sync
 
 # 打包（重要，见 §7）
 npm run dist:dir             # electron-builder 产出 dist/win-unpacked
+npm run dist:dir:nosign      # 出包入口（跳过「签名 + 改 exe 资源」）：本机无权建符号链接 / 连不上 GitHub 时的唯一可行路
 npm run repack               # 只重打 app.asar（改完前端/服务端后用这条，绕过 winCodeSign）
 npm run release              # 一键：repack + 压 zip（先写 .new.zip 再改名，压缩失败不毁旧包）
 npm run release -- --shortcut  # 同上，并生成桌面快捷方式（手写 .lnk，不用 COM）
+
+# 打包版验证（先起包：$env:PORT='9540'; dist\win-unpacked\Tracery.exe --remote-debugging-port=9223）
+node test/verify-exe.mjs     # 应 14/14（渲染断言按 cm 口径自动选 + 分段滚动累加）
 ```
 
 无头浏览器是 `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`，测试用 `puppeteer-core`。
@@ -81,7 +95,7 @@ test/*.mjs              九个测试套件（见 §2）
 
 约定：仓库根目录 `E:\08_project\ev_\evnote`（本地目录名未随产品名改，代码不依赖目录名）；演示仓库 `demo-vault/`；配置在 `TRACERY_HOME/tracery.config.json`（Electron 默认 `%APPDATA%/Tracery`）；每仓库同步配置 `<vault>/.tracery/sync.json`；同步删除进 `<vault>/.tracery/trash/`；绘图笔画存 `附件/<名>.draw.json`（文件树隐藏但参与同步）。
 
-## 4. 已完成功能（截至 2026-10-17）
+## 4. 已完成功能（截至 2026-10-19）
 
 - 编辑器：实时预览、任务列表、Callout、表格、代码块、高亮、源码模式、自动保存 0.9s
 - 双链/反链/标签/全文搜索/命令面板/力导向图谱（全屏+缩放+适应）/大纲
@@ -100,6 +114,32 @@ test/*.mjs              九个测试套件（见 §2）
 - 同步：NAS/服务器方式 + **局域网六位通行码直连**；自动三方合并、冲突副本、删除回收站、
   内容寻址去重、1MB 分块上传、Range 断点下载、自动同步开关/间隔/自动合并开关
 - 仓库管理：欢迎页浮层（Esc/✕/点空白关闭）、最近列表、原生选文件夹、标题栏仓库名可点
+
+## 4b. 编辑内核现状（2026-10-19：双内核共存，迁移已完成主体）
+
+- **默认内核 = cm**（CodeMirror 6）。设置 → 编辑器 里的内核开关可一键回退块级；URL 加 `?engine=block|cm`
+  可按页覆盖（测试与手工验证都用它）。
+- **两个内核同契约**：`public/js/cm/engine.js`（`CmEditor`）与 `public/js/editor.js`（`LiveEditor`）
+  的方法一一对应（`getContent/insertText/setLinePrefix/wrapSelection/insertSnippet/scrollToHeading/
+  setMode/setLineNumbers/canUndo…`），app.js 用工厂按 `engine` 选实现，业务代码零改动。
+- 文件地图：`public/js/cm/{engine,decorations,editing,widgets}.js` + `public/css/cm.css`
+  （CM 样式，**全部用 app 的 CSS 变量** → 明暗主题自动跟随）+ `public/cmlab.html`（探针页）。
+  `public/vendor/cm/**` 是离线 vendor 包（`npm run build:cmvendor` 生成；`index.html` / `cmlab.html`
+  里的 importmap 也是它注入的 —— **主页面曾经漏了 importmap 导致白屏，见 7.6 结论 1**）。
+- **cm 侧已知的 3 处渲染缺口**（相对块级，下一轮补）：
+  1. **行内** `![[图片]]`（前面有文字那种）只渲染成 `.cm-lp-embed` 文字标记、**不出图**——cm 的图片
+     widget 只认「整行就是一个 `![[..]]`」（`widgets.js` 的 `EMBED_LINE_RE` + `blk.line === blk.endLine`）。
+  2. `![](路径)` 的 Markdown 图片在 cm 实时预览里也**不渲染**（只认 `![[..]]`）。
+  3. 未解析双链**没有** `unresolved` 变体类（`decorations.js` 的 wikilink 装饰不带解析结果），
+     所以 e2e 那条按引擎门控。
+- **写 cm 断言的三条铁律**（实测踩出来的，详见 `EDITOR-MIGRATION.md` 7.11）：
+  1. cm 装饰是**视口作用域**的（视口外不建 DOM）→ 任何「全文找 N 个 X」的断言必须**先分段滚动再累加**；
+  2. cm 的 history 有 ~500ms 的**合并窗口**（`newGroupDelay`）→「连续操作 → 分步撤销」的测试
+     要把步进拉开到 620ms，否则一次 Ctrl+Z 退到底；
+  3. 右键在 cm 里**不会移动光标**（只在 state 里），而浏览器默认 `mousedown` 会把选区收拢成光标 →
+     引擎在 `contentDOM` 上拦了 `mousedown`（`button===2` 且点落在选区内 → `preventDefault`）。
+- 测试口径：所有套件都读环境变量 `TRACERY_TEST_ENGINE`（**默认 block** = 块级回归网）；
+  `test/engine-test.mjs`（12 条）与 `test/cmlab-test.mjs` 只跑 cm / 探针页。
 
 ## 5. 技术决策（别推翻，先读理由）
 
@@ -163,6 +203,8 @@ test/*.mjs              九个测试套件（见 §2）
 41. **跨行删除必须走模型层 + DOM 结构安全网**（2026-10-18 用户实测的严重 bug）：行首连续 Backspace 会把 1-7 行在**视觉上**合并，但行号槽 2-8 残留成死区、Ctrl+Z 无可撤销、切源码模式内容完好——删除只发生在 DOM 层没进模型。根因：序列化按 `data-md-line-*` 旧 offset 做 gap 补换行，会把浏览器原生块合并的结构原样重建 → md 不变 → `_onInput` 跳过重渲染。修法两层：① 键盘层拦截——行首 Backspace（删上一个 \n + 本行标记前缀）、行尾 Delete（删下一个 \n + 下一行前缀）、跨块选区删除（按 md 范围删）、列表/标题内容起点 Backspace（outdent 去标记），全部 `_replaceRange` 走模型；② `_onInput` 安全网——「md 没变但 `_domSig()`（所有带 offset 标记元素的签名）变了」就强制重渲染，DOM 永远恢复成模型的样子。回归：`npm run test:backspace`（19 项）。已知边界：引用块行首、代码块/表格内的行合并在块级模型里位置不可表示，不拦，靠安全网兜底（CM6 迁移后天然解决）。
 42. **P1 只读渲染完成：CM6 装饰层与块级渲染共用一份解析**（2026-10-18 晚）：`markdown.js` 拆出 `parseMarkdown(md) → 块 AST`（带 lineStart/lineEnd/contentStart 与各类型数据），`renderMarkdown = render(parse)` 行为逐字不变（roundtrip 22 篇不动点 + 300 篇模糊 + gap/enter/polish 全绿）；新建 `public/js/cm/decorations.js`——`livePreviewPlugin`（ViewPlugin：标题行装饰、行内样式+标记隐藏、列表标记、引用/分割线/表格行、光标行规则）+ `fenceHiding`（StateField：围栏行与表格分隔行整行收起）。cmlab 探针页接入真装饰器，新增第 ⑤ 项 10 条断言（全过）。**9 个坑**写在 `EDITOR-MIGRATION.md` 7.2 节，最要命的三个：装饰生成器里一个非法 range 会让 CM6 **整体禁用**该插件（全部装饰消失，需 build 层 try/catch + 逐条校验 from/to）；AST 行号 0-based 与 `doc.line()` 1-based 混用会整体挂歪一行；正则扫描器拒绝重叠匹配后必须回退 `lastIndex`，否则 `**粗**` 内部的假匹配会吃掉后面的真匹配。下一阶段 P2 的开工提示词见迁移文档第 8 节。
 
+43. **CM6 迁移主体完成：默认内核已切 cm（2026-10-19）**：P2 行内编辑（`cm/editing.js`：Enter 续列表/任务列表、Tab 缩进、Ctrl+B/I/S/K、粘贴拖入拦截）、P3 块级 widget（`cm/widgets.js`：图片嵌入+拖宽、复选框、Callout、表格行、双链/标签事件）、P4 引擎适配器（`cm/engine.js` + app.js 工厂 + `settings.editorEngine`）、P5 收尾（`public/css/cm.css` 补齐 CM 样式并用 app 的 CSS 变量、17 个套件参数化为 `TRACERY_TEST_ENGINE`、全量双引擎回归、打包链路打通）全部完成，逐阶段结论在 `docs/EDITOR-MIGRATION.md` **7.3~7.11**。**顺带修掉 6 个真 bug**：cm 附件回调漏 import（7.7 结论 4）；`#editor-live` 滚动关链接预览在 cm 失效（7.7 结论 3）；右键把 CM 选区收拢成光标（7.10）；空列表项/空引用回车在 cm 里不退出列表（7.10）；`.cm-widgetBuffer` 把 2em 标题行撑高 23px（7.10）；cm 粘贴图片不改名 + **CRLF 笔记大纲为空**（7.11）。**默认保留 `settings.editorEngine` 一键回退**，旧块级内核不删（它是回归网，也是回退路）。
+
 ## 6. 已知坑（踩过的，直接抄结论）
 
 | 坑 | 结论 |
@@ -177,14 +219,20 @@ test/*.mjs              九个测试套件（见 §2）
 | Windows 文件/目录名不能含 `:*?"<>\|` | 冲突副本/绘图文件名统一 `.replace(/[\\/:*?"<>|]/g,'-')` |
 | puppeteer 这个版本 `keyboard.press('Control+X')` 不解析组合串 | 修饰键单独 `down('Control')` / `press('X')` / `up('Control')` |
 | `new URL('..', import.meta.url).pathname` 在 Windows 是 `/E:/...` | 给 spawn 当 cwd 会 ENOENT，用 `fileURLToPath(new URL('..', import.meta.url))` |
+| 打包时 electron-builder 解 winCodeSign 报「客户端没有所需的特权」（创建符号链接） | 那条路需要管理员 / 开启 Windows 开发者模式；**本机更稳的是 `npm run dist:dir:nosign`**（= `electron-builder --dir --config.win.signAndEditExecutable=false`，跳过签名 + 改 exe 资源，于是不需要 winCodeSign）。代价：**exe 文件本身**没有自定义图标/版本信息（窗口/任务栏图标正常，`main.cjs` 显式设了 `icon: build/icon.png`） |
+| 打包时 winCodeSign 从 GitHub 下载超时（`connect ETIMEDOUT 20.205.243.166:443`） | 这台机器上 GitHub 连不上（`git push github` 同样超时）→ 标准 `dist:dir` 是**网络 + 权限双重卡死**；`dist:dir:nosign` 完全离线可跑。补推 GitHub：网络好了跑 `git push github main` |
+| 右栏「大纲」对 CRLF 笔记显示「当前笔记没有标题」 | `refreshRightPanels` 用 `^(#{1,6})\s+(.*)$` 逐行扫标题，而 **JS 正则里 `.` 不匹配 `\r`、`$` 也不会落在 `\r` 之前** → Windows 上 git 检出的 CRLF 笔记一条标题都扫不到。修法：扫之前统一 `replace(/\r\n?/g, '\n')`。**凡「逐行正则 + `$` 锚点」都要先归一化换行**（Mac/Linux 上永远跑不出来） |
+| 跑套件会重写 `test/screenshots/*.png` 与 `demo-vault/Markdown 语法.md` | 前者是截图存档的副作用，后者是**块级内核的序列化 bug**（`- 嵌入笔记：![[常用代码]]` 被拆成三行，见 #41 / 7.7 结论 6）。跑完一律 `git checkout -- test/screenshots "demo-vault/Markdown 语法.md"` 复原，别提交 |
 
 ## 7. 新对话怎么继续（按优先级）
 
-1. **同步 v3：端到端加密**。路线：scrypt(密码) 派生 masterKey → 内容 AES-GCM 加密后再上传 → manifest 路径用 HMAC 存。服务端接口不用改（本来就只认 blob+sha）。注意：合并会失效（服务端看不到明文），需改成「客户端持有 base 明文」策略。
-2. **绘图二次编辑**：场景 JSON 已存 `附件/*.draw.json`（v2：`{v:2, elements:[...]}`），做「右键图片 → 编辑绘图」把它回填进 draw.js 的 `elements` 即可；跨设备时 JSON 也参与同步。
-3. **PWA + 响应式**（ROADMAP P0 最后一项）：manifest + service worker + 移动三栏。
-4. **大仓库性能**：文件树虚拟滚动 + 增量索引落盘。
-5. **mDNS 精细发现**（替代当前 UDP 广播启发式）。
+1. **cm 侧 3 处渲染缺口**（见 §4b）：行内 `![[图片]]` 与 `![](路径)` 出图（补**行内 widget**）、给 wikilink 补 `unresolved` 变体类。改完可以把 e2e #11 的引擎门控、`ui-ux` 里被门控的 3 条、`features`/`layout`/`backspace` 里被门控的条目逐步回收。
+2. **发版（可选，但这次改动够大值得发）**：默认内核切 cm 是用户可见变化，建议 `package.json` bump 到 **1.2.0**，照 `docs/RELEASE-1.1.1.md` 的格式写 `docs/RELEASE-1.2.0.md`，然后 `npm run dist:dir:nosign` + `npm run release` → 再把 `dist/Tracery-1.2.0-win32-x64.zip` 传到 Gitee → Releases。两处代价：exe 文件本身没有自定义图标/版本信息（nosign 的取舍）、zip 体积 ~110MB。
+3. **同步 v3：端到端加密**。路线：scrypt(密码) 派生 masterKey → 内容 AES-GCM 加密后再上传 → manifest 路径用 HMAC 存。服务端接口不用改（本来就只认 blob+sha）。注意：合并会失效（服务端看不到明文），需改成「客户端持有 base 明文」策略。
+4. **绘图二次编辑**：场景 JSON 已存 `附件/*.draw.json`（v2：`{v:2, elements:[...]}`），做「右键图片 → 编辑绘图」把它回填进 draw.js 的 `elements` 即可；跨设备时 JSON 也参与同步。
+5. **PWA + 响应式**（ROADMAP P0 最后一项）：manifest + service worker + 移动三栏。
+6. **大仓库性能**：文件树虚拟滚动 + 增量索引落盘。
+7. **mDNS 精细发现**（替代当前 UDP 广播启发式）。
 
 ## 8. 协作方式约定
 
@@ -197,10 +245,15 @@ test/*.mjs              九个测试套件（见 §2）
 ## 9. 快速自检清单（接手后 5 分钟）
 
 ```bash
-npm start                 # 起服务，浏览器开 http://localhost:9520
+npm start                 # 起服务，浏览器开 http://localhost:9520（默认内核已是 cm）
+npm run test:engine       # 应 12/12（CM6 内核「真实 app」冒烟）
 npm run test:e2e          # 应 15/15
+npm run test:cmlab        # 应 8/8 + IME（纯引擎探针页）
 npm run test:lan          # 应 10/10（验证局域网直连没坏）
 npm run test:sync         # 应 27/27
+
+# 双口径抽查：同一个套件在 cm 下也应全绿（默认 block 是回归网）
+$env:TRACERY_TEST_ENGINE='cm'; npm run test:polish
 ```
 
-如果全绿，说明环境和代码状态与本文档一致，可以按 §7 挑一项开工。
+如果全绿，说明环境和代码状态与本文档一致，可以按 §7 挑一项开工（内核现状看 §4b）。
