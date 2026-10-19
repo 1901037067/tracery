@@ -1137,6 +1137,32 @@ function loadTabsState() {
   }
 }
 
+/* ---------- 标签拖拽换序 ----------
+ * 用 pointer 事件而不是 HTML5 drag&drop：标题栏整体是 `-webkit-app-region: drag`，
+ * HTML5 拖放在 Electron 里时灵时不灵；pointer 还能被 puppeteer 的鼠标事件直接驱动（可测）。
+ * 约定：移动超过 5px 才算拖拽（否则当点击）；落点按「指针在中线左/右」决定插前还是插后。 */
+let tabDrag = null;            // { from, startX, moved }
+let suppressTabClick = false;  // 拖完会补一个 click，别把它当成切标签
+
+function clearTabDropMarks() {
+  document.querySelectorAll('#tablist .tab.drop-before, #tablist .tab.drop-after')
+    .forEach((el) => el.classList.remove('drop-before', 'drop-after'));
+}
+
+/** 把 from 位置的标签挪到插入位 to（to 是「原数组里的插入下标」） */
+function reorderTabs(from, to) {
+  if (from < 0 || from >= state.tabs.length || to < 0) return;
+  const activePath = state.tabs[state.activeTab];
+  const [item] = state.tabs.splice(from, 1);
+  const insert = Math.max(0, Math.min(from < to ? to - 1 : to, state.tabs.length));
+  if (insert === from) { state.tabs.splice(from, 0, item); return; }
+  state.tabs.splice(insert, 0, item);
+  // 活跃标签跟着「那篇笔记」走，不能跟着下标走
+  state.activeTab = Math.max(0, state.tabs.indexOf(activePath));
+  renderTabs();
+  saveTabsState();
+}
+
 function renderTabs() {
   // 标签栏已并入标题栏：标题栏永远可见（拖拽区 + 窗口按钮），
   // 无标签时只隐藏标签列表本身，不能再隐藏整个 bar
@@ -1149,6 +1175,7 @@ function renderTabs() {
     const tab = document.createElement('div');
     tab.className = `tab${i === state.activeTab ? ' active' : ''}`;
     tab.title = p;
+    tab.dataset.index = String(i);
     const name = document.createElement('span');
     name.className = 'tab-name';
     name.textContent = basename(p);
@@ -1157,8 +1184,46 @@ function renderTabs() {
     close.title = '关闭 (Ctrl+W)';
     close.innerHTML = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.2 3.2l5.6 5.6M8.8 3.2l-5.6 5.6"/></svg>';
     close.onclick = (e) => { e.stopPropagation(); closeTab(i); };
+
+    // 拖拽换序（pointer 实现，见上）
+    tab.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target.closest('.tab-close')) return;
+      tabDrag = { from: i, startX: e.clientX, moved: false };
+      try { tab.setPointerCapture(e.pointerId); } catch { /* 老内核忽略 */ }
+    });
+    tab.addEventListener('pointermove', (e) => {
+      if (!tabDrag || tabDrag.from !== i) return;
+      if (!tabDrag.moved) {
+        if (Math.abs(e.clientX - tabDrag.startX) < 5) return;
+        tabDrag.moved = true;
+        tab.classList.add('dragging');
+      }
+      const over = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.tab');
+      clearTabDropMarks();
+      if (!over || over === tab) return;
+      const r = over.getBoundingClientRect();
+      over.classList.add(e.clientX > r.left + r.width / 2 ? 'drop-after' : 'drop-before');
+    });
+    const endDrag = (e, commit) => {
+      if (!tabDrag || tabDrag.from !== i) return;
+      const { moved } = tabDrag;
+      const over = moved ? document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.tab') : null;
+      tabDrag = null;
+      tab.classList.remove('dragging');
+      clearTabDropMarks();
+      if (!moved || !commit || !over) return;
+      suppressTabClick = true;
+      setTimeout(() => { suppressTabClick = false; }, 0);
+      const target = Number(over.dataset.index);
+      if (!Number.isFinite(target) || target === i) return;
+      const r = over.getBoundingClientRect();
+      reorderTabs(i, target + (e.clientX > r.left + r.width / 2 ? 1 : 0));
+    };
+    tab.addEventListener('pointerup', (e) => endDrag(e, true));
+    tab.addEventListener('pointercancel', (e) => endDrag(e, false));
+
     tab.append(name, close);
-    tab.onclick = () => activateTab(i);
+    tab.onclick = () => { if (suppressTabClick) return; activateTab(i); };
     tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } };
     list.appendChild(tab);
   });

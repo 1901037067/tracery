@@ -309,14 +309,12 @@ function buildFenceDecos(state) {
         }
       }
       if (b.type === 'table') {
-        // 分隔行 = 0-based 的 header.line + 1；光标在表格范围内时露出
-        const lastRowLine = b.rows.length ? b.rows[b.rows.length - 1].line : b.header.line + 1;
-        const cursorInTable = [...cursor].some((n) => n >= b.header.line + 1 && n <= lastRowLine + 1);
-        if (!cursorInTable) {
-          const delim = docLine(state, b.header.line + 1);
-          if (delim && delim.from < delim.to) {
-            spans.push(Decoration.replace({ widget: new ZeroWidget(), block: true }).range(delim.from, delim.to));
-          }
+        // 分隔行（| --- |）**永远收起**：表格在实时预览里是「网格」，把 `---` 露出来
+        // 只在光标进表格时闪一下，反而像没渲染好（单元格编辑已由 widgets.js 的网格接管）。
+        // 需要改对齐方式时进源码模式（Ctrl+E）。
+        const delim = docLine(state, b.header.line + 1);
+        if (delim && delim.from < delim.to) {
+          spans.push(Decoration.replace({ widget: new ZeroWidget(), block: true }).range(delim.from, delim.to));
         }
       }
       if (b.blocks) walk(b.blocks);

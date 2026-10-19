@@ -127,6 +127,51 @@ async function main() {
   }));
   check('刷新后恢复标签页与激活项', restored.names.length === 2 && restored.active === reopen, JSON.stringify(restored));
 
+  // 5b. 标签栏外观（卡片 + 常显关闭钮）与拖拽换序（2026-10-19 新版）
+  const look = await page.evaluate(() => {
+    const t = document.querySelector('#tablist .tab');
+    const cs = getComputedStyle(t);
+    return {
+      radius: parseFloat(cs.borderTopLeftRadius),
+      height: Math.round(t.getBoundingClientRect().height),
+      closeOpacity: Number(getComputedStyle(t.querySelector('.tab-close')).opacity),
+    };
+  });
+  check('标签是圆角卡片、关闭按钮常显（淡）', look.radius >= 6 && look.height <= 40 && look.closeOpacity > 0.2, JSON.stringify(look));
+
+  const idleTab = await page.evaluate(() => {
+    const tabs = [...document.querySelectorAll('#tablist .tab')];
+    const i = tabs.findIndex((t) => !t.classList.contains('active'));
+    return { idx: i, color: getComputedStyle(tabs[i]).color };
+  });
+  await page.hover(`#tablist .tab:nth-child(${idleTab.idx + 1})`);
+  await sleep(300);
+  const hoverColor = await page.evaluate((i) => getComputedStyle(document.querySelectorAll('#tablist .tab')[i]).color, idleTab.idx);
+  check('悬停标签改变文字颜色', hoverColor !== idleTab.color, `${idleTab.color} → ${hoverColor}`);
+
+  const order0 = await page.evaluate(() => [...document.querySelectorAll('#tablist .tab-name')].map((e) => e.textContent));
+  const boxes = await page.evaluate(() => [...document.querySelectorAll('#tablist .tab')].map((t) => {
+    const r = t.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, left: r.left };
+  }));
+  await page.mouse.move(boxes[1].x, boxes[1].y);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) {
+    await page.mouse.move(boxes[1].x + (boxes[0].left + 5 - boxes[1].x) * (i / 10), boxes[1].y);
+    await sleep(20);
+  }
+  await page.mouse.up();
+  await sleep(500);
+  const order1 = await page.evaluate(() => ({
+    names: [...document.querySelectorAll('#tablist .tab-name')].map((e) => e.textContent),
+    active: document.querySelector('#tablist .tab.active .tab-name')?.textContent,
+    path: document.getElementById('note-path').textContent,
+  }));
+  check('拖拽标签可换序（第二个拖到第一个前面）',
+    order0.length === 2 && order1.names[0] === order0[1] && order1.names[1] === order0[0],
+    `${order0.join(',')} → ${order1.names.join(',')}`);
+  check('换序后激活的仍是同一篇笔记', order1.path === `${order1.active}.md`, JSON.stringify(order1));
+
   // 6. 拖拽左栏宽度
   const before = await page.evaluate(() => Math.round(document.getElementById('sidebar').getBoundingClientRect().width));
   const handle = await page.evaluate(() => { const r = document.getElementById('resizer-left').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });

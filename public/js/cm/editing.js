@@ -21,6 +21,7 @@
 import { EditorSelection, Prec } from '@codemirror/state';
 import { keymap, EditorView } from '@codemirror/view';
 import { insertNewlineContinueMarkup, deleteMarkupBackward } from '@codemirror/lang-markdown';
+import { parseCached } from './decorations.js';
 
 const INDENT = '  ';
 /** 任务项标记：缩进 + 项目符号 + 空格 + [ ]/[x] + 空格 */
@@ -123,6 +124,130 @@ export const indentLess = ({ state, dispatch }) => {
   return true;
 };
 
+/* ================= 表格：Tab 跳格 / Enter 加行（cm 的「单元格编辑」） =================
+ * 和块级内核的 <table> 不同，cm 里表格仍是真实文本行（widgets.js 只藏了管道字符、
+ * 给单元格挂了 padding/边线），所以「编辑单元格」= 把光移进那一格 + 直接打字，天然可编辑。
+ * 这里只补两件块级有、cm 缺的事：
+ *   ① Tab / Shift+Tab 在单元格之间跳（不再是把整行缩进 2 空格）；末行末格再 Tab = 加一行；
+ *   ② Enter 在当前行下面加一行同样列数的空行（表头行则插在分隔行之后）。
+ * 判定一律走 parseMarkdown 的 table 块（不靠文本猜），代码块/普通段落里的 | 不会被误判。 */
+/** 一行里所有未转义管道的字符下标 */
+function tablePipes(text) {
+  const pipes = [];
+  for (let k = 0; k < text.length; k++) {
+    if (text[k] === '|' && text[k - 1] !== '\\') pipes.push(k);
+  }
+  return pipes;
+}
+
+/** 当前行属于哪个 table 块（AST 行号 0-based，CM 行号 1-based） */
+function tableAt(state, lineNo1) {
+  let blocks;
+  try { ({ blocks } = parseCached(state)); } catch { return null; }
+  const idx = lineNo1 - 1;
+  let hit = null;
+  const walk = (bs) => {
+    for (const b of bs) {
+      if (b.type === 'table') {
+        const last = b.rows.length ? b.rows[b.rows.length - 1].line : b.header.line + 1;
+        if (idx >= b.header.line && idx <= last) hit = b;
+      }
+      if (b.blocks) walk(b.blocks);
+    }
+  };
+  walk(blocks);
+  return hit;
+}
+
+/** 第 k 个单元格的内容起点（跳过「| 」里那个空格） */
+function cellStart(line, k) {
+  const pipes = tablePipes(line.text);
+  const p = pipes[k];
+  if (p == null) return null;
+  let pos = p + 1;
+  while (pos < line.text.length && line.text[pos] === ' ') pos++;
+  return line.from + Math.min(pos, line.text.length);
+}
+
+/** 光标（相对行首的偏移）落在第几个单元格 */
+function cellIndexAt(line, rel) {
+  const pipes = tablePipes(line.text);
+  if (pipes.length < 2) return 0;
+  let n = 0;
+  while (n < pipes.length && pipes[n] < rel) n++;
+  return Math.max(0, Math.min(n - 1, pipes.length - 2));
+}
+
+/** 在当前行下方插一行同列数的空表格行，光标放进第一格 */
+function insertTableRow(state, dispatch, afterLine, cols) {
+  const row = '|' + '  |'.repeat(Math.max(1, cols));
+  const pos = afterLine.to;
+  dispatch(state.update({
+    changes: { from: pos, insert: state.lineBreak + row },
+    selection: EditorSelection.cursor(pos + 2),   // 跳过换行符和开头那个 |，落在第一格
+    scrollIntoView: true, userEvent: 'input',
+  }));
+  return true;
+}
+
+function moveTableCell(ctx, dir) {
+  const { state, dispatch } = ctx;
+  const r = state.selection.main;
+  if (!r.empty || state.selection.ranges.length !== 1) return false;
+  const line = state.doc.lineAt(r.head);
+  const tbl = tableAt(state, line.number);
+  if (!tbl) return false;
+  // 视觉顺序里的行序（分隔行不在里面：它被整行收起，光标也跳不到）
+  const seq = [tbl.header.line, ...tbl.rows.map((x) => x.line)];
+  let rowIdx = seq.indexOf(line.number - 1);
+  if (rowIdx < 0) return false;
+  let cellIdx = cellIndexAt(line, r.head - line.from);
+  const cols = Math.max(1, tablePipes(line.text).length - 1);
+
+  if (dir > 0) {
+    if (cellIdx + 1 < cols) cellIdx += 1;
+    else if (rowIdx + 1 < seq.length) { rowIdx += 1; cellIdx = 0; }
+    else {
+      // 末行末格再按 Tab = 加一行（Obsidian 的手感），光标直接进新行第一格
+      return insertTableRow(state, dispatch, line, cols);
+    }
+  } else {
+    if (cellIdx > 0) cellIdx -= 1;
+    else if (rowIdx > 0) { rowIdx -= 1; cellIdx = -1; }   // 上一行的最后一格
+    else return false;                                    // 表头第一格再往前 → 交回默认（缩进）
+  }
+
+  const target = state.doc.line(seq[rowIdx] + 1);
+  const targetCols = Math.max(1, tablePipes(target.text).length - 1);
+  if (cellIdx < 0 || cellIdx >= targetCols) cellIdx = targetCols - 1;
+  const pos = cellStart(target, cellIdx);
+  if (pos == null) return false;
+  dispatch(state.update({
+    selection: EditorSelection.cursor(pos),
+    scrollIntoView: true, userEvent: 'select',
+  }));
+  return true;
+}
+
+export const tableTabNext = (ctx) => moveTableCell(ctx, 1);
+export const tableTabPrev = (ctx) => moveTableCell(ctx, -1);
+
+/** Enter：表格里回车 = 加一行（而不是把一行拆成两行、把表拆坏） */
+export const tableEnter = ({ state, dispatch }) => {
+  const r = state.selection.main;
+  if (!r.empty || state.selection.ranges.length !== 1) return false;
+  const line = state.doc.lineAt(r.head);
+  const tbl = tableAt(state, line.number);
+  if (!tbl) return false;
+  const cols = Math.max(1, tablePipes(line.text).length - 1);
+  const idx0 = line.number - 1;
+  // 表头 / 分隔行上回车：新行要落在分隔行之后，否则会把表头和分隔行拆开
+  const after = (idx0 === tbl.header.line || idx0 === tbl.header.line + 1)
+    ? state.doc.line(Math.min(tbl.header.line + 2, state.doc.lines))
+    : line;
+  return insertTableRow(state, dispatch, after, cols);
+};
+
 /* ================= Ctrl+B/I/S/K：包裹 / 插入（对齐 editor.js） ================= */
 function toggleWrap(open, close) {
   return ({ state, dispatch }) => {
@@ -193,6 +318,10 @@ export function assetEventHandlers({ onAssetFile } = {}) {
 /** P2 编辑动作 keymap。Prec.high 保证压在 defaultKeymap 之前；
  *  Enter/Backspace 只在 markdown 上下文命中，未命中会继续落到 defaultKeymap。 */
 export const editingKeymap = [
+  // 表格优先：Tab/Enter 在表格里是「跳格/加行」，其余情况再走列表与缩进
+  { key: 'Enter', run: tableEnter },
+  { key: 'Tab', run: tableTabNext },
+  { key: 'Shift-Tab', run: tableTabPrev },
   { key: 'Enter', run: continueMarkupOrTask },
   { key: 'Backspace', run: deleteMarkupBackward },
   { key: 'Tab', run: indentMore },

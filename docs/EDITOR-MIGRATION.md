@@ -1029,6 +1029,47 @@ block + cm 各一遍全绿；`test:engine` 12/12、`test:cmlab` 8 探针 + IME �
 
 ---
 
+### 7.13 cm 表格单元格编辑（2026-10-19 · **网格渲染 + Tab 跳格 + Enter 加行**）
+
+**范围**：7.12「门控清单变化」里剩下最实的一条 —— cm 的表格只有行装饰，Tab 是缩进、回车拆行，
+块级内核的 `td/th` 编辑器在 cm 下完全不参与。
+
+**交付物**
+
+| 文件 | 内容 |
+|---|---|
+| `public/js/cm/widgets.js` | 表格块新增 `tableCellDecos()`：**藏掉每个 `|`** + 给单元格内容挂 `.cm-lp-cell`（`Decoration.mark`，带 `attributes.style.width`）；`tableColWidths()` 按整列最长内容估算列宽；`.cm-lp-img-grip` 那套样式一并恢复 |
+| `public/js/cm/editing.js` | `tableTabNext/Prev`（Tab / Shift+Tab 跳格，末行末格 Tab = 加一行）、`tableEnter`（回车加同列数空行，表头/分隔行上回车插在分隔行之后）；判定走 `parseMarkdown` 的 `table` 块，不靠文本猜 |
+| `public/js/cm/decorations.js` | 表格分隔行（`| --- |`）从「光标在表格里才露出」改成**永远整行收起** |
+| `public/css/cm.css` | 单元格网格样式（`inline-block` + 固定宽 + 右边线/底边线 + 表头底色）；行级类不再画底色/边线（见结论 3） |
+| `test/features-test.mjs` | 表格 3 条断言**解除 cm 门控**：网格渲染（管道隐藏）、Tab 跳格、回车加行 |
+
+**实测**：`test:features` block / cm 全绿（cm 新增 3 条）；`test:tabs` block / cm 16/16（新增 4 条）；
+其余 13 个应用套件双引擎全绿。
+
+**5 个关键结论**
+
+1. **表格不做成 widget，而是「真实文本行 + 单元格 mark」**：一旦整块 replace 成 `<table>`，
+   光标就进不了单元格，还得自己实现「点哪一个格子 → 映射回源码偏移」。现在每行仍是 CM 的真实行，
+   点哪写哪、选区/撤销/IME 全部原生，Tab 只是把光标挪到下一个单元格内容起点。
+2. **藏 `|` 用 `Decoration.replace({})`（零宽）而不是 widget**：管道不占位，格子之间靠单元格的
+   padding + 右边线分隔；分隔行直接整行收起（`fenceHiding`），不再随光标进表格闪出来。
+3. **底色/边线必须画在单元格上，不能画在行上**：`.cm-line` 是整宽的，行背景会拖出一条贯穿全文的
+   色带、行 `border-bottom` 会拖出一根长横线（改版时踩过，截图很难看）。单元格是 inline-block，
+   宽度 = 列宽之和，表格边界自然收口。
+4. **列宽要自己算**：文本行没有 `<table>` 的自动列宽，各行内容长短不一时竖线会左右错位。
+   按「CJK 15px / 拉丁 8.2px / 其他 6px」逐字累加取整列最大值 +30px padding，写到
+   `Decoration.mark({ attributes: { style: width } })` 上；单元格必须 `display:inline-block`
+   才吃 width。
+5. **Tab/Enter 的判定必须走 AST**：`parseCached(state)` 里找 `table` 块，再判断当前行是表头/分隔行/
+   数据行。用文本正则猜的话，代码块和正文里的 `|` 会被误判成表格。
+   末行末格 Tab = 加一行（Obsidian 手感），Shift+Tab 在表头第一格退回默认缩进。
+
+**边界（已知）**：表格比正文列宽时，`inline-block` 单元格会整格换行（不是横向滚动）；
+需要改对齐方式（`:---:`）时进源码模式。
+
+---
+
 ## 8. 下个会话从这里开始
 
 1. 读这份文档 + `docs/HANDOFF.md` 的 #14 / #21 / #26 / #34 / #36 / #40 / #41 / #42（空行/光标/行号/跨行删除的既有结论）

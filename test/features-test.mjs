@@ -91,9 +91,34 @@ if (IS_CM) {
 
 /* ---------- ③ 表格 Tab 跳格 + 回车加行 ---------- */
 if (IS_CM) {
-  // cm 没有 `td/th` 节点（表格是行装饰 `.cm-lp-tr`），app 的「表格 Tab/Enter」处理器
-  // 在 cm DOM 下选择器命中不到、直接早退 → 该条按引擎门控（见 7.9-C）
-  console.log('  ⏭ 跳过「表格 Tab 跳格 / 回车加行」：cm 无 td/th，块级表格处理器早退');
+  // cm 的表格是「真实文本行 + 单元格装饰（.cm-lp-cell）」：管道被藏起来、按列宽对齐，
+  // Tab 跳格 / Enter 加行由 cm/editing.js 接管（app.js 的块级表格处理器在 cm 下不参与）。
+  const grid = await page.evaluate(() => ({
+    cells: document.querySelectorAll('#editor-live .cm-lp-cell').length,
+    hasPipe: [...document.querySelectorAll('#editor-live .cm-lp-tbl')].some((l) => l.textContent.includes('|')),
+  }));
+  check('cm 表格渲染成网格（单元格装饰 + 管道隐藏）', grid.cells >= 4 && !grid.hasPipe, JSON.stringify(grid));
+
+  await page.evaluate(() => {
+    const ed = window.__tracery.editor;
+    const doc = ed.view.state.doc.toString();
+    ed.view.dispatch({ selection: { anchor: doc.indexOf('| 列A') + 2 } });   // 表头第一格
+    ed.view.focus();
+  });
+  await page.keyboard.press('Tab');
+  await sleep(250);
+  const cellNow = await page.evaluate(() => {
+    const s = window.__tracery.editor.view.state;
+    const h = s.selection.main.head;
+    return s.doc.sliceString(h, h + 2);
+  });
+  check('Tab 跳到下一个单元格', cellNow === '列B', cellNow);
+
+  await page.keyboard.press('Enter');
+  await sleep(1500);
+  const mdNow = fs.readFileSync(path.join(VAULT, '功能.md'), 'utf8');
+  const rows = (mdNow.match(/^\| /gm) || []).length;
+  check('表格里回车新增一行', rows === 4, `rows=${rows}`);
 } else {
   await page.evaluate(() => {
     const td = document.querySelector('#editor-live td');
@@ -175,6 +200,9 @@ const grip = await page.evaluate((isCm) => {
 }, IS_CM);
 if (grip) {
   await page.mouse.move(grip.x, grip.y);
+  // 手柄平时是 opacity:0 + pointer-events:none，悬停才可交互（2026-10-19 改版）；
+  // 留一帧让 :hover 生效，否则 mousedown 打在图片上会变成开灯箱
+  await sleep(200);
   await page.mouse.down();
   await page.mouse.move(grip.x + 120, grip.y, { steps: 8 });
   await page.mouse.up();

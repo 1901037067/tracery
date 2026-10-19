@@ -11,7 +11,9 @@
 > 未解析双链有 `.cm-lp-unresolved`；跑套件的测试门控已拆（ui-ux 4 条 + e2e #11）。
 > **v1.2.1 已发布**：除渲染缺口外，还打磨了两处视觉 —— 图片的虚线框/拖宽手柄改成**悬停才出现**、
 > 滚动条**贴编辑区右缘**（宽窗口下不再跑到纸张中间），见 §5 #44/#45。
-> **剩余**：cm 表格单元格编辑等，见 §7。
+> **本轮又补了两块**：cm **表格单元格编辑**（网格渲染 + Tab 跳格 + 回车加行，见 7.13）、
+> **标签栏改成卡片式**（悬停换文字色 + 拖拽换序，见 §5 #46）。
+> **剩余**：features ② / layout ② 两条口径差异，见 §7。
 
 ---
 
@@ -41,12 +43,12 @@ npm run test:gap             # 13  实时预览空行/落点回归（空行一�
 npm run test:polish          # 18  撤销/重做、实时预览行号 + 设置开关、右键菜单紧凑化与去 emoji
 npm run test:menu            # 10  编辑区右键菜单（文字/图片）+ 文件树菜单 + PDF 阅读器 + 侧栏折叠
 npm run test:trash           # 10  回收站（删除入站/恢复/彻底删除/清空）
-npm run test:features        # 13  右栏切换/代码高亮/表格 Tab/星标/最近/导出/图片缩放/替换/历史
+npm run test:features        # 13(block) / 14(cm)  右栏切换/代码高亮/表格网格+Tab+加行/星标/最近/导出/图片缩放/替换/历史
 npm run test:draw            # 20  绘图（Excalidraw 风格白板）
 npm run test:lan             # 10  局域网直连
 npm run test:layout          # 12  侧栏折叠回归 / 紧凑头栏
 npm run test:asset           # 15  附件落点 / 粘贴拖拽 / 路径穿越
-npm run test:tabs            # 12  多标签/栏宽/绘图历史
+npm run test:tabs            # 16  多标签/卡片样式+悬停换色/拖拽换序/栏宽/绘图历史
 npm run test:engine          # 12  CM6 内核「真实 app」冒烟（撤销重做/行号开关/Enter 续任务/粘贴附件/双链跳转）
 npm run test:cmlab           # 8 + IME  CM6 探针页（纯引擎单页，不依赖 app；P0~P4 的断言都在这）
 npm run test:backspace       # 19  跨行删除走模型层（块级内核回归网）
@@ -107,7 +109,8 @@ test/*.mjs              九个测试套件（见 §2）
 - **附件管理**：粘贴 / 拖入图片与文档自动落盘并插入 `![[路径]]`；落点三档可配
   （指定文件夹 / 跟随笔记目录 / 仓库根目录，设置 → 附件）；绘图也按此落盘
 - 内置绘图：`Ctrl+Shift+D` 或左下角笔图标；工具 选择/抓手/矩形/椭圆/菱形/箭头/直线/画笔/文字/橡皮，快捷键 V H R O D A L P T E；保存 PNG 到附件目录并插入光标处
-- 多标签页：树点击开新标签、`Ctrl+W`/`Ctrl+Tab`、持久化、外删自清理
+- 多标签页：树点击开新标签、`Ctrl+W`/`Ctrl+Tab`、持久化、外删自清理；**卡片式标签头**
+  （圆角上沿 / 活力标签强调色 + 底部 2px 线 / 悬停只换文字色），**可拖拽换序**
 - **Tab 栏即标题栏**：标签条在窗口最顶部，与最小化/最大化/关闭按钮同一行
   （VS Code / Obsidian「Tab 标题栏」模式），编辑区直接从笔记头开始
 - 可拖拽栏宽：侧栏/右栏拖拽 + 双击复位 + 记忆（折叠已兼容内联栏宽，见 §5-9）
@@ -137,6 +140,8 @@ test/*.mjs              九个测试套件（见 §2）
   3. 未解析双链补 `.cm-lp-unresolved`（`createLivePreview({resolveLink})`，与块级 `.wikilink.unresolved` 同视觉）。
   两个连带修复：**装饰在笔记索引/文件树刷新后显式重建**（`refreshDecorations`，修「开得太早链接一直未解析」
   与「刚粘贴的附件不出图」）；**`![[..]]` 行内标记的吃字 bug**（`marker:4` → `head:3/tail:2`）。
+- **cm 表格已能「编辑单元格」**（7.13）：管道字符隐藏、按列宽渲染成网格，Tab/Shift+Tab 跳格、
+  回车加同列数空行（末行末格 Tab 也加行）；文本仍是真实 markdown 行，点哪写哪。
 - **写 cm 断言的三条铁律**（实测踩出来的，详见 `EDITOR-MIGRATION.md` 7.11）：
   1. cm 装饰是**视口作用域**的（视口外不建 DOM）→ 任何「全文找 N 个 X」的断言必须**先分段滚动再累加**；
   2. cm 的 history 有 ~500ms 的**合并窗口**（`newGroupDelay`）→「连续操作 → 分步撤销」的测试
@@ -210,6 +215,18 @@ test/*.mjs              九个测试套件（见 §2）
 
 43. **CM6 迁移主体完成：默认内核已切 cm（2026-10-19）**：P2 行内编辑（`cm/editing.js`：Enter 续列表/任务列表、Tab 缩进、Ctrl+B/I/S/K、粘贴拖入拦截）、P3 块级 widget（`cm/widgets.js`：图片嵌入+拖宽、复选框、Callout、表格行、双链/标签事件）、P4 引擎适配器（`cm/engine.js` + app.js 工厂 + `settings.editorEngine`）、P5 收尾（`public/css/cm.css` 补齐 CM 样式并用 app 的 CSS 变量、17 个套件参数化为 `TRACERY_TEST_ENGINE`、全量双引擎回归、打包链路打通）全部完成，逐阶段结论在 `docs/EDITOR-MIGRATION.md` **7.3~7.11**。**顺带修掉 6 个真 bug**：cm 附件回调漏 import（7.7 结论 4）；`#editor-live` 滚动关链接预览在 cm 失效（7.7 结论 3）；右键把 CM 选区收拢成光标（7.10）；空列表项/空引用回车在 cm 里不退出列表（7.10）；`.cm-widgetBuffer` 把 2em 标题行撑高 23px（7.10）；cm 粘贴图片不改名 + **CRLF 笔记大纲为空**（7.11）。**默认保留 `settings.editorEngine` 一键回退**，旧块级内核不删（它是回归网，也是回退路）。
 
+46. **标签栏 = 卡片式标签 + pointer 拖拽换序**（2026-10-19 按用户给的参考图改）：
+    非活跃 = 浅底 + 发丝边 + 圆角上沿；活跃 = 纸色底 + 强调色文字 + 底部 2px 强调线；
+    **悬停只换文字色**（不铺底色，整条栏不闪）；关闭按钮常显但压到 0.45 透明度。
+    拖拽**不用 HTML5 DnD**（标题栏是 `-webkit-app-region: drag`，Electron 里时灵时不灵），
+    改用 pointer：移动 >5px 才进入拖拽，按指针相对目标标签中线判定插前/插后，
+    `elementFromPoint` 找落点、`pointerup` 时重排 `state.tabs`；**活跃标签跟着「那篇笔记」走**
+    （重排后按路径重新取下标，不能沿下标）。拖完会补一个 click，用 `suppressTabClick` 吞掉。
+47. **cm 表格：真实行 + 单元格装饰，不做 `<table>` widget**（7.13）：整块 replace 会让光标进不去；
+    现在只藏 `|`、给单元格挂 `Decoration.mark(.cm-lp-cell)`，`inline-block` + 估算列宽（写进
+    `attributes.style.width`）才有表格的样子。**底色/边线只画在单元格上**——画在 `.cm-line` 上会拖出
+    整宽色带和长横线。Tab/Enter 的判定走 `parseMarkdown` 的 table 块（避免误判代码块里的 `|`）。
+
 44. **图片的虚线框与拖宽手柄只在悬停时出现**（2026-10-19 用户反馈「常驻虚线框 + 橘色方块太丑」）：
     默认态只剩图片本身（圆角 + 阴影）；悬停时用 **outline** 画虚线框（**不能用 border**——border 会改盒尺寸，
     行内图片一 hover 就重排、还要惊动 CM 重新测量）；拖宽手柄平时 `opacity:0 + pointer-events:none`，
@@ -256,7 +273,7 @@ test/*.mjs              九个测试套件（见 §2）
    `remove ...d3dcompiler_47.dll: Access is denied`——先关掉应用；急的话用
    `npx electron-builder --dir --config.win.signAndEditExecutable=false --config.directories.output=dist-x`
    出到另一个目录，验证/压包完再删。
-3. **cm 表格单元格编辑**：表格现在只有行装饰（`.cm-lp-tr`），Tab 跳格/回车加行仍是块级专用。
+3. ~~cm 表格单元格编辑~~ ✅ **已完成（7.13）**：网格渲染 + Tab 跳格 + 回车加行，`features` 的表格门控已拆。
 4. **同步 v3：端到端加密**。路线：scrypt(密码) 派生 masterKey → 内容 AES-GCM 加密后再上传 → manifest 路径用 HMAC 存。服务端接口不用改（本来就只认 blob+sha）。注意：合并会失效（服务端看不到明文），需改成「客户端持有 base 明文」策略。
 5. **绘图二次编辑**：场景 JSON 已存 `附件/*.draw.json`（v2：`{v:2, elements:[...]}`），做「右键图片 → 编辑绘图」把它回填进 draw.js 的 `elements` 即可；跨设备时 JSON 也参与同步。
 6. **PWA + 响应式**（ROADMAP P0 最后一项）：manifest + service worker + 移动三栏。

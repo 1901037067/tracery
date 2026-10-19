@@ -348,9 +348,14 @@ function walkBlocks(blocks, state, cursor, out) {
         break;
       }
       case 'table': {
-        // 只补边框（行装饰）；**不整块 replace**——否则单元格文字不可编辑（第 4 节 P3 建议）
+        // 行装饰 + **单元格网格**：只藏管道字符、给单元格内容挂 padding/右边线，
+        // 文本仍是可编辑的真实行（不整块 replace——那样单元格就点不进去了）。
         out.push({ from: docLine(state, b.header.line).from, cls: 'cm-lp-tbl cm-lp-tbl-head', kind: 'line', always: true });
         for (const r of b.rows) out.push({ from: docLine(state, r.line).from, cls: 'cm-lp-tbl', kind: 'line', always: true });
+        const rowLines = [docLine(state, b.header.line), ...b.rows.map((r) => docLine(state, r.line))];
+        // 列宽按「整列最长内容」估算一次，各行共用 → 竖线才对得齐（纯 CSS 做不到）
+        const colW = tableColWidths(rowLines);
+        for (const ln of rowLines) tableCellDecos(ln, out, colW);
         break;
       }
       case 'quote':
@@ -362,6 +367,74 @@ function walkBlocks(blocks, state, cursor, out) {
       default:
         break; // heading / paragraph / fence / hr / blank 无 P3 新增装饰
     }
+  }
+}
+
+/** 一行表格 → 「藏掉每个 |」+「给每个单元格挂牌」（pad/右边线靠 CSS）。
+ *  为什么不做成 widget：单元格要能直接打字，整块/整格 replace 都会让光标进不去；
+ *  mark 只在文本外加一层 span，编辑、选区、Tab 跳格全部保持原生行为。
+ *  分隔行（| --- |）不处理——它由 fenceHiding 整行收起。 */
+/** 量一列内容的像素宽：**用 canvas 按编辑区真实字体量**，而不是按字符数估算
+ *  （估算法在「number / 中文混排」上会差几个像素，单元格就会折成两行）。
+ *  字体从 .cm-content 的计算样式取，主题/字号设置变了会自动跟上（每帧读一次很便宜）。 */
+let measureCtx = null;
+let measureFont = '';
+function textWidthPx(text) {
+  try {
+    if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+    const el = document.querySelector('#editor-live .cm-content') || document.getElementById('editor-live');
+    const cs = el ? getComputedStyle(el) : null;
+    const font = cs ? `${cs.fontSize} ${cs.fontFamily}` : '16px sans-serif';
+    if (font !== measureFont) { measureCtx.font = font; measureFont = font; }
+    return measureCtx.measureText(text).width;
+  } catch {
+    // canvas 不可用（极老内核）→ 退回按字符粗估
+    let w = 0;
+    for (const ch of text) {
+      if (/[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(ch)) w += 15;
+      else if (/[A-Za-z0-9]/.test(ch)) w += 8.2;
+      else w += 6;
+    }
+    return w;
+  }
+}
+
+function tableColWidths(lines) {
+  const widths = [];
+  for (const line of lines) {
+    const pipes = linePipes(line.text);
+    for (let k = 0; k + 1 < pipes.length; k++) {
+      const text = line.text.slice(pipes[k] + 1, pipes[k + 1]).trim();
+      widths[k] = Math.max(widths[k] || 0, textWidthPx(text));
+    }
+  }
+  // +40 = 单元格左右 padding（14+14）+ 右边线 + 8px 呼吸：canvas 量与浏览器排版
+  // 会有 1~2px 的差，贴太紧会让 `number` 这种词折成两行（实测踩过）。
+  return widths.map((w) => Math.round(Math.min(460, Math.max(76, w + 40))));
+}
+
+function linePipes(text) {
+  const pipes = [];
+  for (let k = 0; k < text.length; k++) {
+    if (text[k] === '|' && text[k - 1] !== '\\') pipes.push(k);
+  }
+  return pipes;
+}
+
+function tableCellDecos(line, out, colW) {
+  if (!line || !line.text.includes('|')) return;
+  const pipes = linePipes(line.text);
+  if (pipes.length < 2) return;
+  for (const p of pipes) out.push({ from: line.from + p, to: line.from + p + 1, kind: 'hide', always: true });
+  for (let k = 0; k + 1 < pipes.length; k++) {
+    const from = line.from + pipes[k] + 1;
+    const to = line.from + pipes[k + 1];
+    if (to <= from) continue;
+    const cls = 'cm-lp-cell'
+      + (k === 0 ? ' cm-lp-cell-first' : '')
+      + (k + 1 === pipes.length - 1 ? ' cm-lp-cell-last' : '');
+    const w = colW?.[k];
+    out.push({ from, to, kind: 'mark', cls, always: true, attrs: w ? { style: `width:${w}px` } : undefined });
   }
 }
 
@@ -487,7 +560,7 @@ export function widgetsPlugin(opts = {}) {
           if (to < lo || d.from > hi) continue;
           if (!d.always && d.kind !== 'line' && cursor.has(state.doc.lineAt(d.from).number)) continue;
           if (d.kind === 'line') spans.push(Decoration.line({ class: d.cls }).range(d.from));
-          else if (d.kind === 'mark') spans.push(Decoration.mark({ class: d.cls }).range(d.from, to));
+          else if (d.kind === 'mark') spans.push(Decoration.mark({ class: d.cls, attributes: d.attrs }).range(d.from, to));
           else if (d.kind === 'replace') spans.push(Decoration.replace({ widget: d.widget }).range(d.from, to));
           else if (d.from < to) spans.push(Decoration.replace({}).range(d.from, to));
         }

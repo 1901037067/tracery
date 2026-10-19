@@ -118,6 +118,8 @@ const header = await page.evaluate(() => {
   const editorRect = editorArea.getBoundingClientRect();
   const tabRect = activeTab?.getBoundingClientRect();
   const winRect = winClose?.getBoundingClientRect();
+  const titlebarRect = titlebar.getBoundingClientRect();
+  const accentLine = activeTab ? getComputedStyle(activeTab, '::after') : null;
   const sbRect = statusbar.getBoundingClientRect();
   const btnRect = modeBtn?.getBoundingClientRect();
   return {
@@ -127,6 +129,9 @@ const header = await page.evaluate(() => {
     listAboveEditor: listRect.bottom <= editorRect.top + 1,
     tabCenterY: tabRect ? tabRect.top + tabRect.height / 2 : null,
     winCenterY: winRect ? winRect.top + winRect.height / 2 : null,
+    tabBottom: tabRect ? tabRect.bottom : null,
+    titlebarBottom: titlebarRect.bottom,
+    tabAccentLine: accentLine ? (parseFloat(accentLine.height) || 0) >= 2 && accentLine.backgroundColor !== 'rgba(0, 0, 0, 0)' : false,
     tabRadius: activeTab ? getComputedStyle(activeTab).borderRadius : '',
     tabActiveBg: (() => {
       if (!activeTab) return '';
@@ -144,17 +149,18 @@ const header = await page.evaluate(() => {
 check('至少两个标签（启动自开的 + 点击两篇）', header.tabCount >= 2, `tabs=${header.tabCount}`);
 check('Tab 条整体在编辑区上方（已搬进标题栏，不再是编辑区内部的行）', header.listAboveEditor, `listBottom=${header.listTop.toFixed(0)}`);
 check('Tab 条贴在窗口最顶部', header.listTop < 60, `top=${header.listTop.toFixed(1)}px`);
-check('Tab 与窗口关闭按钮同一水平线（垂直中心差 < 6px）',
-  header.tabCenterY != null && header.winCenterY != null && Math.abs(header.tabCenterY - header.winCenterY) < 6,
-  `tab=${header.tabCenterY?.toFixed(1)} win=${header.winCenterY?.toFixed(1)}`);
+// 卡片式标签（2026-10-19）：标签只有 33px 高、贴标题栏底边坐着，不再要求与窗口按钮同中心
+check('标签卡片底边贴着标题栏底边（±2px）',
+  header.tabBottom != null && Math.abs(header.tabBottom - header.titlebarBottom) <= 2,
+  `tabBottom=${header.tabBottom?.toFixed(1)} titlebarBottom=${header.titlebarBottom?.toFixed(1)}`);
 check('标题栏高度紧凑（30~50px）', header.titlebarH > 30 && header.titlebarH < 50, `${header.titlebarH.toFixed(1)}px`);
 check('笔记头行已删除（界面不再显示文件名+模式那一行）', header.noteHeaderGone && header.editorFirstChild === 'editor-wrap', `firstChild=${header.editorFirstChild}`);
 check('模式切换按钮在状态栏、靠右、可见',
   header.modeBtnInStatusbar && header.modeBtnNearRight && header.modeBtnVisible,
   `inStatusbar=${header.modeBtnInStatusbar} nearRight=${header.modeBtnNearRight}`);
-check('活动标签为分段样式（无圆角 + 垫纸色）',
-  header.tabRadius === '0px' && header.tabActiveBg === 'sheet',
-  `radius=${header.tabRadius} bg=${header.tabActiveBg}`);
+check('活动标签为卡片样式（上圆角 + 垫纸色 + 底部强调线）',
+  parseFloat(header.tabRadius) >= 6 && header.tabActiveBg === 'sheet' && header.tabAccentLine,
+  `radius=${header.tabRadius} bg=${header.tabActiveBg} accent=${header.tabAccentLine}`);
 
 /* ================= 3. 图片查看 / 行号 / 折叠图标 ================= */
 

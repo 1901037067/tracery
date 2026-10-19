@@ -1585,13 +1585,14 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
 .sync-help .set-note { font-size: 11.5px; }
 
 /* ============ 标签页（位于标题栏内，与窗口按钮同一行） ============ */
-/* 设计：Obsidian「Tab 标题栏」式分段——标签占满标题栏高度，段与段之间
-   一道上下留白的细竖线；活跃标签垫「纸」色成为凸起的一段。
-   拖拽口径：容器本身是拖拽区（空白处可拖窗口），只有 .tab 是 no-drag。 */
+/* 设计（2026-10-19 按用户给的参考图改）：标签是**卡片**——圆角上沿、发丝边、浅底；
+   活跃标签 = 纸色底 + 强调色文字 + 底部 2px 强调线；**悬停只换文字色**（提示可点，不铺底色）。
+   拖拽口径：容器本身是窗口拖拽区，只有 .tab 是 no-drag；标签之间可拖动换序（pointer 实现）。 */
 .tablist {
   flex: 1; min-width: 0;
-  display: flex; align-items: stretch;
+  display: flex; align-items: flex-end; gap: 6px;
   align-self: stretch;
+  padding: 0 10px;
   overflow-x: auto; overflow-y: hidden;
   scrollbar-width: none;
 }
@@ -1601,26 +1602,44 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
 .tab {
   position: relative;
   display: flex; align-items: center; gap: 6px;
-  padding: 0 12px;
+  height: 33px;
+  padding: 0 8px 0 12px;
+  border: 1px solid var(--hairline);
+  border-bottom: none;
+  border-radius: 9px 9px 0 0;
+  background: var(--bg-fill);
   /* 宁可横滚也不缩成「00...」：120px 保住可读性，超出部分滚动 + 边缘渐隐提示 */
   max-width: 210px; min-width: 120px;
   font-size: 12px; color: var(--text-secondary);
   cursor: default; user-select: none;
   -webkit-app-region: no-drag;
-  transition: background 120ms linear, color 120ms linear;
+  transition: background 120ms linear, color 120ms linear, border-color 120ms linear;
 }
-/* 相邻标签之间的细竖线：上下各收 25%，比标签矮一截才不闷 */
-.tab + .tab::before {
+/* 悬停：只把文字染成强调色（参考图的行为），底色不动，避免整条标签栏闪 */
+.tab:hover { color: var(--accent); }
+/* 活跃标签：垫「纸」色 + 强调色文字 + 底部强调线（暗示这就是下面编辑区那张纸） */
+.tab.active {
+  background: var(--bg-sheet);
+  border-color: var(--hairline-strong);
+  color: var(--accent);
+  font-weight: 550;
+}
+.tab.active::after {
   content: '';
-  position: absolute; left: 0; top: 26%; bottom: 26%;
-  width: 1px;
-  background: var(--hairline);
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 2px; background: var(--accent);
 }
-/* 活跃标签垫了纸色，贴着它的两道竖线让位，让这一段读起来是完整的一块 */
-.tab.active::before, .tab.active + .tab::before { content: none; }
-.tab:hover { background: var(--bg-fill); color: var(--text-primary); }
-/* 活跃标签用「纸」的颜色：暗示这就是下面编辑区那张纸 */
-.tab.active { background: var(--bg-sheet); color: var(--text-primary); font-weight: 550; }
+/* 拖拽换序：被拖的标签半透明，落点用一条竖线提示 */
+.tab.dragging { opacity: 0.45; }
+.tab.drop-before::before, .tab.drop-after::before {
+  content: '';
+  position: absolute; top: 3px; bottom: 3px;
+  width: 2px; border-radius: 1px;
+  background: var(--accent);
+  z-index: 2;
+}
+.tab.drop-before::before { left: -4px; }
+.tab.drop-after::before { right: -4px; }
 
 /* 标签溢出：可滚的一侧渐隐，提示「还有标签在那边」 */
 .tablist[data-overflow="end"] { mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent); }
@@ -1629,14 +1648,15 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
   mask-image: linear-gradient(to right, transparent, #000 26px, #000 calc(100% - 26px), transparent);
 }
 .tab-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 关闭按钮常显（参考图每个标签都有 ×），但压低不抢戏，悬停/活跃时提亮 */
 .tab-close {
   width: 16px; height: 16px; flex-shrink: 0;
   display: grid; place-items: center;
-  border-radius: 4px; opacity: 0; color: var(--text-tertiary);
-  transition: opacity 120ms linear, background 120ms linear;
+  border-radius: 4px; opacity: 0.45; color: var(--text-tertiary);
+  transition: opacity 120ms linear, background 120ms linear, color 120ms linear;
 }
-.tab:hover .tab-close, .tab.active .tab-close { opacity: 1; }
-.tab-close:hover { background: var(--bg-fill); color: var(--text-primary); }
+.tab:hover .tab-close, .tab.active .tab-close { opacity: 0.9; }
+.tab-close:hover { background: var(--bg-fill-hover); color: var(--text-primary); opacity: 1; }
 .tab-close svg { width: 10px; height: 10px; }
 
 /* ============ 可拖拽栏宽 ============ */

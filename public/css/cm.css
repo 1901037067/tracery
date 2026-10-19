@@ -138,14 +138,45 @@
   font-weight: 600;
 }
 
-/* 围栏/分隔行的整行收起占位（fenceHiding StateField 的 ZeroWidget） */
-.cm-lp-zero { height: 0; overflow: hidden; }
+/* ---------- 表格网格（widgets.js 藏掉 `|`，每个单元格挂 .cm-lp-cell） ----------
+ * 表格在实时预览里看起来是「格子」，但文本仍是真实 markdown 行：点进去就能改，
+ * Tab 跳格、Enter 加行由 cm/editing.js 接管。
+ * **行本身不画任何底色/边线**（`.cm-line` 是整宽的，一画就拖出长长的色带和横线）；
+ * 底色、边线、行高全部落在单元格上 —— 表格宽度自然等于各列宽之和。 */
+#editor-live .cm-lp-tr,
+#editor-live .cm-lp-tr-head,
+#editor-live .cm-lp-tbl,
+#editor-live .cm-lp-tbl-head {
+  background: transparent;
+  border: none;
+  font-weight: inherit;
+}
+#editor-live .cm-lp-cell {
+  /* inline-block + 固定宽（widgets.js 按整列最长内容算好，写在 style.width 上）：
+     否则每行的竖线会随内容长短左右错位，看起来就不像表了。 */
+  display: inline-block;
+  box-sizing: border-box;
+  vertical-align: top;
+  padding: 3px 14px;
+  border-right: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-fill);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#editor-live .cm-lp-tbl-head .cm-lp-cell {
+  border-top: 1px solid var(--hairline);
+  border-bottom: 2px solid var(--hairline-strong);
+  background: var(--bg-fill-hover);
+  font-weight: 600;
+}
+#editor-live .cm-lp-cell-first { padding-left: 10px; }
+#editor-live .cm-lp-cell-last { border-right: none; padding-right: 10px; }
 
 /* ---------- ⑤ 块级 widget（public/js/cm/widgets.js 产出） ---------- */
-/* 图片 / 附件嵌入 */
-/* 图片本体的默认态：**无边框、无底色**，只留图片自己的圆角阴影（与块级 .embed-image 一致）。
-   虚线框走 .embed-image:hover 的 outline（style.css），鼠标移上去才出现——
-   常驻的虚线框 + 常驻橙色手柄太吵（用户 2026-10-19 反馈）。 */
+/* 图片 / 附件嵌入：默认态**只留图片本身**（圆角 + 阴影），虚线框与拖宽手柄都在悬停时出现
+   —— 常驻的虚线框 + 橙色方块太吵（用户 2026-10-19 反馈）。虚线框用 style.css 的
+   `.embed-image:hover { outline: ... }`（outline 不改盒尺寸，行内图不会因 hover 重排）。 */
 .cm-lp-img {
   position: relative;
   display: inline-block;
@@ -156,7 +187,7 @@
 }
 .cm-lp-img img { display: block; max-width: 100%; border-radius: 4px; }
 /* 拖宽手柄：平时完全透明且不挡事件，鼠标进图片才浮现。
-   外观对齐块级 `.img-grip`（纸色小方块 + 发丝描边 + 右下角两道折线），不再是橘色方块。 */
+   外观对齐块级 `.img-grip`（纸色小方块 + 发丝描边 + 右下角折线）。 */
 .cm-lp-img-grip {
   position: absolute;
   right: 6px; bottom: 6px;

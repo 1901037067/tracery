@@ -178,8 +178,10 @@ md = await mdOf();
 check('「加粗」给选中文字加 ** **', md.includes('**第一行**') || md.includes('**第一行文字**'), JSON.stringify(md.split('\n').slice(0, 4)));
 
 /* ---------- ② 图片右键菜单 ---------- */
-// cm 下 `![[..]]` 由 widget 渲染（.cm-lp-img img）；块级下第一张是 markdown 图片 `![小图](...)`
-await rightClickOn(IS_CM ? '#editor-live .cm-lp-img img' : '#editor-live img');
+// cm 下 `![[..]]` 由**块级** widget 渲染成 <figure class="cm-lp-img">；行内/`![](路径)`
+// 是 <span class="cm-lp-img cm-lp-img-inline">。这里要测的是 `![[..]]` 这一张，
+// 所以必须选 figure（否则会点中前面那张 `![小图](...)`，删错对象）。
+await rightClickOn(IS_CM ? '#editor-live figure.cm-lp-img img' : '#editor-live img');
 const imgItems = await menuItems();
 check('图片右键 → 图片菜单',
   ['复制图片', '查看大图', '复制路径', '移除图片', '删除图片文件'].every((l) => imgItems.includes(l)),
