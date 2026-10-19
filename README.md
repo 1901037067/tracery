@@ -51,7 +51,44 @@ npm run start:electron
 npm run dist:dir                  # 产出 dist/win-unpacked/Tracery.exe
 ```
 
-已打包版本从 Releases 下载 zip，解压双击 **Tracery.exe**。首次启动自动打开演示仓库。
+### 下载与安装（给使用者）
+
+**不需要装 Node、不需要装 Electron、不需要管理员权限**，包内自带运行时。
+
+1. **下载**：打开本仓库的 **Releases** → 选最新版 → 下载 `Tracery-<版本>-win32-x64.7z`
+   （Gitee 与 GitHub 是同一个包，选一个下就行）。
+2. **解压**：解压到任意目录（例如 `D://Apps//Tracery`）。
+   ⚠️ 要**整个文件夹一起解压**，不能只把 `Tracery.exe` 单独拖出来——它旁边的
+   `resources/`、`*.dll` 都是运行必需的。
+3. **运行**：双击 `Tracery.exe`。免安装、不写注册表。
+4. **首次启动**：会自动打开内置演示仓库，随便点点看看。
+   要换成自己的笔记：点左上角**工作区名** →「管理仓库…」→ 选一个**普通文件夹**作为仓库
+   （仓库 = 装 `.md` 文件的文件夹，和 Obsidian 的 vault 是同一个概念）。
+5. **你的数据在哪**：
+   - **笔记**：就在你选的仓库文件夹里，全是纯 `.md` / 图片，随时能用别的软件打开、能直接备份；
+   - **设置**：`%APPDATA%\tracery`（窗口大小、主题、最近仓库等）；
+   - **回收站 / 同步状态**：仓库里的 `.tracery` 目录（不参与同步）。
+6. **卸载**：删掉程序目录即可；想连设置一起清掉，再删 `%APPDATA%\tracery`。**笔记不受影响**。
+
+**为什么是 `.7z` 而不是 `.zip`？** Gitee 发行版的单个附件上限是 **100MB**，而本项目的 zip 约 110MB，
+会被网页拒收。`.7z` 约 71MB，Windows 11（23H2 起）双击即可解压；Windows 10 需要装
+[7-Zip](https://www.7-zip.org/) / WinRAR / Bandizip。
+Releases 里同时提供 `zip.part1` + `zip.part2`（各约 55MB）作为备选：两个都下到同一目录后执行
+`copy /b ...part1 + ...part2 Tracery.zip` 合并，解压即可。
+
+**首次运行被 SmartScreen 拦住？** 打包产物没有做代码签名（个人项目没有证书），
+Windows 会提示「Windows 已保护你的电脑」：点 **更多信息 → 仍要运行** 即可。
+
+**系统要求**：Windows 10 / 11（64 位）。macOS / Linux 目前没有预编译包，可以按上面的源码方式跑。
+
+### 把这个应用发给别人（维护者清单）
+
+1. `npm run release` 会产出 `dist/Tracery-<版本>-win32-x64.zip` **和** `.7z`
+   （脚本会提示 zip 是否超过 100MB）；
+2. Gitee → 仓库 → **Releases** → 基于 tag 新建发行版 → 上传 **`.7z`**；
+   GitHub → Release 同版本 → 上传 **zip**（GitHub 单文件上限 2GB，没有这个问题）；
+3. 发行版说明直接粘 `docs/RELEASE-<版本>.md` 的内容；
+4. 只想私下发给某个人时，直接把 `.7z` 发过去（微信/网盘都行），对方按上面 1~4 步用即可。
 
 > 国内网络加镜像：`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`。
 > 单文件 portable exe 需要符号链接权限（Windows 开发者模式）；普通账户用
