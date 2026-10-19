@@ -1089,6 +1089,45 @@ block + cm 各一遍全绿；`test:engine` 12/12、`test:cmlab` 8 探针 + IME �
 
 ---
 
+### 7.15 双链/标签「鼠标点击」失效的根因（2026-10-19 · 已修）
+
+**现象**：编辑区里用鼠标点 `[[双链]]` 毫无反应；但测试里合成 `span.click()` 却能正常跳转。
+
+**根因（实测取证）**：`.cm-lp-wikilink` / `.cm-lp-tag` 是「光标行不挂牌」的装饰（P1 的验收项 4）。
+真实鼠标点击时，浏览器的 `mousedown` 先把光标落到该行 → 本行变「光标行」→ ViewPlugin 因 `selectionSet`
+重建装饰 → 该行的 mark/hide 全部撤掉（露出原始 `[[ ]]` 语法），span 从 DOM 里消失；
+紧接着派发的 `click` 事件 `closest('.cm-lp-wikilink')` 已经找不到任何东西 → 静默什么都不做。
+**只有真实鼠标事件会触发这条链**，所以「合成 click」式的断言永远看不出这个缺陷。
+
+**修法**：`cm/widgets.js` 的 `linkEvents` 增加 `mousedown` 处理——左键落在 wikilink/tag 上时
+`preventDefault()` 并 `return true`（顺带阻止 CM 把选区设到点击处）。选区不动 → span 保留 → 随后的 click 正常跳转。
+
+**连带代价**：渲染态的链接上单击不再能放光标（Obsidian 实时预览同样是「点链接 = 跳转」）；
+想编辑这一行就把光标移到该行（点行首/行尾一侧，或方向键进去），语法标记会自动露出来。
+
+**回归**：`test/engine-test.mjs` 新增一条**真实鼠标点击**断言（`page.mouse.click` 打 span 的 rect 中心），
+今后凡涉及「点击 DOM 装饰」的行为，别只用合成 click 断言。
+
+---
+
+### 7.16 块级内核下线（2026-10-19 · v1.4.0）
+
+7.12~7.14 之后，cm 已经覆盖了块级的全部能力（含表格单元格编辑、图片拖宽、源码行号）。
+继续保留块级只剩两个用途：**回退路** 与 **回归网**。但两者都不成立：用户从不切回块级（默认 cm），
+而"回归网"也只能证明块级自己没坏，证明不了 cm 没坏。于是整体删除：
+
+| 删除物 | 说明 |
+|---|---|
+| `public/js/editor.js` | 1310 行，块级 contenteditable 内核 |
+| `settings.editorEngine` + 设置里的「编辑内核」行 | 不再有内核选择 |
+| `?engine=block` 与 `TRACERY_TEST_ENGINE=block` | 参数仍可传但无效（兼容旧脚本） |
+| 各套件的 block 分支 | 保留 `IS_CM = true` 常量，历史分支暂未逐行清理（不影响执行） |
+
+**验证**：15 个套件在单内核下全绿（e2e 15、ux 16、layout/polish/gap/menu/features/asset/trash/roundtrip/enter/ui-vault 全 PASS、
+tabs 16、draw 37、sync 27、sync-enc 20）。回退方式：`git checkout v1.3.0`。
+
+---
+
 ## 8. 下个会话从这里开始
 
 1. 读这份文档 + `docs/HANDOFF.md` 的 #14 / #21 / #26 / #34 / #36 / #40 / #41 / #42（空行/光标/行号/跨行删除的既有结论）

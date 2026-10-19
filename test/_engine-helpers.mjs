@@ -1,23 +1,16 @@
 /**
- * test/_engine-helpers.mjs — 双内核测试助手
+ * test/_engine-helpers.mjs — 测试助手（单内核：CodeMirror 6）
  * ------------------------------------------------------------------
- * 编辑内核有两个实现（见 docs/EDITOR-MIGRATION.md 第 5 节）：
- *   - block：旧块级 contenteditable（DOM 即渲染后的 markdown：h1/p/li/.md-blank/.live-gutter…）
- *   - cm   ：CodeMirror 6（DOM 是 .cm-editor/.cm-content/.cm-line + .cm-lp-* 装饰）
- * 套件用 `TRACERY_TEST_ENGINE` 选内核跑同一套流程，断言面统一收敛到
- * `window.__editor.getContent()`（权威文本，两内核都有）与 CM/块级各自的 DOM。
+ * v1.4.0 起下线了旧的块级 contenteditable 内核，编辑器只有 CM6 一套实现。
+ * 这个文件保留下来是为了让各个套件的公共工具（打开地址、取文本、取光标）集中在一处。
  *
- * 用法（每个套件顶部）：
- *   import { ENGINE, IS_CM, engineUrl, getMd, ... } from './_engine-helpers.mjs';
- *   await page.goto(engineUrl(`http://localhost:${PORT}`), { waitUntil: 'networkidle0' });
- *   // 跑 cm 口径： $env:TRACERY_TEST_ENGINE='cm'; npm run test:xxx
- *
- * 默认仍是 block：它作为「块级回归网」，改成 cm 口径的套件在 cm 下另跑一遍。
+ * 兼容说明：仍然导出 `IS_CM = true` / `ENGINE = 'cm'`，因为历史套件里还有
+ * `if (IS_CM)` 分支；新写断言不要再依赖它，直接按 cm 的 DOM 写。
  */
 
-export const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';
-export const IS_CM = ENGINE === 'cm';
-export const engineUrl = (base) => `${base}/?engine=${ENGINE}`;
+export const ENGINE = 'cm';
+export const IS_CM = true;
+export const engineUrl = (base) => base;
 
 /** 文档文本（权威文本，两内核通用） */
 export async function getMd(page) {

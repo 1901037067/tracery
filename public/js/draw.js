@@ -15,6 +15,7 @@
  * <同名>.draw.json（v2），以后要做「重新编辑」不用重新画。
  */
 import { Api, toast } from './api.js';
+import { askText, askConfirm } from './dialog.js';
 import { getSettings, resolveAssetDir } from './settings.js';
 
 /* ================= 常量 ================= */
@@ -25,6 +26,10 @@ const FILLS = [['none', '无'], ['hachure', '排线'], ['solid', '实心']];
 const DASHES = [['solid', '实线'], ['dashed', '虚线'], ['dotted', '点线']];
 const FONT = 'system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif';
 const MIN_SIZE = 4;
+const ROTATE_OFFSET = 26;     // 旋转柄离形状顶边的屏幕距离（px）
+const ROTATE_SNAP = Math.PI / 12;   // 按住 Shift 时的 15° 吸附
+const DRAFTS_KEY = 'tracery.drawDrafts';   // 草稿箱存本地 localStorage（不进仓库、不同步）
+const DRAFT_LIMIT = 30;
 
 const TOOLS = [
   ['select', '选择', 'V'],
@@ -61,6 +66,7 @@ let toolsEl = null;
 let propsEl = null;
 let textEdit = null;
 let hintEl = null;
+let draftPanel = null;
 
 let W = 0;
 let H = 0;
@@ -78,6 +84,7 @@ let opts = {};
 let saving = false;
 let spaceDown = false;
 let rafId = 0;
+let activeDraftId = null;   // 当前画板对应的草稿（null = 新画板）
 
 function defaultStyle() {
   return {
@@ -126,6 +133,37 @@ function bounds(el) {
     y: Math.min(el.y, el.y + el.h),
     w: Math.abs(el.w),
     h: Math.abs(el.h),
+  };
+}
+
+/* ---- 旋转（angle 存弧度，绕**未旋转包围盒的中心**转） ----
+ * 为什么绕包围盒中心：绘制/命中检测都能复用未旋转的 bounds，不用给每种形状单独维护
+ * 一套「旋转后几何」；代价是缩放的锚点要额外补偿（见 onPointerMove 的 resize 分支）。 */
+
+/** 元素中心（世界坐标） */
+function centerOf(el) {
+  const b = bounds(el);
+  return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+}
+
+/** 绕 (cx,cy) 旋转一个点/向量 */
+function rotatePoint(px, py, cx, cy, ang) {
+  const dx = px - cx, dy = py - cy;
+  const c = Math.cos(ang), s = Math.sin(ang);
+  return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c };
+}
+
+/** 旋转后的世界包围盒（导出 PNG 的裁剪框要用它，未旋转 bounds 会把转出头的部分裁掉） */
+function elementExtent(el) {
+  const b = bounds(el);
+  if (!el.angle) return b;
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  const cs = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]]
+    .map(([px, py]) => rotatePoint(px, py, cx, cy, el.angle));
+  const xs = cs.map((p) => p.x), ys = cs.map((p) => p.y);
+  return {
+    x: Math.min(...xs), y: Math.min(...ys),
+    w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys),
   };
 }
 
@@ -235,11 +273,19 @@ function drawText(c, el) {
 }
 
 function drawElement(c, el) {
-  if (el.type === 'text') { drawText(c, el); return; }
+  c.save();
+  // 旋转统一在这里处理：把画布绕元素中心转一下，后面所有形状照常用「未旋转」几何画。
+  // 文字也走这条（drawText 自己还有一层 save/restore，不冲突）。
+  if (el.angle) {
+    const ctr = centerOf(el);
+    c.translate(ctr.x, ctr.y);
+    c.rotate(el.angle);
+    c.translate(-ctr.x, -ctr.y);
+  }
+  if (el.type === 'text') { drawText(c, el); c.restore(); return; }
   const b = bounds(el);
   const amp = clamp(el.strokeWidth * 0.9, 1, 4);
   const rnd = mulberry32(el.seed || hashSeed(el.id));
-  c.save();
   c.lineCap = 'round';
   c.lineJoin = 'round';
   c.strokeStyle = el.stroke;
@@ -339,6 +385,10 @@ function draw() {
   drawSelection();
   canvas.dataset.strokes = String(elements.length);
   canvas.dataset.selected = String(selected.size);
+  // 供测试/调试读取：单选元素的旋转角（度）。画布上没有可视化的角度输入框，
+  // 断言只能从这里拿（与 dataset.strokes/selected 同一套口径）。
+  const selOne = selected.size === 1 ? elements.find((e) => selected.has(e.id)) : null;
+  canvas.dataset.selectedAngle = selOne ? String(Math.round((selOne.angle || 0) * 180 / Math.PI)) : '';
 }
 
 function drawGrid() {
@@ -362,18 +412,28 @@ function drawGrid() {
   ctx.restore();
 }
 
-function handleRects(b) {
-  const p1 = worldToScreen(b.x, b.y);
-  const p2 = worldToScreen(b.x + b.w, b.y + b.h);
-  const x = Math.min(p1.x, p2.x), y = Math.min(p1.y, p2.y);
-  const w = Math.abs(p2.x - p1.x), h = Math.abs(p2.y - p1.y);
+/** 四角缩放柄（屏幕坐标）。ang ≠ 0 时按元素中心把四个角一起转过去 */
+function handleRects(b, ang = 0) {
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
   const s = 8;
-  return [
-    { k: 'nw', x: x - s / 2, y: y - s / 2, cx: x, cy: y },
-    { k: 'ne', x: x + w - s / 2, y: y - s / 2, cx: x + w, cy: y },
-    { k: 'se', x: x + w - s / 2, y: y + h - s / 2, cx: x + w, cy: y + h },
-    { k: 'sw', x: x - s / 2, y: y + h - s / 2, cx: x, cy: y + h },
-  ].map((h2) => ({ ...h2, size: s }));
+  const corners = { nw: [b.x, b.y], ne: [b.x + b.w, b.y], se: [b.x + b.w, b.y + b.h], sw: [b.x, b.y + b.h] };
+  return Object.entries(corners).map(([k, [wx, wy]]) => {
+    const r = rotatePoint(wx, wy, cx, cy, ang);
+    const p = worldToScreen(r.x, r.y);
+    return { k, x: p.x - s / 2, y: p.y - s / 2, cx: p.x, cy: p.y, size: s };
+  });
+}
+
+/** 旋转柄位置（屏幕坐标）：从顶边中点沿元素「本地朝上」方向再外推 ROTATE_OFFSET。
+ *  用本地朝上的方向（而不是「中心→顶边中点」）是因为细长/接近水平的图形两者几乎重合，
+ *  方向向量会退化。 */
+function rotateHandlePos(b, ang = 0) {
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  const topMid = rotatePoint(cx, cy - b.h / 2, cx, cy, ang);
+  const p = worldToScreen(topMid.x, topMid.y);
+  const up = { x: Math.sin(ang), y: -Math.cos(ang) };   // 本地 (0,-1) 旋转 ang 后的方向
+  const len = Math.hypot(up.x, up.y) || 1;
+  return { x: p.x + (up.x / len) * ROTATE_OFFSET, y: p.y + (up.y / len) * ROTATE_OFFSET };
 }
 
 function drawSelection() {
@@ -384,29 +444,51 @@ function drawSelection() {
   const y1 = Math.min(...boxes.map((b) => b.y));
   const x2 = Math.max(...boxes.map((b) => b.x + b.w));
   const y2 = Math.max(...boxes.map((b) => b.y + b.h));
-  const p1 = worldToScreen(x1, y1);
-  const p2 = worldToScreen(x2, y2);
-  const pad = 6;
+  const b = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+  const single = selected.size === 1 ? elements.find((e) => selected.has(e.id)) : null;
+  const ang = single?.angle || 0;
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  // 外扩 6px 在**世界**坐标里做（≈屏幕上 6px，缩放后依然恒等），旋转后仍是贴着形状的框
+  const pad = 6 / view.zoom;
+  const outline = [[b.x - pad, b.y - pad], [b.x + b.w + pad, b.y - pad],
+    [b.x + b.w + pad, b.y + b.h + pad], [b.x - pad, b.y + b.h + pad]]
+    .map(([px, py]) => { const r = rotatePoint(px, py, cx, cy, ang); return worldToScreen(r.x, r.y); });
   ctx.save();
   ctx.strokeStyle = '#6965db';
   ctx.lineWidth = 1.2;
   ctx.setLineDash([]);
-  ctx.strokeRect(p1.x - pad, p1.y - pad, p2.x - p1.x + pad * 2, p2.y - p1.y + pad * 2);
-  const b = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
-  if (selected.size === 1) {
-    for (const h of handleRects(b)) {
+  ctx.beginPath();
+  outline.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.closePath();
+  ctx.stroke();
+  if (single) {
+    for (const h of handleRects(b, ang)) {
       ctx.beginPath();
       ctx.rect(h.x, h.y, h.size, h.size);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.stroke();
     }
+    // 旋转柄（圆形）：点住拖动 = 绕中心旋转；Shift 吸附 15°
+    const rh = rotateHandlePos(b, ang);
+    ctx.beginPath();
+    ctx.arc(rh.x, rh.y, 5.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.stroke();
   }
   ctx.restore();
 }
 
 /* ================= 命中检测 ================= */
 function pointIn(el, wx, wy, tol = 6) {
+  // 命中检测在「未旋转」坐标系里做：把指针反向转回元素本地，后面所有形状判定都不用改
+  if (el.angle) {
+    const ctr = centerOf(el);
+    const p = rotatePoint(wx, wy, ctr.x, ctr.y, -el.angle);
+    wx = p.x;
+    wy = p.y;
+  }
   const b = bounds(el);
   const pad = tol + el.strokeWidth;
   if (wx < b.x - pad || wx > b.x + b.w + pad || wy < b.y - pad || wy > b.y + b.h + pad) return false;
@@ -502,6 +584,7 @@ function baseEl(type, x, y) {
     points: [],
     text: '',
     fontSize: 20,
+    angle: 0,    // 旋转角（弧度，绕未旋转包围盒中心）
     stroke: style.stroke,
     background: style.background,
     fillStyle: style.fillStyle,
@@ -545,12 +628,19 @@ function onPointerDown(e) {
   }
 
   if (tool === 'select') {
-    // 先判断缩放柄
+    // 先判断旋转柄 / 缩放柄
     if (selected.size === 1) {
       const el = elements.find((x) => selected.has(x.id));
       if (el) {
         const b = bounds(el);
-        for (const h of handleRects(b)) {
+        const ang = el.angle || 0;
+        const rh = rotateHandlePos(b, ang);
+        if (Math.hypot(px - rh.x, py - rh.y) <= 9) {
+          drag = { mode: 'rotate', id: el.id };
+          canvas.style.cursor = 'grabbing';
+          return;
+        }
+        for (const h of handleRects(b, ang)) {
           if (Math.abs(px - h.cx) <= 7 && Math.abs(py - h.cy) <= 7) {
             drag = { mode: 'resize', k: h.k, id: el.id, orig: clone([el])[0], b: { ...b } };
             return;
@@ -693,18 +783,49 @@ function onPointerMove(e) {
     return;
   }
 
+  if (drag.mode === 'rotate') {
+    const el = elements.find((x) => x.id === drag.id);
+    if (!el) return;
+    const ctr = centerOf(el);
+    // 「指针朝正上方 = 0°」：旋转柄初始就在中心正上方，所以加 π/2 补偿
+    let a = Math.atan2(w.y - ctr.y, w.x - ctr.x) + Math.PI / 2;
+    if (e.shiftKey) a = Math.round(a / ROTATE_SNAP) * ROTATE_SNAP;   // 15° 吸附
+    el.angle = a;
+    scheduleDraw();
+    return;
+  }
+
   if (drag.mode === 'resize') {
     const el = elements.find((x) => x.id === drag.id);
     if (!el) return;
     const o = drag.orig;
-    const b = drag.b;
-    let nx = b.x, ny = b.y, nw = b.w, nh = b.h;
-    if (drag.k.includes('w')) { nx = w.x; nw = b.x + b.w - w.x; }
-    if (drag.k.includes('e')) { nw = w.x - b.x; }
-    if (drag.k.includes('n')) { ny = w.y; nh = b.y + b.h - w.y; }
-    if (drag.k.includes('s')) { nh = w.y - b.y; }
-    if (nw < MIN_SIZE) { nw = MIN_SIZE; if (drag.k.includes('w')) nx = b.x + b.w - MIN_SIZE; }
-    if (nh < MIN_SIZE) { nh = MIN_SIZE; if (drag.k.includes('n')) ny = b.y + b.h - MIN_SIZE; }
+    const b = drag.b;                       // 拖拽起点的**未旋转**包围盒
+    const ang = o.angle || 0;
+    const c = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+    // 指针换算到元素「未旋转」的本地坐标：于是下面就是原样的轴对齐缩放
+    const lp = rotatePoint(w.x, w.y, c.x, c.y, -ang);
+    // 与拖动角对角的那一个角（本地坐标）：缩放时它在世界里必须钉住不动
+    const A = {
+      nw: { x: b.x + b.w, y: b.y + b.h },
+      ne: { x: b.x, y: b.y + b.h },
+      se: { x: b.x, y: b.y },
+      sw: { x: b.x + b.w, y: b.y },
+    }[drag.k];
+    const ap = rotatePoint(A.x, A.y, c.x, c.y, ang);   // 锚点的世界坐标
+    const dx = lp.x - A.x;
+    const dy = lp.y - A.y;
+    let nw = Math.abs(dx);
+    let nh = Math.abs(dy);
+    let nx = Math.min(A.x, A.x + dx);
+    let ny = Math.min(A.y, A.y + dy);
+    if (nw < MIN_SIZE) { nw = MIN_SIZE; nx = dx < 0 ? A.x - MIN_SIZE : A.x; }
+    if (nh < MIN_SIZE) { nh = MIN_SIZE; ny = dy < 0 ? A.y - MIN_SIZE : A.y; }
+    // 旋转中心从 c 挪到新中心后，锚点的世界位置会跟着漂移；把它平移回去。
+    // 因为「中心与点同时平移 s」会让旋转结果也平移 s，所以一次补偿即精确（无需迭代）。
+    const nc = { x: nx + nw / 2, y: ny + nh / 2 };
+    const drift = rotatePoint(A.x, A.y, nc.x, nc.y, ang);
+    const shiftX = ap.x - drift.x;
+    const shiftY = ap.y - drift.y;
     if (el.type === 'line' || el.type === 'arrow' || el.type === 'freedraw') {
       const sx = nw / (b.w || 1);
       const sy = nh / (b.h || 1);
@@ -717,6 +838,8 @@ function onPointerMove(e) {
       el.x = nx; el.y = ny; el.w = nw; el.h = nh;
       if (el.type === 'text') el.fontSize = Math.max(10, Math.round(o.fontSize * (nh / (b.h || 1))));
     }
+    el.x += shiftX;
+    el.y += shiftY;
     scheduleDraw();
   }
 }
@@ -774,6 +897,7 @@ function onPointerUp(e) {
 
   if (d.mode === 'move' && d.moved) snapshot();
   if (d.mode === 'resize') snapshot();
+  if (d.mode === 'rotate') snapshot();
   if (d.mode === 'erase') snapshot();
   if (d.mode === 'marquee') {
     drag = null;
@@ -1010,6 +1134,8 @@ function ensure() {
         <button id="draw-zoom-in" title="放大 (Ctrl+滚轮)">+</button>
       </div>
       <div class="draw-actions">
+        <button id="draw-drafts-btn" class="btn-ghost" title="草稿箱：暂存与重开多块画板">草稿箱</button>
+        <button id="draw-stash" class="btn-ghost" title="把当前画板暂存为草稿（不插入笔记）；从草稿箱重开的画板会覆盖该草稿">暂存</button>
         <button id="draw-cancel" class="btn-ghost">取消</button>
         <button id="draw-save" class="btn-primary">插入笔记</button>
       </div>
@@ -1059,6 +1185,10 @@ function ensure() {
         </div>
       </aside>
       <div class="draw-hint" id="draw-hint">拖拽画形状 · 空格拖动画布 · Ctrl+滚轮缩放 · Delete 删除 · Esc 取消</div>
+      <aside class="draw-drafts" id="draw-drafts" hidden>
+        <div class="dd-head"><span>草稿箱</span><button class="dd-new" id="draw-draft-new" title="清空当前画板，开始新的一块（已有草稿保留）">新建画板</button></div>
+        <div class="dd-list" id="draw-draft-list"></div>
+      </aside>
       <textarea class="draw-textedit" id="draw-textedit" spellcheck="false" hidden></textarea>
     </div>`;
   document.body.appendChild(overlay);
@@ -1070,6 +1200,7 @@ function ensure() {
   propsEl = overlay.querySelector('.draw-props');
   textEdit = overlay.querySelector('#draw-textedit');
   hintEl = overlay.querySelector('#draw-hint');
+  draftPanel = overlay.querySelector('#draw-drafts');
 
   toolsEl.querySelectorAll('.draw-tool[data-tool]').forEach((b) => {
     b.onclick = () => setTool(b.dataset.tool);
@@ -1085,6 +1216,9 @@ function ensure() {
   };
   overlay.querySelector('#draw-cancel').onclick = () => close();
   overlay.querySelector('#draw-save').onclick = () => save();
+  overlay.querySelector('#draw-stash').onclick = () => stashCurrent();
+  overlay.querySelector('#draw-drafts-btn').onclick = () => toggleDrafts();
+  overlay.querySelector('#draw-draft-new').onclick = () => newBoard();
   overlay.querySelector('#draw-zoom-in').onclick = () => zoomBy(1.15);
   overlay.querySelector('#draw-zoom-out').onclick = () => zoomBy(1 / 1.15);
   overlay.querySelector('#draw-zoom-val').onclick = resetView;
@@ -1147,6 +1281,189 @@ function ensure() {
   window.addEventListener('resize', resizeCanvas);
 }
 
+/* ================= 草稿箱（暂存 / 多开画板） =================
+ * 需求原文：「绘图加暂存功能，可以多开画板」。做法是只把**场景 JSON**（不含 PNG）
+ * 存到本机 localStorage，一个画板 = 一条草稿：随时暂存、随时从草稿箱重开，份数不限，
+ * 于是等于「同时保留多块画板」。
+ * 为什么放本机 localStorage 而不是仓库/服务端：草稿是「还没决定要不要插进笔记」的
+ * 半成品，写进仓库会污染文件树、还会被同步（每台设备还要各自合并）；localStorage
+ * 天然是「本机暂存区」，关掉应用也还在。
+ */
+function newDraftId() {
+  return `d${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+}
+
+function readDrafts() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+
+function writeDrafts(list) {
+  try {
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(list.slice(0, DRAFT_LIMIT)));
+    return true;
+  } catch {
+    toast('草稿保存失败：本机存储空间不足');
+    return false;
+  }
+}
+
+function draftTimeText(ts) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 把一份场景装进画板（草稿重开 / 重新编辑共用） */
+function setScene(list) {
+  elements = clone(Array.isArray(list) ? list : []);
+  selected = new Set();
+  history = [clone(elements)];
+  hIndex = 0;
+  drag = null;
+  editing = null;
+  spaceDown = false;
+  textEdit.hidden = true;
+  updateHistoryButtons();
+  requestAnimationFrame(() => {
+    resizeCanvas();
+    if (elements.length) { fitViewToContent(); updateZoomLabel(); }
+    draw();
+  });
+}
+
+function renderDrafts() {
+  if (!draftPanel) return;
+  const listBox = draftPanel.querySelector('#draw-draft-list');
+  listBox.innerHTML = '';
+  const drafts = readDrafts();
+  if (!drafts.length) {
+    const empty = document.createElement('div');
+    empty.className = 'dd-empty';
+    empty.textContent = '还没有草稿：点右上角「暂存」把当前画板存下来';
+    listBox.appendChild(empty);
+    return;
+  }
+  for (const d of drafts) {
+    const row = document.createElement('div');
+    row.className = 'dd-row' + (d.id === activeDraftId ? ' active' : '');
+    const name = document.createElement('span');
+    name.className = 'dd-name';
+    name.textContent = d.name;
+    name.title = d.name;
+    const time = document.createElement('span');
+    time.className = 'dd-time';
+    time.textContent = draftTimeText(d.updatedAt || 0);
+    const openBtn = document.createElement('button');
+    openBtn.className = 'dd-open';
+    openBtn.textContent = '打开';
+    openBtn.onclick = () => openDraft(d.id);
+    const delBtn = document.createElement('button');
+    delBtn.className = 'dd-del';
+    delBtn.textContent = '删除';
+    delBtn.title = '删除这份草稿';
+    delBtn.onclick = () => deleteDraft(d.id);
+    row.append(name, time, openBtn, delBtn);
+    listBox.appendChild(row);
+  }
+}
+
+function toggleDrafts(force) {
+  if (!draftPanel) return;
+  const show = force ?? draftPanel.hidden;
+  if (show) renderDrafts();
+  draftPanel.hidden = !show;
+}
+
+/** 暂存：新建草稿要起名；已经在草稿上继续画则直接覆盖 */
+async function stashCurrent() {
+  commitText();
+  if (!elements.length) { toast('画板还是空的，先画点什么'); return; }
+  if (activeDraftId) {
+    const drafts = readDrafts();
+    const i = drafts.findIndex((d) => d.id === activeDraftId);
+    if (i >= 0) {
+      drafts[i] = { ...drafts[i], updatedAt: Date.now(), elements: clone(elements) };
+      if (writeDrafts(drafts)) { renderDrafts(); toast('草稿已更新'); }
+      return;
+    }
+    activeDraftId = null;   // 草稿被别处删掉了 → 当作新草稿
+  }
+  const name = await askText({
+    title: '暂存为新草稿',
+    desc: '草稿只存在本机（不进仓库、不同步），之后可以从「草稿箱」重开继续画。',
+    value: `草稿 ${stamp()}`,
+    okText: '暂存',
+  });
+  if (!name) return;
+  const id = newDraftId();
+  const drafts = readDrafts();
+  drafts.unshift({ id, name, updatedAt: Date.now(), elements: clone(elements) });
+  if (!writeDrafts(drafts)) return;
+  activeDraftId = id;
+  renderDrafts();
+  toast('已暂存到草稿箱');
+}
+
+async function openDraft(id) {
+  const d = readDrafts().find((x) => x.id === id);
+  if (!d) return;
+  if (elements.length && id !== activeDraftId) {
+    const ok = await askConfirm({
+      title: `打开草稿「${d.name}」？`,
+      desc: '当前画板的内容会被替换；还没暂存的改动会丢失。',
+      okText: '打开',
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  activeDraftId = id;
+  style = defaultStyle();
+  setTool('select');
+  syncStyleUI();
+  setScene(d.elements || []);
+  renderDrafts();
+  toast(`已打开草稿「${d.name}」`);
+}
+
+async function deleteDraft(id) {
+  const d = readDrafts().find((x) => x.id === id);
+  if (!d) return;
+  const ok = await askConfirm({
+    title: `删除草稿「${d.name}」？`,
+    desc: '只删本机草稿，已经插入笔记的图不受影响。',
+    okText: '删除',
+    danger: true,
+  });
+  if (!ok) return;
+  writeDrafts(readDrafts().filter((x) => x.id !== id));
+  if (activeDraftId === id) activeDraftId = null;
+  renderDrafts();
+  toast('草稿已删除');
+}
+
+/** 新建一块画板：清空画布、脱离当前草稿（已有草稿都留着，这就是「多开」的入口） */
+async function newBoard() {
+  if (elements.length) {
+    const ok = await askConfirm({
+      title: '新建一块画板？',
+      desc: '当前画板会被清空；还没暂存的改动会丢失（已暂存的草稿不受影响）。',
+      okText: '新建',
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  activeDraftId = null;
+  style = defaultStyle();
+  syncStyleUI();
+  setTool('select');
+  setScene([]);
+  renderDrafts();
+  toast('已新建画板');
+}
+
 /* ================= 保存 ================= */
 function stamp() {
   const d = new Date();
@@ -1158,7 +1475,7 @@ function contentBounds() {
   if (!elements.length) return { x: 0, y: 0, w: 300, h: 200 };
   let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
   for (const el of elements) {
-    const b = bounds(el);
+    const b = elementExtent(el);        // 用旋转后的外接框，转出头的部分不能被裁掉
     x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y);
     x2 = Math.max(x2, b.x + b.w); y2 = Math.max(y2, b.y + b.h);
   }
@@ -1242,29 +1559,18 @@ export function openDraw(options = {}) {
   ensure();
   opts = options || {};
   // elements：重新编辑时传入既有场景（draw.json 里的数组）；空数组 = 新画
-  const initial = Array.isArray(opts.elements) ? opts.elements : [];
-  elements = clone(initial);
-  selected = new Set();
-  history = [clone(elements)];
-  hIndex = 0;
-  drag = null;
-  editing = null;
-  spaceDown = false;
+  // draftId：从草稿箱重开某份草稿时传入（保存/再暂存都以它为准）
+  activeDraftId = opts.draftId || null;
   style = defaultStyle();
   view = { x: 0, y: 0, zoom: 1 };
-  textEdit.hidden = true;
   overlay.hidden = false;
+  toggleDrafts(false);
   const btn = overlay.querySelector('#draw-save');
   if (btn) btn.textContent = opts.editingPath ? '更新绘图' : '插入笔记';
   setTool('select');
   syncStyleUI();
   updateZoomLabel();
-  updateHistoryButtons();
-  requestAnimationFrame(() => {
-    resizeCanvas();
-    if (elements.length) { fitViewToContent(); updateZoomLabel(); }
-    draw();
-  });
+  setScene(Array.isArray(opts.elements) ? opts.elements : []);
 }
 
 export function close() {
@@ -1277,6 +1583,8 @@ export function close() {
   hIndex = 0;
   drag = null;
   editing = null;
+  activeDraftId = null;
+  if (draftPanel) draftPanel.hidden = true;
 }
 
 export function isDrawOpen() {

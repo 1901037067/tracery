@@ -578,6 +578,22 @@ export function widgetsPlugin(opts = {}) {
  * P4 接 editor.js 的 _openWikilink / _schedulePreview / onTagClick。 */
 export function linkEvents({ onOpenWikilink, onHoverWikilink, onTagClick } = {}) {
   return EditorView.domEventHandlers({
+    // 左键按下时必须拦在 CM 自己的选区处理之前（按钮按住不放的那一下）。
+    // 为什么非拦不可：浏览器默认的 mousedown 会把光标落到点击处 → 本行变成「光标行」，
+    // 装饰规则随即撤掉该行的 mark/hide（露出原始 `[[ ]]` 语法），`.cm-lp-wikilink` /
+    // `.cm-lp-tag` 这两个 span 被 CM 重建 DOM 时拆掉；紧接着派发的 click 事件就再也
+    // closest 不到它们 —— 表现就是「用鼠标点双链毫无反应」。实测确认：真实鼠标点击永远
+    // 跳不过去，而测试里合成 `span.click()` 却能过（它不触发 mousedown）。
+    // 拦下后选区不动、span 保持存在，随后的 click 正常命中并跳转/搜索。
+    mousedown(event) {
+      if (event.button !== 0) return false;      // 右键交给菜单，不动
+      const t = event.target;
+      if (t.closest?.('.cm-lp-wikilink') || t.closest?.('.cm-lp-tag')) {
+        event.preventDefault();
+        return true;                              // 同时阻止 CM 把选区设到点击处
+      }
+      return false;
+    },
     click(event) {
       const link = event.target.closest?.('.cm-lp-wikilink');
       if (link) { event.preventDefault(); onOpenWikilink?.(link.textContent, event); return true; }

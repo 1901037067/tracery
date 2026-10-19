@@ -20,6 +20,10 @@ fs.rmSync(HOME, { recursive: true, force: true });
 fs.mkdirSync(VAULT, { recursive: true });
 fs.writeFileSync(path.join(VAULT, '要删的笔记.md'), '# 要删的笔记\n\n内容\n', 'utf8');
 fs.writeFileSync(path.join(VAULT, '保留.md'), '# 保留\n\n内容\n', 'utf8');
+// 删除文件夹的夹具：目录里带一层子目录，验证「整棵树」一起进出回收站
+fs.mkdirSync(path.join(VAULT, '要删的文件夹', '子目录'), { recursive: true });
+fs.writeFileSync(path.join(VAULT, '要删的文件夹', '甲.md'), '# 甲\n', 'utf8');
+fs.writeFileSync(path.join(VAULT, '要删的文件夹', '子目录', '乙.md'), '# 乙\n', 'utf8');
 
 const server = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
   cwd: ROOT,
@@ -44,7 +48,7 @@ const check = (name, ok, detail = '') => {
 };
 const fileExists = (p) => fs.existsSync(path.join(VAULT, p));
 
-const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block，cm 用 TRACERY_TEST_ENGINE=cm
+const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
 await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 await page.evaluate(async (vp) => {
@@ -110,6 +114,40 @@ check('彻底删除后文件确实不在仓库', !fileExists('要删的笔记.md
 
 /* ---------- ④ 未删除的文件不受影响 ---------- */
 check('无关文件未被波及', fileExists('保留.md'));
+
+/* ---------- ⑤ 删除文件夹：整棵树进回收站 → 整棵树恢复（2026-10-19 新增） ---------- */
+await page.evaluate(() => {
+  const item = [...document.querySelectorAll('#file-tree .tree-item')]
+    .find((el) => !el.dataset.path && el.textContent.trim() === '要删的文件夹');
+  const r = item.getBoundingClientRect();
+  item.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 20, clientY: r.top + 8 }));
+});
+await sleep(400);
+await page.evaluate(() => {
+  const btn = [...document.querySelectorAll('.context-menu button')].find((b) => b.textContent.includes('删除'));
+  btn.click();
+});
+await sleep(400);
+const folderConfirm = await page.evaluate(() => document.querySelector('.dialog-title')?.textContent || '');
+check('删除文件夹前有确认框（说明会移入回收站）', folderConfirm.includes('要删的文件夹'), folderConfirm);
+await page.evaluate(() => document.querySelector('.dialog-ok')?.click());
+await sleep(1200);
+check('删除文件夹后整棵目录消失',
+  !fileExists('要删的文件夹') && !fileExists('要删的文件夹/子目录/乙.md'));
+const trashFolder = await page.evaluate(async () => (await (await fetch('/api/trash')).json()).items);
+check('回收站里是「整个文件夹」一条',
+  trashFolder.length === 1 && trashFolder[0].path === '要删的文件夹',
+  JSON.stringify(trashFolder.map((x) => x.path)));
+const dirsAfter = await page.evaluate(async () => (await (await fetch('/api/tree')).json()).dirs.map((d) => d.name));
+check('删除后索引整仓重扫，不再留该文件夹', !dirsAfter.includes('要删的文件夹'), JSON.stringify(dirsAfter));
+if (trashFolder[0]) {
+  await page.evaluate(async (id) => {
+    await fetch('/api/trash/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+  }, trashFolder[0].id);
+  await sleep(1200);
+}
+check('恢复后文件夹连同子目录一起回来',
+  fileExists('要删的文件夹/甲.md') && fileExists('要删的文件夹/子目录/乙.md'));
 
 check('无渲染错误', errors.length === 0, errors.join(' | '));
 

@@ -4,7 +4,6 @@
  *       编辑器装配、反链/大纲/标签面板、图谱、主题、WebSocket 同步
  */
 import { Api, toast, debounce, fuzzyMatch, connectWs } from './api.js';
-import { LiveEditor } from './editor.js';
 import { CmEditor } from './cm/engine.js';
 import { ForceGraph } from './graph.js';
 import {
@@ -420,10 +419,14 @@ function pushRecent(relPath) {
 
 function renderTreeNode(node, depth, isRoot = false) {
   const frag = document.createDocumentFragment();
-  const renderDir = (d) => {
+  // parentRel：树节点只带 basename（服务端 tree() 是按层级拼出来的），
+  // 但右键菜单/删除/重命名需要**完整相对路径**——所以在递归时把父级路径拼进来。
+  const renderDir = (d, parentRel = '') => {
+    const rel = parentRel ? `${parentRel}/${d.name}` : d.name;
     const wrap = document.createElement('div');
     const item = document.createElement('div');
     item.className = 'tree-item';
+    // 折叠状态历史上的 key 是 basename（同名不同层目录会互相影响，属既有行为，本次不动）
     const collapsed = state.collapsed.has(d.name);
     const tw = document.createElement('span');
     tw.className = 'tw' + (collapsed ? '' : ' open');
@@ -442,12 +445,12 @@ function renderTreeNode(node, depth, isRoot = false) {
       localStorage.setItem('tracery.collapsed', JSON.stringify([...state.collapsed]));
       renderTree();
     };
-    item.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showDirMenu(e, d.name); };
+    item.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showDirMenu(e, rel); };
     wrap.appendChild(item);
     if (!state.collapsed.has(d.name)) {
       const children = document.createElement('div');
       children.className = 'tree-children';
-      for (const sub of d.dirs || []) children.appendChild(renderDir(sub));
+      for (const sub of d.dirs || []) children.appendChild(renderDir(sub, rel));
       for (const f of d.files || []) children.appendChild(renderFile(f));
       wrap.appendChild(children);
     }
@@ -572,11 +575,96 @@ async function duplicateFile(f) {
   } catch (err) { toast(`创建副本失败：${err.message}`); }
 }
 
-function showDirMenu(e, dirName) {
-  showMenu(e.clientX, e.clientY, [
-    { label: '在此新建笔记', icon: ICON.doc, action: () => createNoteIn(dirName) },
-    { label: '在此新建文件夹', icon: ICON.folder, action: () => createFolderIn(dirName) },
-  ]);
+/** 文件夹右键菜单（对齐文件菜单的口径） */
+function showDirMenu(e, rel) {
+  const abs = vaultAbs(rel);
+  const inElectron = !!window.electronAPI;
+  const items = [
+    { label: '在此新建笔记', icon: ICON.doc, action: () => createNoteIn(rel) },
+    { label: '在此新建文件夹', icon: ICON.folder, action: () => createFolderIn(rel) },
+    '-',
+    { label: '复制相对路径', icon: ICON.compass, action: () => copyText(rel) },
+  ];
+  if (inElectron) {
+    items.push({ label: '在系统资源管理器中显示', icon: ICON.folder, action: () => window.electronAPI.reveal(abs) });
+  }
+  items.push('-');
+  items.push({ label: '重命名', icon: ICON.pencil, action: () => renameFolder(rel) });
+  items.push({ label: '删除', icon: ICON.trash, danger: true, action: () => deleteFolder(rel) });
+  showMenu(e.clientX, e.clientY, items);
+}
+
+/** 重命名文件夹：目录里的笔记路径整体前缀替换，打开中的标签/当前笔记跟着改 */
+async function renameFolder(rel) {
+  const oldName = rel.split('/').pop();
+  const input = await askText({
+    title: '重命名文件夹',
+    desc: '文件夹里笔记的路径会跟着变；指向它们的 [[双链]] 不会自动更新。',
+    value: oldName,
+    okText: '重命名',
+  });
+  if (!input) return;
+  // Windows 文件名不允许这些字符，直接替换成 -（与冲突副本/绘图文件同口径）
+  const clean = input.replace(/[\\/:*?"<>|]/g, '-').replace(/^\.+$/, '');
+  if (!clean || clean === oldName) return;
+  const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
+  const newRel = dir + clean;
+  try {
+    await Api.rename(rel, newRel);
+    const prefix = rel + '/';
+    const under = (p) => p === rel || p.startsWith(prefix);
+    const mapped = (p) => (p === rel ? newRel : `${newRel}/${p.slice(prefix.length)}`);
+    state.tabs = state.tabs.map((p) => (under(p) ? mapped(p) : p));
+    if (state.currentPath && under(state.currentPath)) {
+      const np = mapped(state.currentPath);
+      state.currentPath = np;
+      localStorage.setItem('tracery.lastNote', np);
+      $('note-path').textContent = np;
+    }
+    await refreshTree(); refreshGraph(); refreshTags();
+    saveTabsState();
+    renderTabs();
+    toast('已重命名文件夹');
+  } catch (e) { toast(e.message); }
+}
+
+/** 删除文件夹（连同里面的内容一起移入回收站，可整体恢复） */
+async function deleteFolder(rel) {
+  const name = rel.split('/').pop();
+  const ok = await askConfirm({
+    title: `删除文件夹「${name}」？`,
+    desc: '文件夹里的所有内容会一起移入回收站，之后可以整体恢复（文件面板顶部扫帚图标）。',
+    okText: '删除',
+    danger: true,
+  });
+  if (!ok) return;
+  const prefix = rel + '/';
+  const under = (p) => p === rel || p.startsWith(prefix);
+  try {
+    if (state.currentPath && under(state.currentPath)) await editor.flush();
+    await Api.remove(rel);
+    // 关掉该文件夹下打开的所有标签（含子目录）
+    const prevActive = state.tabs[state.activeTab] || '';   // activeTab=-1 时别拿到 undefined
+    const remain = state.tabs.filter((p) => !under(p));
+    state.tabs = remain;
+    if (!remain.length) state.activeTab = -1;
+    else if (under(prevActive)) state.activeTab = Math.min(state.activeTab, remain.length - 1);
+    else state.activeTab = Math.max(0, remain.indexOf(prevActive));
+    if (state.currentPath && under(state.currentPath)) {
+      state.currentPath = null;
+      localStorage.removeItem('tracery.lastNote');
+      editor.load('', '');
+      $('note-path').textContent = '';
+      refreshRightPanels(null);
+    }
+    await refreshTree(); refreshGraph(); refreshTags();
+    saveTabsState();
+    renderTabs();
+    if (state.activeTab >= 0 && remain[state.activeTab] !== state.currentPath) {
+      await loadTab(remain[state.activeTab]);
+    }
+    toast('文件夹已移入回收站');
+  } catch (e) { toast(e.message); }
 }
 
 /* ================= 导出（HTML / PDF） ================= */
@@ -1681,17 +1769,11 @@ function highlightPalette(i) {
 }
 
 /* ================= 编辑器装配 =================
- * 双内核：block（旧块级 contenteditable）/ cm（CodeMirror 6 行级）。
- * 选择顺序：URL `?engine=cm|block` 覆盖 → 设置 `editorEngine` → 默认 block。
- * 两个内核实现同一套方法契约（docs/EDITOR-MIGRATION.md 第 5 节），
- * 所以下面的回调与后文所有 editor.xxx() 调用对二者通用；
- * cm 额外需要 fileUrl / loadNote / saveAsset（块级内核自带这些，忽略即可）。 */
-const engineOverride = new URLSearchParams(location.search).get('engine');
-const ENGINE = (engineOverride === 'cm' || engineOverride === 'block')
-  ? engineOverride
-  : (getSettings().editorEngine || 'block');
-
-editor = new (ENGINE === 'cm' ? CmEditor : LiveEditor)({
+ * 内核：**只有 CodeMirror 6**（v1.4.0 起下线了旧的块级 contenteditable 内核）。
+ * 为什么不再保留双内核：块级内核是「整篇 markdown → DOM 重建」，光标/空行/图片宽度这些
+ * 问题都出在"重建"上；cm 是行级真实文本 + 装饰，两边维护两套渲染规则只会让 bug 反复。
+ * 旧内核的代码、测试口径、设置开关都已删除（历史见 git 与 docs/EDITOR-MIGRATION.md）。 */
+editor = new CmEditor({
   liveEl: $('editor-live'),
   sourceEl: $('editor-source'),
   gutterEl: $('source-gutter'),
@@ -1774,13 +1856,11 @@ editor = new (ENGINE === 'cm' ? CmEditor : LiveEditor)({
   },
 });
 
-// cm 内核的 DOM 收尾：#editor-live 变成 CM 挂载点（CM 自带 contenteditable，
-// 外层容器不能再可编辑）；源码 textarea 不再使用，直接隐藏。
-if (ENGINE === 'cm') {
-  $('editor-live').contentEditable = 'false';
-  const sw = $('source-wrap');
-  if (sw) sw.hidden = true;
-}
+// DOM 收尾：#editor-live 是 CM 挂载点（CM 自带 contenteditable，外层容器不能再可编辑）；
+// 旧内核用的源码 textarea 早已不用，直接隐藏。
+$('editor-live').contentEditable = 'false';
+const sourceWrapEl = $('source-wrap');
+if (sourceWrapEl) sourceWrapEl.hidden = true;
 // 测试/调试钩子：拿到当前编辑内核实例（test/engine-test.mjs 用 getContent/view 做断言）
 window.__editor = editor;
 

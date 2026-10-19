@@ -58,7 +58,7 @@ async function main() {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block，cm 用 TRACERY_TEST_ENGINE=cm
+  const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
   await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
   await sleep(1200);
   await page.evaluate(() => [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('画布'))?.click());
@@ -117,12 +117,26 @@ async function main() {
   const counts = () => page.evaluate(() => ({
     n: Number(document.getElementById('draw-canvas').dataset.strokes),
     sel: Number(document.getElementById('draw-canvas').dataset.selected),
+    angle: Number(document.getElementById('draw-canvas').dataset.selectedAngle || 0),
   }));
 
   /* ---------- 3. 形状 + 手绘 ---------- */
   await pickTool('rect');
   await drag(P(220, 150), P(420, 280));
   check('拖拽画出矩形（1 个元素）', (await counts()).n === 1, JSON.stringify(await counts()));
+
+  /* ---------- 3b. 旋转（2026-10-19 新增能力：画完的图形能转） ---------- */
+  check('新画的形状初始角度为 0', (await counts()).angle === 0, JSON.stringify(await counts()));
+  // 旋转柄在顶边中点上方 ROTATE_OFFSET=26px：矩形 (220,150)-(420,280) 的顶边中点是 (320,150)，
+  // 所以柄在 (320,124)。拖到中心右侧 → 角度约 +90°。
+  await drag(P(320, 124), P(430, 215));
+  const rotated = await counts();
+  check('拖旋转柄把图形转起来（角度 ≈ 90°）', Math.abs(rotated.angle) > 60, JSON.stringify(rotated));
+  await page.screenshot({ path: path.join(SHOTS, 'draw-rotate.png') });
+  // 旋转后的命中检测仍要准：点它应该还是选中它
+  await page.mouse.click(P(320, 215).x, P(320, 215).y);
+  await sleep(150);
+  check('旋转后仍能点选到该图形', (await counts()).sel === 1, JSON.stringify(await counts()));
 
   await pickTool('freedraw');
   await page.mouse.move(P(240, 360).x, P(240, 360).y);
@@ -202,6 +216,10 @@ async function main() {
       check('场景 JSON 是 v2 且有形状/手绘/文字',
         scene.v === 2 && types.includes('rect') && types.includes('freedraw') && types.includes('text'),
         `v=${scene.v} types=${types.join(',')}`);
+      // 旋转角是新增字段：老场景没有它（缺省 0），新场景必须带着它落盘
+      const rectEl = (scene.elements || []).find((e) => e.type === 'rect') || {};
+      check('场景 JSON 带着旋转角（≈ π/2）',
+        Math.abs((rectEl.angle || 0) - Math.PI / 2) < 0.06, `angle=${rectEl.angle}`);
     }
   }
 
@@ -257,6 +275,68 @@ async function main() {
     const scene2 = JSON.parse(fs.readFileSync(imgPath.replace(/\.png$/, '.draw.json'), 'utf8'));
     check('场景 JSON 同步更新（元素 3 → 4）', (scene2.elements || []).length === 4, `n=${(scene2.elements || []).length}`);
   }
+
+  /* ---------- 11. 草稿箱：暂存 / 草稿箱重开 / 多开画板（2026-10-19 新功能） ---------- */
+  await page.evaluate(() => localStorage.removeItem('tracery.drawDrafts'));
+  await page.evaluate(() => document.getElementById('btn-draw').click());
+  await sleep(700);
+  await page.evaluate(() => document.querySelector('.draw-tool[data-tool="ellipse"]').click());
+  await sleep(80);
+  await drag(P(260, 150), P(420, 260));
+  await page.evaluate(() => document.getElementById('draw-stash').click());
+  await sleep(500);
+  const stashDialog = await page.evaluate(() => {
+    const d = document.querySelector('.dialog-backdrop');
+    if (!d || d.hidden) return null;
+    const card = d.querySelector('.dialog-card').getBoundingClientRect();
+    const top = document.elementFromPoint(card.left + card.width / 2, card.top + 16);
+    return { value: d.querySelector('.dialog-input').value, onTop: !!top?.closest?.('.dialog-backdrop') };
+  });
+  check('「暂存」弹出命名框，且对话框盖在绘图浮层之上', !!stashDialog && stashDialog.onTop, JSON.stringify(stashDialog));
+  await page.evaluate(() => { document.querySelector('.dialog-input').value = '端到端草稿甲'; });
+  await page.evaluate(() => document.querySelector('.dialog-ok').click());
+  await sleep(400);
+  const drafts1 = await page.evaluate(() => JSON.parse(localStorage.getItem('tracery.drawDrafts') || '[]').map((d) => ({ name: d.name, n: (d.elements || []).length })));
+  check('暂存后草稿箱里出现这份草稿（元素也在）',
+    drafts1.length === 1 && drafts1[0].name === '端到端草稿甲' && drafts1[0].n === 1, JSON.stringify(drafts1));
+
+  await page.evaluate(() => document.getElementById('draw-clear').click());
+  await sleep(200);
+  await page.evaluate(() => document.getElementById('draw-drafts-btn').click());
+  await sleep(300);
+  const panelRows = await page.evaluate(() => ({
+    visible: !document.getElementById('draw-drafts').hidden,
+    names: [...document.querySelectorAll('#draw-drafts .dd-row .dd-name')].map((e) => e.textContent),
+  }));
+  check('草稿箱面板列得出这份草稿', panelRows.visible && panelRows.names.includes('端到端草稿甲'), JSON.stringify(panelRows));
+  await page.evaluate(() => document.querySelector('.dd-open').click());
+  await sleep(700);
+  check('从草稿箱重开后画板内容回来了', (await counts()).n === 1, JSON.stringify(await counts()));
+
+  // 多开：草稿箱 → 新建画板 → 再暂存一份 → 两份共存
+  await page.evaluate(() => document.getElementById('draw-drafts-btn').click());
+  await sleep(250);
+  await page.evaluate(() => document.getElementById('draw-draft-new').click());
+  await sleep(350);
+  await page.evaluate(() => document.querySelector('.dialog-ok')?.click());
+  await sleep(500);
+  check('「新建画板」把画布清空（离开当前草稿）', (await counts()).n === 0, JSON.stringify(await counts()));
+  await page.evaluate(() => document.querySelector('.draw-tool[data-tool="ellipse"]').click());
+  await sleep(80);
+  await drag(P(300, 340), P(460, 450));
+  await page.evaluate(() => document.getElementById('draw-stash').click());
+  await sleep(500);
+  await page.evaluate(() => { const i = document.querySelector('.dialog-input'); if (i) i.value = '端到端草稿乙'; });
+  await page.evaluate(() => document.querySelector('.dialog-ok').click());
+  await sleep(400);
+  const drafts2 = await page.evaluate(() => JSON.parse(localStorage.getItem('tracery.drawDrafts') || '[]').map((d) => d.name));
+  check('多开画板：草稿箱能同时存两份',
+    drafts2.length === 2 && drafts2.includes('端到端草稿甲') && drafts2.includes('端到端草稿乙'), JSON.stringify(drafts2));
+
+  await page.evaluate(() => document.getElementById('draw-cancel').click());
+  await sleep(400);
+  check('关闭绘图后草稿仍在（本地暂存不随浮层清空）',
+    (await page.evaluate(() => JSON.parse(localStorage.getItem('tracery.drawDrafts') || '[]').length)) === 2);
 
   check('无渲染错误', errors.length === 0, errors.join(' | '));
 

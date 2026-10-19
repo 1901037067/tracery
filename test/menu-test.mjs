@@ -239,6 +239,24 @@ check('文件树右键 → 菜单项齐全（打开/副本/路径/重命名/删�
 await page.keyboard.press('Escape');
 await page.evaluate(() => document.querySelector('.context-menu')?.remove());
 
+/* ---------- ⑤b 文件树右键「文件夹」菜单（2026-10-19 补：以前只有两个「新建」项，没有删除） ---------- */
+const dirMenu = await page.evaluate(async () => {
+  // 文件夹行没有 data-path（服务端 tree() 只给 basename），按文本找
+  const item = [...document.querySelectorAll('#file-tree .tree-item')]
+    .find((el) => !el.dataset.path && el.textContent.trim() === '附件');
+  if (!item) return null;
+  const r = item.getBoundingClientRect();
+  item.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 20, clientY: r.top + 8 }));
+  await new Promise((res) => setTimeout(res, 300));
+  return [...document.querySelectorAll('.context-menu button')]
+    .map((b) => (b.querySelector('.mi-label')?.textContent || b.textContent).trim());
+});
+check('文件夹右键 → 菜单含新建/复制相对路径/重命名/删除',
+  !!dirMenu && ['在此新建笔记', '在此新建文件夹', '复制相对路径', '重命名', '删除'].every((l) => dirMenu.includes(l)),
+  (dirMenu || []).join(' / '));
+await page.keyboard.press('Escape');
+await page.evaluate(() => document.querySelector('.context-menu')?.remove());
+
 check('无渲染错误', errors.length === 0, errors.join(' | '));
 
 await browser.close();

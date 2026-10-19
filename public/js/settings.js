@@ -15,7 +15,6 @@ export const DEFAULT_SETTINGS = {
   editorWidth: 720,
   autosave: 900,
   lineNumbers: true,   // 行号：源码模式与实时预览共用同一个开关
-  editorEngine: 'cm',  // 编辑区内核：'cm'（CodeMirror 6，默认）| 'block'（块级 contenteditable，回退）
   startup: 'last',
   // 附件管理：新图片/文件（粘贴、拖入、绘图）的落点
   attachment: {
@@ -232,8 +231,6 @@ function build() {
             `<input type="range" class="rng" data-key="editorWidth" min="560" max="1000" step="20" value="${settings.editorWidth}" />`)}
           ${ROW('自动保存', '停止输入后多久落盘', SEG('autosave', [[300, '0.3 秒'], [600, '0.6 秒'], [900, '0.9 秒'], [1500, '1.5 秒']], settings.autosave))}
           ${ROW('行号', '在正文左侧显示行号（源码模式与实时预览共用）', TOGGLE('lineNumbers', settings.lineNumbers !== false))}
-          ${ROW('编辑内核', '块级=旧内核（稳定）；CM6=Obsidian 同源行级内核（预览，切换后重载笔记生效）',
-            SEG('editorEngine', [['block', '块级'], ['cm', 'CM6']], settings.editorEngine || 'cm'))}
         </div>
 
         <div class="settings-pane" data-pane="attachment">

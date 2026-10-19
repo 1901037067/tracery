@@ -116,8 +116,8 @@ async function dropFile(b64, name, type) {
 const noteAbs = path.join(VAULT, NOTE);
 const noteHas = (re) => { try { return new RegExp(re).test(fs.readFileSync(noteAbs, 'utf8')); } catch { return false; } };
 
-const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block（回归网），cm 用 TRACERY_TEST_ENGINE=cm
-const IS_CM = ENGINE === 'cm';
+const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
+const IS_CM = true;   // 恒为 true：块级内核已删除
 await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 await openNoteInTestVault();

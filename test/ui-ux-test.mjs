@@ -67,8 +67,8 @@ async function main() {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block，cm 用 TRACERY_TEST_ENGINE=cm
-  const IS_CM = ENGINE === 'cm';
+  const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
+  const IS_CM = true;   // 恒为 true：块级内核已删除
   await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
   await sleep(1200);
 

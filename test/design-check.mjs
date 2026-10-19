@@ -28,7 +28,7 @@ const browser = await puppeteer.launch({
   args: ['--no-sandbox'],
 });
 const page = await browser.newPage();
-const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block，cm 用 TRACERY_TEST_ENGINE=cm
+const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
 await page.goto(BASE + `/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
 await sleep(700);
 

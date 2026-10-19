@@ -1329,7 +1329,9 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
 
 /* ============ 应用内对话框 ============ */
 .dialog-backdrop {
-  position: fixed; inset: 0; z-index: 600;
+  /* 760 > 灯箱 700 > 绘图浮层 680：对话框是最上层模态，
+     否则从绘图浮层里调 askText（暂存草稿命名）会被 680 的绘图浮层盖住。 */
+  position: fixed; inset: 0; z-index: 760;
   background: rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
@@ -1587,6 +1589,42 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
   white-space: pre;
 }
 
+/* 草稿箱浮层（画板暂存 / 重开多块画板）：贴在画布右上角，与左侧属性面板对称 */
+.draw-drafts {
+  position: absolute; right: 12px; top: 12px; z-index: 4;
+  width: 246px; max-height: 62%;
+  display: flex; flex-direction: column;
+  background: var(--bg-elevated);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.13), 0 0 0 1px var(--hairline);
+  overflow: hidden;
+}
+/* display:flex 会压过 [hidden] 的 UA 规则，必须显式隐藏 */
+.draw-drafts[hidden] { display: none; }
+.dd-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 9px 11px 8px;
+  font-size: 12px; font-weight: 600; color: var(--text-primary);
+  border-bottom: 1px solid var(--hairline);
+}
+.dd-new { font-weight: 400; font-size: 11px; color: var(--accent); padding: 2px 7px; border-radius: 6px; }
+.dd-new:hover { background: var(--bg-fill-hover); }
+.dd-list { overflow-y: auto; padding: 6px; }
+.dd-empty { padding: 14px 8px; font-size: 11.5px; line-height: 1.6; color: var(--text-tertiary); text-align: center; }
+.dd-row { display: flex; align-items: center; gap: 6px; padding: 5px 7px; border-radius: 8px; }
+.dd-row:hover { background: var(--bg-fill); }
+.dd-row.active { background: var(--accent-soft); }
+.dd-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--text-primary);
+}
+.dd-time { flex-shrink: 0; font-size: 10px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.dd-open, .dd-del { flex-shrink: 0; padding: 2px 7px; border-radius: 6px; font-size: 11px; color: var(--accent); }
+.dd-open:hover { background: var(--bg-fill-hover); }
+.dd-del { color: var(--text-tertiary); }
+.dd-del:hover { color: var(--danger); background: var(--bg-fill-hover); }
+
 /* 同步：部署说明 */
 .sync-help {
   margin-top: 14px; padding: 14px 16px;
@@ -1617,7 +1655,10 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
    拖拽口径：容器本身是窗口拖拽区，只有 .tab 是 no-drag；标签之间可拖动换序（pointer 实现）。 */
 .tablist {
   flex: 1; min-width: 0;
-  display: flex; align-items: flex-end; gap: 0;
+  /* 标签铺满标题栏高度（容器到顶）：align-items 由 flex-end 改 stretch，
+     .tab 高度由固定 33px 改成 100%——否则标签卡片顶边离窗口最顶还有 12px 的空条，
+     活跃标签的「纸色底」接不到窗口最上方（用户 2026-10-19 截图反馈）。 */
+  display: flex; align-items: stretch; gap: 0;
   align-self: stretch;
   padding: 0 12px;
   overflow-x: auto; overflow-y: hidden;
@@ -1629,7 +1670,7 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
 .tab {
   position: relative;
   display: flex; align-items: center; gap: 6px;
-  height: 33px;
+  height: 100%;                 /* 铺满标题栏（原来是 33px，顶边留了 12px 空条） */
   padding: 0 8px 0 14px;
   /* 无缝连接：标签之间不留缝、不画两侧边框，只用一条竖向分隔线；
      整条标签栏只在**两端**圆角（像浏览器的标签条），所以不存在「圆角对撞出缺口」。 */

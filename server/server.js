@@ -63,20 +63,28 @@ async function moveToTrash(root, rel, abs) {
   const id = `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
   const name = path.basename(abs);
   const dest = path.join(dir, `${id}__${name}`);
+  // 目录也能整体进回收站（删除文件夹时连内容一起搬走，恢复时整棵树回来）。
+  // 注意：跨盘的 EXDEV 兜底不能对目录用 copyFile（会抛 EISDIR），必须 recursive 复制 + 整树删除。
+  const isDir = fs.statSync(abs).isDirectory();
   let size = 0;
   try { size = (await fsp.stat(abs)).size; } catch { /* ignore */ }
   try {
     await fsp.rename(abs, dest);          // 同盘：秒移
   } catch (e) {
     if (e.code !== 'EXDEV') throw e;      // 跨盘（仓库在 D/E，数据目录在 C）：复制后删
-    await fsp.copyFile(abs, dest);
-    await fsp.unlink(abs);
+    if (isDir) {
+      await fsp.cp(abs, dest, { recursive: true });
+      await fsp.rm(abs, { recursive: true, force: true });
+    } else {
+      await fsp.copyFile(abs, dest);
+      await fsp.unlink(abs);
+    }
   }
   const items = readTrashIndex(dir);
   items.unshift({ id, path: rel.replace(/\\/g, '/'), name, deletedAt: Date.now(), size });
   const trimmed = items.slice(0, TRASH_LIMIT);
   for (const drop of items.slice(TRASH_LIMIT)) {
-    try { await fsp.unlink(path.join(dir, `${drop.id}__${drop.name}`)); } catch { /* ignore */ }
+    try { await fsp.rm(path.join(dir, `${drop.id}__${drop.name}`), { recursive: true, force: true }); } catch { /* ignore */ }
   }
   writeTrashIndex(dir, trimmed);
 }
@@ -99,8 +107,13 @@ async function restoreFromTrash(root, id) {
   await fsp.mkdir(path.dirname(target), { recursive: true });
   try { await fsp.rename(src, target); } catch (e) {
     if (e.code !== 'EXDEV') throw e;
-    await fsp.copyFile(src, target);
-    await fsp.unlink(src);
+    if (fs.statSync(src).isDirectory()) {
+      await fsp.cp(src, target, { recursive: true });
+      await fsp.rm(src, { recursive: true, force: true });
+    } else {
+      await fsp.copyFile(src, target);
+      await fsp.unlink(src);
+    }
   }
   items.splice(i, 1);
   writeTrashIndex(dir, items);
@@ -112,14 +125,14 @@ async function purgeTrashItem(root, id) {
   const i = items.findIndex((x) => x.id === id);
   if (i < 0) return;
   const item = items[i];
-  try { await fsp.unlink(path.join(dir, `${item.id}__${item.name}`)); } catch { /* ignore */ }
+  try { await fsp.rm(path.join(dir, `${item.id}__${item.name}`), { recursive: true, force: true }); } catch { /* ignore */ }
   items.splice(i, 1);
   writeTrashIndex(dir, items);
 }
 async function emptyTrash(root) {
   const dir = trashDir(root);
   for (const item of readTrashIndex(dir)) {
-    try { await fsp.unlink(path.join(dir, `${item.id}__${item.name}`)); } catch { /* ignore */ }
+    try { await fsp.rm(path.join(dir, `${item.id}__${item.name}`), { recursive: true, force: true }); } catch { /* ignore */ }
   }
   writeTrashIndex(dir, []);
 }
@@ -818,13 +831,16 @@ const server = http.createServer(async (req, res) => {
       const abs = path.join(vault.root, rel);
       const newAbs = path.join(vault.root, newPath);
       if (!fs.existsSync(abs)) return sendJson(res, 404, { error: '文件不存在' });
+      // 目录重命名：不参与双链自动更新（目录名不是 [[链接]] 的目标；
+      // 否则「日记」这种同名目录会把指向 日记.md 的双链一起改掉）
+      const isDir = fs.statSync(abs).isDirectory();
       await fsp.mkdir(path.dirname(newAbs), { recursive: true });
       await fsp.rename(abs, newAbs);
       // Obsidian 行为：重命名后自动更新指向它的双链
       const oldName = path.basename(rel, path.extname(rel));
       const newName = path.basename(newPath, path.extname(newPath));
       const touched = new Set([rel]);
-      if (oldName !== newName) {
+      if (!isDir && oldName !== newName) {
         for (const [srcRel, note] of vault.notes) {
           if (srcRel === rel || !note.links.includes(oldName)) continue;
           const srcAbs = path.join(vault.root, srcRel);
@@ -841,10 +857,17 @@ const server = http.createServer(async (req, res) => {
       const { path: rel } = await readBody(req);
       const abs = path.join(vault.root, rel);
       if (!fs.existsSync(abs)) return sendJson(res, 404, { error: '文件不存在' });
+      const isDir = fs.statSync(abs).isDirectory();
       // 不再直接 unlink：先进回收站，可以恢复（回收站目录在 TRACERY_HOME 下，
       // 不污染仓库本身，也不会被同步 / 文件树看到）
       await moveToTrash(vault.root, rel, abs);
-      await vault.applyChange(rel);
+      if (isDir) {
+        // 删目录会连带带走里面的笔记：applyChange 只删它自己这一条，
+        // 所以这里整仓重扫，清掉子笔记在索引/反链/图谱里的残留
+        await vault.open();
+      } else {
+        await vault.applyChange(rel);
+      }
       broadcast({ type: 'fs-change', paths: [rel] });
       return sendJson(res, 200, { ok: true });
     }

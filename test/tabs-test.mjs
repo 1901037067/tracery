@@ -55,7 +55,7 @@ async function main() {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block，cm 用 TRACERY_TEST_ENGINE=cm
+  const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
   await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
   await sleep(1400);
 
@@ -138,12 +138,17 @@ async function main() {
       divider: Math.max(...tabs.map((t) => parseFloat(getComputedStyle(t).borderRightWidth) || 0)),
       firstRadius: parseFloat(getComputedStyle(tabs[0]).borderTopLeftRadius),
       height: Math.round(tabs[0].getBoundingClientRect().height),
+      top: Math.round(tabs[0].getBoundingClientRect().top),
+      barHeight: Math.round(document.querySelector('.titlebar').getBoundingClientRect().height),
       closeOpacity: Number(getComputedStyle(tabs[0].querySelector('.tab-close')).opacity),
     };
   });
-  check('标签无缝连接（gap=0 + 分隔线 + 整条两端圆角）',
+  // 契约更新（2026-10-19）：标签从「33px 卡片贴底坐」改成**铺满标题栏高度**——
+  // 顶边要贴到窗口最上方（top≈0）、高度≈标题栏高度，见 docs/HANDOFF.md §5 新决策。
+  check('标签无缝连接且铺满标题栏（gap=0 + 分隔线 + 两端圆角 + 顶边到顶）',
     look.gap === 0 && (look.count === 1 || look.divider >= 1)
-    && look.firstRadius >= 6 && look.height <= 40 && look.closeOpacity > 0.2,
+    && look.firstRadius >= 6 && look.top <= 1 && look.height >= look.barHeight - 2
+    && look.closeOpacity > 0.2,
     JSON.stringify(look));
 
   const idleTab = await page.evaluate(() => {

@@ -228,6 +228,24 @@ async function main() {
     const navPath = await page.evaluate(() => document.getElementById('note-path')?.textContent || '');
     check('cm 下点击 [[双链]] 跳转到目标笔记', clicked && navPath.includes('双链与反链'), `clicked=${clicked} path=${navPath}`);
 
+    // 7b. 真实鼠标点击（回归真实交互链路，不是合成 el.click()）：mousedown 会先把光标落到
+    //     该行 → 「光标行露原始语法」的装饰规则随即拆掉 .cm-lp-wikilink span → 紧接着的
+    //     click 找不到 span ——这就是「用鼠标点双链毫无反应」的根因，已在 linkEvents 里拦 mousedown。
+    await page.evaluate(() => {
+      [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('测试笔记'))?.click();
+    });
+    await sleep(1000);
+    const linkBox = await page.evaluate(() => {
+      const span = [...document.querySelectorAll('#editor-live .cm-lp-wikilink')]
+        .find((s) => s.textContent.includes('双链与反链'));
+      if (!span) return null;
+      const r = span.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    if (linkBox) { await page.mouse.click(linkBox.x, linkBox.y); await sleep(1000); }
+    const realNav = await page.evaluate(() => document.getElementById('note-path')?.textContent || '');
+    check('真实鼠标点击 [[双链]] 也能跳转', !!linkBox && realNav.includes('双链与反链'), `box=${!!linkBox} path=${realNav}`);
+
     // 8. Enter 续任务列表（P2 keymap 在真实 app 下生效）
     await page.evaluate(() => {
       [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('任务'))?.click();
