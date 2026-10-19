@@ -1008,16 +1008,30 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
 ### 给用户的开场提示词（可直接粘贴）
 
 ```
-读 docs/EDITOR-MIGRATION.md 的 7.9（本轮交接快照），收尾 P5。7.9 已经做完盘点，照着做即可，不用重新调研。
-现状：默认内核已是 cm（7.7）；cm 默认路径只有 test:engine 的 12 条冒烟覆盖（7.8）；
-17 个套件硬 pin ?engine=block；dist:dir 在本机因符号链接权限失败。
-本轮按 7.9-F 的顺序：
-① 先补样式（7.9-A，最高优先级）：真实 app 完全没有 CM 样式（全套 .cm-lp-* 只定义在 cmlab.html），
-   把 cmlab 的 CM 样式抽成 public/css/cm.css、改用 app 的 CSS 变量（明暗主题跟随）、
-   index.html 引入，并收敛 .editor 与 .cm-scroller 的双滚动条；
-② 新增 test/_engine-helpers.mjs，把 17 个 pin ?engine=block 的套件参数化成 TRACERY_TEST_ENGINE
-   （配方见 7.9-D，默认仍 block 作回归网）；
-③ 按 7.9-C 的逐条对照，改写 polish → menu → enter → gap → e2e 的块级断言，每个跑双引擎两遍；
-④ 全量回归；⑤ 具备符号链接权限的环境跑 npm run dist:dir + npm run release（7.9-E）；
-⑥ 结论写回文档第 7 节（7.10）并提交推送。
+读 docs/HANDOFF.md（当前状态 / 已知坑 / 下一步优先级），再看 docs/EDITOR-MIGRATION.md 的 7.10、7.11
+（CM6 迁移收尾两轮的结论）。迁移主体已完成，不用重新调研。
+
+现状（v1.2.0 已发布，Gitee tag v1.2.0）：
+- 默认编辑内核已是 cm（CodeMirror 6，P0~P5 全过）：设置 → 编辑器 可一键回退块级，
+  `?engine=block|cm` 可按页覆盖；旧块级内核不删（既是回归网也是回退路）。
+- 测试：17 个套件已参数化为 TRACERY_TEST_ENGINE（默认 block），block 22 套件 / cm 16 套件
+  各跑一遍全绿；test:engine（12 条）与 test:cmlab（探针）只跑 cm。
+- 打包：本机 GitHub 不通（下载 winCodeSign 超时）+ 无符号链接权限 → 出包走
+  `npm run dist:dir:nosign` + `npm run release`；打包版验证 `node test/verify-exe.mjs` 应 14/14。
+
+本轮目标（按优先级，先做 1）：
+1. **补 cm 的 3 处渲染缺口**：
+   ① 行内 `![[图片]]`（前面有文字那种）要出图——cm 的图片 widget 目前只认「整行就是一个 `![[..]]`」
+      （见 public/js/cm/widgets.js 的 EMBED_LINE_RE 与 blk.line === blk.endLine）；
+   ② `![](路径)` 的 Markdown 图片在 cm 实时预览里也要出图；
+   ③ 给 wikilink 补 `unresolved` 变体类（decorations.js 的装饰不带解析结果），好把 e2e #11 的引擎门控拆掉。
+   改完把 ui-ux 里被门控的 3 条、features/layout/backspace 里被门控的条目逐步回收，
+   并跑相关套件的 block + cm 两遍（`$env:TRACERY_TEST_ENGINE='cm'`）。
+2. （可选，网络恢复后）`git push github main --tags`：GitHub 落后 3 个 commit + tag v1.2.0。
+3. 结论写回本文件第 7 节（7.12）并推 Gitee（origin）与 GitHub（github）两个远端。
+
+硬约束：
+- **不要改 public/js/editor.js**（旧块级内核只读：它是回归网，也是用户回退路）；
+- 跑完套件记得 `git checkout -- test/screenshots "demo-vault/Markdown 语法.md"` 复原污染，别提交；
+- 提交信息用中文；UI 文案与代码注释也是中文。
 ```
