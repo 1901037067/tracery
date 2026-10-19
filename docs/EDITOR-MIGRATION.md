@@ -992,8 +992,8 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
 | `test/ui-ux-test.mjs` | 图片 4 条断言**拆掉门控**（行内裸名 / 带目录 / `\|200` / `![](路径)`），block + cm 同一套断言 |
 | `test/e2e.mjs` | #11 未解析双链**拆掉门控**（cm 查 `.cm-lp-wikilink.cm-lp-unresolved`） |
 
-**实测**：`test:uiux` block **16/16**、cm **16/16**；`test:e2e` block **15/15**、cm **15/15**；
-其余 13 个应用套件（enter/gap/polish/menu/features/layout/backspace/asset/tabs/trash/draw/roundtrip）
+**实测**：`test:ux` block **16/16**、cm **16/16**；`test:e2e` block **15/15**、cm **15/15**；
+其余 12 个应用套件（enter/gap/polish/menu/features/layout/backspace/asset/tabs/trash/draw/roundtrip）
 block + cm 各一遍全绿；`test:engine` 12/12、`test:cmlab` 8 探针 + IME 全绿、无页面错误。
 
 **6 个关键结论**
