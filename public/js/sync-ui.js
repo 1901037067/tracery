@@ -70,6 +70,23 @@ function formHtml() {
       <label for="sync-device">设备名称</label>
       <input id="sync-device" type="text" placeholder="家里的台式机" spellcheck="false" autocomplete="off" />
     </div>
+    <div class="sync-field">
+      <label for="sync-pass">同步密码 <span class="sync-sub">已加密的仓库必填</span></label>
+      <input id="sync-pass" type="password" placeholder="端到端加密密码" autocomplete="new-password" />
+    </div>
+    <label class="sync-check">
+      <input id="sync-enc" type="checkbox" /> 为这个仓库启用端到端加密（新仓库）
+    </label>
+    <div id="sync-enc-box" hidden>
+      <div class="sync-field">
+        <label for="sync-pass2">再输入一次密码</label>
+        <input id="sync-pass2" type="password" placeholder="确认密码（至少 6 位）" autocomplete="new-password" />
+      </div>
+      <p class="set-note">
+        密码只在<b>本机</b>用来派生密钥，不会上传、也不进仓库；
+        服务端只存密文和哈希后的文件名。代价：<b>忘记密码就无法恢复云端数据</b>。
+      </p>
+    </div>
     <div id="sync-form-error" class="sync-error" hidden></div>
     <div class="set-actions">
       <button id="sync-connect" class="btn-primary">连接并同步</button>
@@ -125,6 +142,17 @@ function connectedHtml() {
       </div>
       <button id="sync-now" class="btn-primary sync-now-btn">立即同步</button>
     </div>
+    ${s.encrypted ? `<div class="sync-badge">🔒 端到端加密已开启 · 服务端只存密文</div>` : ''}
+    ${s.needsPassword ? `
+    <div class="sync-unlock">
+      <div class="sync-title">这个仓库是加密的</div>
+      <div class="sync-sub">输入同步密码把本机解锁（密码不会上传）</div>
+      <div class="sync-unlock-row">
+        <input id="sync-unlock-pass" type="password" placeholder="同步密码" autocomplete="current-password" />
+        <button id="sync-unlock" class="btn-primary">解锁并同步</button>
+      </div>
+      <div id="sync-unlock-error" class="sync-error" hidden></div>
+    </div>` : ''}
     ${hosting ? `
     <div class="lan-banner">
       本机共享中 · 通行码 <b class="lan-code">${escapeHtml(lanCode)}</b> · 其他设备连上后即可互相同步
@@ -194,11 +222,18 @@ function bindForm() {
       errEl.hidden = false;
       return;
     }
+    const password = (mount.querySelector('#sync-pass')?.value || '').trim();
+    const encOn = !!mount.querySelector('#sync-enc')?.checked;
+    if (encOn) {
+      const again = (mount.querySelector('#sync-pass2')?.value || '').trim();
+      if (password.length < 6) { errEl.textContent = '端到端加密密码至少 6 位'; errEl.hidden = false; return; }
+      if (again !== password) { errEl.textContent = '两次输入的密码不一致'; errEl.hidden = false; return; }
+    }
     busy = true;
     btn.disabled = true;
     btn.textContent = '连接中…';
     try {
-      const res = await Api.syncPair({ serverUrl, code, deviceName });
+      const res = await Api.syncPair({ serverUrl, code, deviceName, password: password || undefined, encrypt: encOn });
       const st = res.status || res;
       onSyncStatus(st);
       const r = st.firstResult;
@@ -213,7 +248,12 @@ function bindForm() {
     }
   };
   btn.onclick = submit;
-  for (const id of ['#sync-url', '#sync-code', '#sync-device']) {
+  const encToggle = mount.querySelector('#sync-enc');
+  const encBox = mount.querySelector('#sync-enc-box');
+  if (encToggle && encBox) {
+    encToggle.addEventListener('change', () => { encBox.hidden = !encToggle.checked; });
+  }
+  for (const id of ['#sync-url', '#sync-code', '#sync-device', '#sync-pass']) {
     mount.querySelector(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   }
   const helpBox = mount.querySelector('#sync-help-box');
@@ -310,6 +350,27 @@ function bindConnected() {
       if (b) { b.disabled = false; b.textContent = '立即同步'; }
     }
   };
+
+  const unlockBtn = mount.querySelector('#sync-unlock');
+  if (unlockBtn) {
+    unlockBtn.onclick = async () => {
+      const pass = mount.querySelector('#sync-unlock-pass')?.value || '';
+      const errEl = mount.querySelector('#sync-unlock-error');
+      if (!pass) { errEl.textContent = '请输入同步密码'; errEl.hidden = false; return; }
+      unlockBtn.disabled = true;
+      unlockBtn.textContent = '解锁中…';
+      try {
+        const res = await Api.syncUnlock(pass);
+        if (res.status) onSyncStatus(res.status);
+        toast('已解锁并完成同步');
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.hidden = false;
+        unlockBtn.disabled = false;
+        unlockBtn.textContent = '解锁并同步';
+      }
+    };
+  }
 
   for (const seg of mount.querySelectorAll('.seg[data-sync-key]')) {
     seg.addEventListener('click', async (e) => {

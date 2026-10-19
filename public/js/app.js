@@ -996,6 +996,10 @@ function showImageMenu(e, target) {
     { icon: ICON.external, label: '使用默认应用打开', action: () => (inElectron ? window.electronAPI.openPath(abs) : toast('仅桌面版支持')) },
     { icon: ICON.tree, label: '在文件列表中显示', action: () => revealInTree(resolved) },
     '-',
+    // 只有图片才可能带场景（pdf/附件跳过）
+    ...(/[.](png|jpe?g|webp|gif)$/i.test(resolved || '')
+      ? [{ icon: ICON.pencil, label: '编辑绘图', action: () => editDrawing(resolved) }, '-']
+      : []),
     { icon: ICON.scissors, label: '移除图片', action: () => editor.removeImageAt(img) },
     { icon: ICON.trash, label: '删除图片文件', danger: true, action: () => deleteAssetFile(resolved) },
   ]);
@@ -1964,6 +1968,47 @@ function openDrawPanel() {
       await refreshTree();
       await refreshGraph();
       editor.insertSnippet(`![[${path}|640]]`);
+    },
+  });
+}
+
+/** 覆盖写之后，正文里指向这张图的 <img> 必须重新取一次（src 没变，浏览器会拿旧图） */
+function reloadImagesFor(rel) {
+  const leaf = decodeURIComponent(String(rel || '')).split('/').pop();
+  if (!leaf) return;
+  document.querySelectorAll('#editor-live img').forEach((img) => {
+    const src = img.getAttribute('src') || '';
+    if (!src || !decodeURIComponent(src).includes(leaf)) return;
+    try {
+      const u = new URL(src, location.origin);
+      u.searchParams.set('v', String(Date.now()));
+      img.src = u.toString();
+    } catch { /* 相对地址异常就跳过 */ }
+  });
+}
+
+/** 右键图片 → 编辑绘图：读同名 .draw.json 的场景，回填进白板；保存时覆盖原 PNG */
+async function editDrawing(rel) {
+  const norm = String(rel || '').replace(/\\/g, '/');
+  if (!norm) return;
+  const jsonRel = norm.replace(/\.(png|jpe?g|webp|gif)$/i, '.draw.json');
+  let scene = null;
+  try {
+    const res = await fetch(Api.fileUrl(jsonRel), { cache: 'no-store' });
+    if (res.ok) scene = JSON.parse(await res.text());
+  } catch { /* 没 JSON / JSON 坏了，都按「不可编辑」处理 */ }
+  if (!Array.isArray(scene?.elements) || !scene.elements.length) {
+    toast('这张图没有可编辑的绘图数据（旧版本保存的图片只能重新画）');
+    return;
+  }
+  openDraw({
+    elements: scene.elements,
+    editingPath: norm,
+    getNotePath: () => state.currentPath,
+    onUpdated: async (path) => {
+      await refreshTree();
+      reloadImagesFor(path || norm);
+      editor.refreshDecorations?.();
     },
   });
 }

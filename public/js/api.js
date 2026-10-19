@@ -42,6 +42,7 @@ export const Api = {
   // 自托管同步
   syncStatus: () => api('/api/sync/status'),
   syncPair: (payload) => api('/api/sync/pair', { method: 'POST', body: payload }),
+  syncUnlock: (password) => api('/api/sync/unlock', { method: 'POST', body: { password } }),
   syncNow: () => api('/api/sync/now', { method: 'POST', body: {} }),
   syncOptions: (patch) => api('/api/sync/options', { method: 'POST', body: patch }),
   syncDisconnect: () => api('/api/sync/disconnect', { method: 'POST', body: {} }),

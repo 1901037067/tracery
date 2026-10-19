@@ -619,6 +619,17 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // 已配对但本机没解锁（换设备/重装）：用密码装回钥匙
+    if (p === '/api/sync/unlock' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const result = await syncEngine.unlock(body);
+        return sendJson(res, 200, { ok: true, result, status: syncEngine.status() });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message, status: syncEngine.status() });
+      }
+    }
+
     if (p === '/api/sync/now' && req.method === 'POST') {
       try {
         const result = await syncEngine.syncNow({ reason: 'manual' });
@@ -761,15 +772,29 @@ const server = http.createServer(async (req, res) => {
       if (dir === null) return sendJson(res, 400, { error: '附件目录不合法（不允许 .. 或绝对路径）' });
       const raw = String(body.name || '绘图').replace(/[\\/:*?"<>|]/g, '-')
         .replace(/\.(png|jpe?g|webp|gif|pdf|svg)$/i, '').slice(0, 80) || '绘图';
-      let rel = dir ? `${dir}/${raw}.${ext}` : `${raw}.${ext}`;
-      let n = 2;
-      while (fs.existsSync(path.join(vault.root, rel))) rel = `${dir}/${raw}-${n++}.${ext}`;
-      if (dir) await fsp.mkdir(path.join(vault.root, dir), { recursive: true });
+      let rel;
+      // overwrite：覆盖仓库内已有的图片（「编辑绘图」保存时用）。
+      // 为什么不复用 name：覆盖必须落在**原路径**上，否则笔记里的 ![[..]] 会指向旧文件。
+      // 安全口径与其它接口一致：只允许仓库内已存在的普通文件，不接受 ../ 或绝对路径。
+      const overwrite = typeof body.overwrite === 'string' ? body.overwrite.replace(/\\/g, '/') : '';
+      if (overwrite) {
+        const absTarget = path.join(vault.root, overwrite);
+        if (!absTarget.startsWith(vault.root) || !fs.existsSync(absTarget) || !fs.statSync(absTarget).isFile()) {
+          return sendJson(res, 404, { error: '要覆盖的文件不存在' });
+        }
+        rel = overwrite;
+      } else {
+        rel = dir ? `${dir}/${raw}.${ext}` : `${raw}.${ext}`;
+        let n = 2;
+        while (fs.existsSync(path.join(vault.root, rel))) rel = `${dir}/${raw}-${n++}.${ext}`;
+        if (dir) await fsp.mkdir(path.join(vault.root, dir), { recursive: true });
+      }
       await fsp.writeFile(path.join(vault.root, rel), buf);
       const touched = [rel];
       // 绘图的笔画数据另存一份（便于以后重新编辑；不参与正文）
       if (body.drawing) {
-        const jsonRel = `${dir}/${path.basename(rel, '.' + ext)}.draw.json`;
+        const jsonDir = path.posix.dirname(rel);
+        const jsonRel = `${jsonDir === '.' ? '' : jsonDir + '/'}${path.basename(rel, '.' + ext)}.draw.json`;
         await fsp.writeFile(path.join(vault.root, jsonRel), String(body.drawing), 'utf8');
         touched.push(jsonRel);
       }
@@ -861,7 +886,8 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 404, { error: '文件不存在' });
       }
       const mime = MIME[path.extname(abs).toLowerCase()] || 'application/octet-stream';
-      res.writeHead(200, { 'Content-Type': mime });
+      // 图片会被「编辑绘图」覆盖写，浏览器不能拿旧缓存：每次都回源校验
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' });
       fs.createReadStream(abs).pipe(res);
       return;
     }

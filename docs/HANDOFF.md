@@ -11,8 +11,9 @@
 > 未解析双链有 `.cm-lp-unresolved`；跑套件的测试门控已拆（ui-ux 4 条 + e2e #11）。
 > **v1.2.1 已发布**：除渲染缺口外，还打磨了两处视觉 —— 图片的虚线框/拖宽手柄改成**悬停才出现**、
 > 滚动条**贴编辑区右缘**（宽窗口下不再跑到纸张中间），见 §5 #44/#45。
-> **本轮又补了两块**：cm **表格单元格编辑**（网格渲染 + Tab 跳格 + 回车加行，见 7.13）、
-> **标签栏改成卡片式**（悬停换文字色 + 拖拽换序，见 §5 #46）。
+> **已完成**：cm 表格单元格编辑（7.13）、卡片式标签栏 + 拖拽换序（#46）、
+> **绘图二次编辑**（右键图片 → 编辑绘图，覆盖原 PNG/JSON，#48）、
+> **同步 v3 端到端加密**（scrypt+HKDF 派生 → AES-256-GCM；路径 HMAC + 加密索引，#49，`test:sync-enc` 20/20）。
 > **剩余**：features ② / layout ② 两条口径差异，见 §7。
 
 ---
@@ -36,6 +37,7 @@ npm run test:ui              # 10  窗口按钮/主题图标/仓库切换
 npm run test:ux              # 16  布局/对话框/图片/图谱全屏
 npm run test:sync            # 27  同步（双实例+真服务端：合并/冲突/分块/Range/删除）
 npm run test:sync-ui         # 13  同步面板 + 部署说明 + 局域网区块
+npm run test:sync-enc        # 20  同步 v3 端到端加密（服务端只见密文/哈希名、换设备、错密码、解锁）
 npm run test:merge           # 10  三方合并单测
 npm run test:roundtrip       # 7   Markdown 双向引擎属性测试（恒等/不动点/内容不丢/渲染确定性，含 300 篇模糊 + demo-vault 全量）
 npm run test:enter           # 10  编辑器回车行为回归（段尾/行中/连续回车、列表续行与退出、软换行段、段尾插空行）
@@ -44,7 +46,7 @@ npm run test:polish          # 18  撤销/重做、实时预览行号 + 设置�
 npm run test:menu            # 10  编辑区右键菜单（文字/图片）+ 文件树菜单 + PDF 阅读器 + 侧栏折叠
 npm run test:trash           # 10  回收站（删除入站/恢复/彻底删除/清空）
 npm run test:features        # 13(block) / 14(cm)  右栏切换/代码高亮/表格网格+Tab+加行/星标/最近/导出/图片缩放/替换/历史
-npm run test:draw            # 20  绘图（Excalidraw 风格白板）
+npm run test:draw            # 26  绘图（白板 + 二次编辑：右键「编辑绘图」→ 载入场景 → 覆盖保存）
 npm run test:lan             # 10  局域网直连
 npm run test:layout          # 12  侧栏折叠回归 / 紧凑头栏
 npm run test:asset           # 15  附件落点 / 粘贴拖拽 / 路径穿越
@@ -119,7 +121,8 @@ test/*.mjs              九个测试套件（见 §2）
 - 紧凑头栏：标签行 + 笔记头压成一条（合计 < 70px，中间无分隔线，活动标签下圆角为 0）
 - 主题：apple/obsidian × 亮暗，强调色/圆角/字号/行宽即时生效，可导出 CSS
 - 同步：NAS/服务器方式 + **局域网六位通行码直连**；自动三方合并、冲突副本、删除回收站、
-  内容寻址去重、1MB 分块上传、Range 断点下载、自动同步开关/间隔/自动合并开关
+  内容寻址去重、1MB 分块上传、Range 断点下载、自动同步开关/间隔/自动合并开关；
+  **端到端加密（v3）**：服务端只存密文 + HMAC 路径，换设备输同一密码即可解密
 - 仓库管理：欢迎页浮层（Esc/✕/点空白关闭）、最近列表、原生选文件夹、标题栏仓库名可点
 
 ## 4b. 编辑内核现状（2026-10-19：双内核共存，迁移已完成主体）
@@ -215,6 +218,22 @@ test/*.mjs              九个测试套件（见 §2）
 
 43. **CM6 迁移主体完成：默认内核已切 cm（2026-10-19）**：P2 行内编辑（`cm/editing.js`：Enter 续列表/任务列表、Tab 缩进、Ctrl+B/I/S/K、粘贴拖入拦截）、P3 块级 widget（`cm/widgets.js`：图片嵌入+拖宽、复选框、Callout、表格行、双链/标签事件）、P4 引擎适配器（`cm/engine.js` + app.js 工厂 + `settings.editorEngine`）、P5 收尾（`public/css/cm.css` 补齐 CM 样式并用 app 的 CSS 变量、17 个套件参数化为 `TRACERY_TEST_ENGINE`、全量双引擎回归、打包链路打通）全部完成，逐阶段结论在 `docs/EDITOR-MIGRATION.md` **7.3~7.11**。**顺带修掉 6 个真 bug**：cm 附件回调漏 import（7.7 结论 4）；`#editor-live` 滚动关链接预览在 cm 失效（7.7 结论 3）；右键把 CM 选区收拢成光标（7.10）；空列表项/空引用回车在 cm 里不退出列表（7.10）；`.cm-widgetBuffer` 把 2em 标题行撑高 23px（7.10）；cm 粘贴图片不改名 + **CRLF 笔记大纲为空**（7.11）。**默认保留 `settings.editorEngine` 一键回退**，旧块级内核不删（它是回归网，也是回退路）。
 
+48. **绘图二次编辑 = 场景 JSON 回填 + 原地覆盖**（2026-10-19）：
+    每张绘图保存时都会在 PNG 旁边写 `<同名>.draw.json`（v2 场景）。右键图片 →「编辑绘图」读这个 JSON
+    回填白板（`fitViewToContent()` 把内容缩到可见范围），保存走 `/api/asset` 的 `overwrite`：
+    **覆盖原 PNG + 原 JSON**，笔记里的 `![[路径]]` 一个字都不用改。
+    两个配套点：① 覆盖后浏览器会拿旧图，`/api/file` 加 `Cache-Control: no-cache` +
+    前端 `reloadImagesFor()` 给 `<img>` 加 `?v=时间戳`；② `overwrite` 只允许仓库内**已存在**的文件，
+    与其它接口同一套路径校验口径。
+49. **同步 v3 端到端加密的四个关键取舍**（详见 `docs/SYNC.md` 第 10 节）：
+    ① 密钥：`scrypt(密码,salt)` → HKDF 分 `encKey` / `nameKey`；密码不落盘，`encKey/nameKey` 存
+       `.tracery/sync.json`（不参与同步）。服务端只放 `{salt, check}`，新设备靠它验密码。
+    ② 路径：manifest key = `HMAC(nameKey, 路径)`；路径→hmac 的反向映射放在**加密索引 blob**
+       （manifest 固定 key `tracery-v3-index`），随文件变更同一次 commit 提交。
+    ③ 内容：AES-256-GCM，blob = `TRC1|iv|tag|ct`；**IV 由明文确定性派生**，所以「同内容=同密文」，
+       服务端去重与 sha 比较照旧成立，解锁后也不会把两边相同的文件误判成冲突。
+    ④ base：本地/远端各存一种 sha（`{l,r}`），比较语义才不串味；下载=先解密再落地。
+
 46. **标签栏 = 卡片式标签 + pointer 拖拽换序**（2026-10-19 按用户给的参考图改）：
     非活跃 = 浅底 + 发丝边 + 圆角上沿；活跃 = 纸色底 + 强调色文字 + 底部 2px 强调线；
     **悬停只换文字色**（不铺底色，整条栏不闪）；关闭按钮常显但压到 0.45 透明度。
@@ -274,8 +293,10 @@ test/*.mjs              九个测试套件（见 §2）
    `npx electron-builder --dir --config.win.signAndEditExecutable=false --config.directories.output=dist-x`
    出到另一个目录，验证/压包完再删。
 3. ~~cm 表格单元格编辑~~ ✅ **已完成（7.13）**：网格渲染 + Tab 跳格 + 回车加行，`features` 的表格门控已拆。
-4. **同步 v3：端到端加密**。路线：scrypt(密码) 派生 masterKey → 内容 AES-GCM 加密后再上传 → manifest 路径用 HMAC 存。服务端接口不用改（本来就只认 blob+sha）。注意：合并会失效（服务端看不到明文），需改成「客户端持有 base 明文」策略。
-5. **绘图二次编辑**：场景 JSON 已存 `附件/*.draw.json`（v2：`{v:2, elements:[...]}`），做「右键图片 → 编辑绘图」把它回填进 draw.js 的 `elements` 即可；跨设备时 JSON 也参与同步。
+4. ~~同步 v3：端到端加密~~ ✅ **已完成（2026-10-19）**：见 `docs/SYNC.md` 第 10 节与 `test:sync-enc`（20/20）。
+   服务端接口**一行没改**（本来就只认 blob+sha）；合并也没有失效——引擎跑在设备端，
+   取到 base/remote 的密文后先解密再 diff3，合并结果再加密上传。
+5. ~~绘图二次编辑~~ ✅ **已完成（2026-10-19）**：右键图片 →「编辑绘图」，保存覆盖原 PNG/JSON（#48）。
 6. **PWA + 响应式**（ROADMAP P0 最后一项）：manifest + service worker + 移动三栏。
 7. **大仓库性能**：文件树虚拟滚动 + 增量索引落盘。
 8. **mDNS 精细发现**（替代当前 UDP 广播启发式）。

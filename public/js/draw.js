@@ -1191,37 +1191,61 @@ async function save() {
   const btn = overlay.querySelector('#draw-save');
   btn.disabled = true;
   btn.textContent = '保存中…';
+  const editingPath = opts.editingPath ? String(opts.editingPath).replace(/\\/g, '/') : '';
   try {
     const dataUrl = exportPng(2);
-    const res = await Api.saveAsset({
-      name: `绘图 ${stamp()}`,
-      data: dataUrl,
-      dir: resolveAssetDir(getSettings(), opts.getNotePath?.()),
-      drawing: JSON.stringify({
-        v: 2,
-        appState: { viewBackgroundColor: '#ffffff' },
-        elements,
-      }),
+    const drawing = JSON.stringify({
+      v: 2,
+      appState: { viewBackgroundColor: '#ffffff' },
+      elements,
     });
-    await opts.onInserted?.(res.path);
-    close();
-    toast('绘图已插入笔记');
+    const res = editingPath
+      // 重新编辑：**覆盖原 PNG + 原 draw.json**，笔记里的 ![[路径]] 不用改
+      ? await Api.saveAsset({ data: dataUrl, drawing, overwrite: editingPath })
+      : await Api.saveAsset({
+        name: `绘图 ${stamp()}`,
+        data: dataUrl,
+        dir: resolveAssetDir(getSettings(), opts.getNotePath?.()),
+        drawing,
+      });
+    if (editingPath) {
+      await opts.onUpdated?.(res.path || editingPath);
+      close();
+      toast('绘图已更新');
+    } else {
+      await opts.onInserted?.(res.path);
+      close();
+      toast('绘图已插入笔记');
+    }
   } catch (e) {
     toast(`保存失败：${e.message}`);
   } finally {
     saving = false;
     btn.disabled = false;
-    btn.textContent = '插入笔记';
+    btn.textContent = opts.editingPath ? '更新绘图' : '插入笔记';
   }
 }
 
 /* ================= 开关 ================= */
+/** 把场景缩放到画布可见范围（重新编辑已有绘图时用，不然只看到空白） */
+function fitViewToContent() {
+  const b = contentBounds();
+  const padX = 90, padY = 90;
+  const zoom = Math.max(0.15, Math.min(1.5, Math.min(
+    (W - padX * 2) / Math.max(60, b.w),
+    (H - padY * 2) / Math.max(60, b.h),
+  )));
+  view = { zoom, x: b.x + b.w / 2 - W / (2 * zoom), y: b.y + b.h / 2 - H / (2 * zoom) };
+}
+
 export function openDraw(options = {}) {
   ensure();
   opts = options || {};
-  elements = [];
+  // elements：重新编辑时传入既有场景（draw.json 里的数组）；空数组 = 新画
+  const initial = Array.isArray(opts.elements) ? opts.elements : [];
+  elements = clone(initial);
   selected = new Set();
-  history = [[]];
+  history = [clone(elements)];
   hIndex = 0;
   drag = null;
   editing = null;
@@ -1230,12 +1254,15 @@ export function openDraw(options = {}) {
   view = { x: 0, y: 0, zoom: 1 };
   textEdit.hidden = true;
   overlay.hidden = false;
+  const btn = overlay.querySelector('#draw-save');
+  if (btn) btn.textContent = opts.editingPath ? '更新绘图' : '插入笔记';
   setTool('select');
   syncStyleUI();
   updateZoomLabel();
   updateHistoryButtons();
   requestAnimationFrame(() => {
     resizeCanvas();
+    if (elements.length) { fitViewToContent(); updateZoomLabel(); }
     draw();
   });
 }

@@ -1244,6 +1244,33 @@ body.electron .electron-only { display: inline-flex !important; }
   transition: box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .sync-field input:focus { background: var(--bg-sheet); box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent) inset; }
+/* 端到端加密：勾选行 / 状态徽标 / 解锁框（2026-10-19 v3） */
+.sync-check {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--text-secondary);
+  margin: 2px 0 12px; padding-left: 2px; cursor: pointer; user-select: none;
+}
+.sync-check input { accent-color: var(--accent); }
+#sync-enc-box { margin-top: -2px; }
+.sync-badge {
+  margin: 10px 0 4px; padding: 8px 12px;
+  border-radius: var(--r-sm); background: var(--bg-fill);
+  color: var(--text-secondary); font-size: 12px;
+}
+.sync-unlock {
+  margin: 12px 0; padding: 12px;
+  border-radius: var(--r-sm); background: var(--bg-fill);
+}
+.sync-unlock-row { display: flex; gap: 8px; margin-top: 9px; }
+.sync-unlock-row input {
+  flex: 1; min-width: 0;
+  padding: 9px 12px; border: none; outline: none;
+  border-radius: var(--r-sm);
+  background: var(--bg-sheet); color: var(--text-primary);
+  font-size: 12.5px;
+}
+.sync-unlock-row input:focus { box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent) inset; }
+
 .sync-error {
   color: var(--danger); font-size: 12.5px; margin: -4px 0 12px;
   padding: 8px 11px; border-radius: var(--r-xs);

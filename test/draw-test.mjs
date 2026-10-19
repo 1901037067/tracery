@@ -213,6 +213,51 @@ async function main() {
   check('插入后笔记里能直接看到图', !!rendered && rendered.loaded, JSON.stringify(rendered));
   await page.screenshot({ path: path.join(SHOTS, 'draw-inserted.png') });
 
+  /* ---------- 10. 二次编辑：右键图片 → 编辑绘图 → 原地覆盖保存 ---------- */
+  if (imgPath && fs.existsSync(imgPath)) {
+    const beforeMtime = fs.statSync(imgPath).mtimeMs;
+    const imgBox = await page.evaluate(() => {
+      const img = document.querySelector('#editor-live .embed-image img');
+      const r = img.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    });
+    await page.mouse.click(imgBox.x, imgBox.y, { button: 'right' });
+    await sleep(400);
+    const hasEdit = await page.evaluate(() => [...document.querySelectorAll('.context-menu button')]
+      .some((b) => b.textContent.includes('编辑绘图')));
+    check('图片右键菜单有「编辑绘图」', hasEdit);
+    await page.evaluate(() => [...document.querySelectorAll('.context-menu button')]
+      .find((b) => b.textContent.includes('编辑绘图'))?.click());
+    await sleep(900);
+    const reopened = await page.evaluate(() => ({
+      open: !document.querySelector('.draw-overlay').hidden,
+      strokes: Number(document.getElementById('draw-canvas').dataset.strokes),
+      label: document.getElementById('draw-save').textContent,
+    }));
+    check('重新编辑时载入原场景（3 个元素）', reopened.open && reopened.strokes === 3, JSON.stringify(reopened));
+    check('编辑模式的按钮是「更新绘图」', reopened.label === '更新绘图', reopened.label);
+
+    const cv2 = await page.evaluate(() => {
+      const r = document.getElementById('draw-canvas').getBoundingClientRect();
+      return { x: r.x, y: r.y };
+    });
+    await page.evaluate(() => document.querySelector('.draw-tool[data-tool="rect"]').click());
+    await page.mouse.move(cv2.x + 420, cv2.y + 120);
+    await page.mouse.down();
+    await page.mouse.move(cv2.x + 560, cv2.y + 230, { steps: 10 });
+    await page.mouse.up();
+    await sleep(200);
+    await page.evaluate(() => document.getElementById('draw-save').click());
+    await sleep(1800);
+
+    const after = await (await fetch(`http://localhost:${PORT}/api/note?path=` + encodeURIComponent('画布.md'))).json();
+    const embeds = (after.content.match(/!\[\[/g) || []).length;
+    check('更新绘图不新增嵌入（原地覆盖原文件）', embeds === 1, `embeds=${embeds}`);
+    check('原 PNG 被覆盖（mtime 前进）', fs.statSync(imgPath).mtimeMs > beforeMtime);
+    const scene2 = JSON.parse(fs.readFileSync(imgPath.replace(/\.png$/, '.draw.json'), 'utf8'));
+    check('场景 JSON 同步更新（元素 3 → 4）', (scene2.elements || []).length === 4, `n=${(scene2.elements || []).length}`);
+  }
+
   check('无渲染错误', errors.length === 0, errors.join(' | '));
 
   await browser.close();
