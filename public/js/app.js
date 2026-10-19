@@ -236,6 +236,7 @@ const ICON = {
   compass: S('<circle cx="8" cy="8" r="5.4"/><path d="M10.1 5.9L9.2 9.2 5.9 10.1l.9-3.3z"/>'),
   external: S('<path d="M9.4 3.4h3.2v3.2"/><path d="M12.6 3.4L7.4 8.6"/><path d="M11.4 9.6v2a1.2 1.2 0 0 1-1.2 1.2H4a1.2 1.2 0 0 1-1.2-1.2V5.2A1.2 1.2 0 0 1 4 4h2"/>'),
   pencil: S('<path d="M10.9 2.7l2.4 2.4-7.1 7.1-3.1.7.7-3.1z"/>'),
+  check: S('<path d="M3.2 8.4l3 3 6.6-6.6"/>'),
   trash: S('<path d="M2.8 4.6h10.4"/><path d="M6.2 4.6V3.2h3.6v1.4"/><path d="M4.1 4.6l.6 8.1h6.6l.6-8.1"/>'),
   zoom: S('<circle cx="7.1" cy="7.1" r="3.6"/><path d="M9.8 9.8l3.2 3.2"/>'),
   tree: S('<path d="M3.3 4.6h.01M6.4 4.6h6.4M6.4 8h6.4M6.4 11.4h6.4"/><path d="M3.6 4.6v6.8"/><path d="M3.6 8h2.2"/>'),
@@ -505,6 +506,7 @@ function showMenu(x, y, items) {
     const btn = document.createElement('button');
     if (it.danger) btn.className = 'danger';
     if (it.disabled) btn.disabled = true;
+    if (it.title) btn.title = it.title;
     btn.innerHTML = `<span class="mi-icon${it.iconOn ? ' on' : ''}">${it.icon || ''}</span>`
       + `<span class="mi-label">${it.label}</span>`
       + (it.kbd ? `<span class="mi-kbd">${it.kbd}</span>` : '');
@@ -2114,7 +2116,24 @@ function bindGlobalEvents() {
   new MutationObserver(syncSidebarToggles).observe($('sidebar'), { attributes: true, attributeFilter: ['class'] });
   new MutationObserver(syncSidebarToggles).observe($('sidebar-right'), { attributes: true, attributeFilter: ['class'] });
   syncSidebarToggles();
-  $('vault-name').onclick = () => openVaultPicker();
+  $('vault-name').onclick = async (e) => {
+    e.stopPropagation();
+    const anchor = e.currentTarget;
+    let recents = [];
+    try { const s = await Api.state(); recents = s.recentVaults || []; } catch { recents = []; }
+    const current = state.vault?.root || '';
+    const items = recents.slice(0, 8).map((v) => ({
+      icon: v === current ? ICON.check : ICON.folder,
+      label: v.replace(/\\/g, '/').split('/').filter(Boolean).slice(-1)[0] || v,
+      title: v,
+      action: () => { if (v !== current) openVault(v); },
+    }));
+    if (!items.length) items.push({ icon: ICON.folder, label: '还没有最近仓库', disabled: true });
+    items.push('-');
+    items.push({ icon: ICON.folderOpen, label: '管理仓库…', action: () => openVaultPicker() });
+    const r = anchor.getBoundingClientRect();
+    showMenu(r.left, r.bottom + 6, items);
+  };
 
   // 标签条：滚轮横滚 + 溢出渐隐（标签多了不挤压，滚着看）
   const tablist = $('tablist');

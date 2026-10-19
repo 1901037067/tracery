@@ -129,15 +129,22 @@ async function main() {
 
   // 5b. 标签栏外观（卡片 + 常显关闭钮）与拖拽换序（2026-10-19 新版）
   const look = await page.evaluate(() => {
-    const t = document.querySelector('#tablist .tab');
-    const cs = getComputedStyle(t);
+    const list = document.getElementById('tablist');
+    const tabs = [...list.querySelectorAll('.tab')];
+    const cs = getComputedStyle(list);
     return {
-      radius: parseFloat(cs.borderTopLeftRadius),
-      height: Math.round(t.getBoundingClientRect().height),
-      closeOpacity: Number(getComputedStyle(t.querySelector('.tab-close')).opacity),
+      gap: parseFloat(cs.columnGap || cs.gap || '0'),
+      count: tabs.length,
+      divider: Math.max(...tabs.map((t) => parseFloat(getComputedStyle(t).borderRightWidth) || 0)),
+      firstRadius: parseFloat(getComputedStyle(tabs[0]).borderTopLeftRadius),
+      height: Math.round(tabs[0].getBoundingClientRect().height),
+      closeOpacity: Number(getComputedStyle(tabs[0].querySelector('.tab-close')).opacity),
     };
   });
-  check('标签是圆角卡片、关闭按钮常显（淡）', look.radius >= 6 && look.height <= 40 && look.closeOpacity > 0.2, JSON.stringify(look));
+  check('标签无缝连接（gap=0 + 分隔线 + 整条两端圆角）',
+    look.gap === 0 && (look.count === 1 || look.divider >= 1)
+    && look.firstRadius >= 6 && look.height <= 40 && look.closeOpacity > 0.2,
+    JSON.stringify(look));
 
   const idleTab = await page.evaluate(() => {
     const tabs = [...document.querySelectorAll('#tablist .tab')];

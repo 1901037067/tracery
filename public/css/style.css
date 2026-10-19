@@ -1617,9 +1617,9 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
    拖拽口径：容器本身是窗口拖拽区，只有 .tab 是 no-drag；标签之间可拖动换序（pointer 实现）。 */
 .tablist {
   flex: 1; min-width: 0;
-  display: flex; align-items: flex-end; gap: 6px;
+  display: flex; align-items: flex-end; gap: 0;
   align-self: stretch;
-  padding: 0 10px;
+  padding: 0 12px;
   overflow-x: auto; overflow-y: hidden;
   scrollbar-width: none;
 }
@@ -1630,11 +1630,14 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
   position: relative;
   display: flex; align-items: center; gap: 6px;
   height: 33px;
-  padding: 0 8px 0 12px;
-  border: 1px solid var(--hairline);
-  border-bottom: none;
-  border-radius: 9px 9px 0 0;
-  background: var(--bg-fill);
+  padding: 0 8px 0 14px;
+  /* 无缝连接：标签之间不留缝、不画两侧边框，只用一条竖向分隔线；
+     整条标签栏只在**两端**圆角（像浏览器的标签条），所以不存在「圆角对撞出缺口」。 */
+  margin-left: 0;
+  border: none;
+  border-right: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
   /* 宁可横滚也不缩成「00...」：120px 保住可读性，超出部分滚动 + 边缘渐隐提示 */
   max-width: 210px; min-width: 120px;
   font-size: 12px; color: var(--text-secondary);
@@ -1643,9 +1646,14 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
   transition: background 120ms linear, color 120ms linear, border-color 120ms linear;
 }
 /* 悬停：只把文字染成强调色（参考图的行为），底色不动，避免整条标签栏闪 */
+.tab:first-child { border-top-left-radius: 9px; }
+.tab:last-child { border-top-right-radius: 9px; border-right: none; }
+.tab.active:first-child { border-top-left-radius: 9px; }
+.tab.active:last-child { border-top-right-radius: 9px; }
 .tab:hover { color: var(--accent); }
 /* 活跃标签：垫「纸」色 + 强调色文字 + 底部强调线（暗示这就是下面编辑区那张纸） */
 .tab.active {
+  z-index: 2;
   background: var(--bg-sheet);
   border-color: var(--hairline-strong);
   color: var(--accent);

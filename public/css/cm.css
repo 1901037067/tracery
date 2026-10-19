@@ -161,8 +161,8 @@
   border-right: 1px solid var(--hairline);
   border-bottom: 1px solid var(--hairline);
   background: var(--bg-fill);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  /* 不换行：宽度是按内容量出来的，格子内部再折行就会让整行像塌了 */
+  white-space: pre;
 }
 #editor-live .cm-lp-tbl-head .cm-lp-cell {
   border-top: 1px solid var(--hairline);
@@ -170,6 +170,8 @@
   background: var(--bg-fill-hover);
   font-weight: 600;
 }
+#editor-live .cm-line.cm-lp-tbl,
+#editor-live .cm-line.cm-lp-tbl-head { white-space: pre; }
 #editor-live .cm-lp-cell-first { padding-left: 10px; }
 #editor-live .cm-lp-cell-last { border-right: none; padding-right: 10px; }
 

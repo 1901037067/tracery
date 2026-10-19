@@ -374,42 +374,42 @@ function walkBlocks(blocks, state, cursor, out) {
  *  为什么不做成 widget：单元格要能直接打字，整块/整格 replace 都会让光标进不去；
  *  mark 只在文本外加一层 span，编辑、选区、Tab 跳格全部保持原生行为。
  *  分隔行（| --- |）不处理——它由 fenceHiding 整行收起。 */
-/** 量一列内容的像素宽：**用 canvas 按编辑区真实字体量**，而不是按字符数估算
- *  （估算法在「number / 中文混排」上会差几个像素，单元格就会折成两行）。
- *  字体从 .cm-content 的计算样式取，主题/字号设置变了会自动跟上（每帧读一次很便宜）。 */
+/** 量文本像素宽：用 canvas 按编辑区真实字体量（表头是 600 粗体，必须分开量，
+ *  否则「表头比正文宽一点」就会在格子里折行，整行看着像错位）。 */
 let measureCtx = null;
 let measureFont = '';
-function textWidthPx(text) {
+function textWidthPx(text, bold = false) {
   try {
     if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
     const el = document.querySelector('#editor-live .cm-content') || document.getElementById('editor-live');
     const cs = el ? getComputedStyle(el) : null;
-    const font = cs ? `${cs.fontSize} ${cs.fontFamily}` : '16px sans-serif';
+    const font = `${bold ? '600 ' : ''}${cs ? cs.fontSize : '16px'} ${cs ? cs.fontFamily : 'sans-serif'}`;
     if (font !== measureFont) { measureCtx.font = font; measureFont = font; }
     return measureCtx.measureText(text).width;
   } catch {
-    // canvas 不可用（极老内核）→ 退回按字符粗估
     let w = 0;
     for (const ch of text) {
       if (/[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(ch)) w += 15;
       else if (/[A-Za-z0-9]/.test(ch)) w += 8.2;
       else w += 6;
     }
-    return w;
+    return bold ? w * 1.05 : w;
   }
 }
 
+/** 一列的目标宽度：整列最长内容 + 40px（左右 padding + 边线 + 呼吸）。
+ *  **不压缩**：表格比正文列宽时保持自然宽度，靠 CSS 让该行不换行、由
+ *  .cm-scroller 出横向滚动条（Obsidian 也是这么做的）。
+ *  压缩过的后果是单元格重新折行，看起来像"表格塌了"——比横向滚动难看得多。 */
 function tableColWidths(lines) {
   const widths = [];
-  for (const line of lines) {
+  lines.forEach((line, idx) => {
     const pipes = linePipes(line.text);
     for (let k = 0; k + 1 < pipes.length; k++) {
       const text = line.text.slice(pipes[k] + 1, pipes[k + 1]).trim();
-      widths[k] = Math.max(widths[k] || 0, textWidthPx(text));
+      widths[k] = Math.max(widths[k] || 0, textWidthPx(text, idx === 0));
     }
-  }
-  // +40 = 单元格左右 padding（14+14）+ 右边线 + 8px 呼吸：canvas 量与浏览器排版
-  // 会有 1~2px 的差，贴太紧会让 `number` 这种词折成两行（实测踩过）。
+  });
   return widths.map((w) => Math.round(Math.min(460, Math.max(76, w + 40))));
 }
 

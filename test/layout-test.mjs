@@ -158,9 +158,9 @@ check('笔记头行已删除（界面不再显示文件名+模式那一行）', 
 check('模式切换按钮在状态栏、靠右、可见',
   header.modeBtnInStatusbar && header.modeBtnNearRight && header.modeBtnVisible,
   `inStatusbar=${header.modeBtnInStatusbar} nearRight=${header.modeBtnNearRight}`);
-check('活动标签为卡片样式（上圆角 + 垫纸色 + 底部强调线）',
-  parseFloat(header.tabRadius) >= 6 && header.tabActiveBg === 'sheet' && header.tabAccentLine,
-  `radius=${header.tabRadius} bg=${header.tabActiveBg} accent=${header.tabAccentLine}`);
+check('活动标签：垫纸色 + 底部强调线（标签条本身无缝）',
+  header.tabActiveBg === 'sheet' && header.tabAccentLine,
+  `bg=${header.tabActiveBg} accent=${header.tabAccentLine}`);
 
 /* ================= 3. 图片查看 / 行号 / 折叠图标 ================= */
 

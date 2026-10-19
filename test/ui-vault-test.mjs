@@ -83,10 +83,30 @@ const winBtns = await page.evaluate(() => ({
 }));
 check('窗口按钮在右上角、旧红绿灯已移除', winBtns.exists && /titlebar-right/.test(winBtns.parent) && !winBtns.traffic, JSON.stringify(winBtns));
 
-// 3. 仓库切换浮层：从仓库名进入，可退出
+// 3. 工作区下拉（2026-10-19 起：点工作区名先出下拉，不再直接跳管理页）
+const openVaultMenu = async () => {
+  await page.evaluate(() => document.getElementById('vault-name').click());
+  await sleep(400);
+};
+const openManage = async () => {
+  await openVaultMenu();
+  await page.evaluate(() => [...document.querySelectorAll('.context-menu button')]
+    .find((b) => b.textContent.includes('管理仓库'))?.click());
+  await sleep(500);
+};
 await page.screenshot({ path: path.join(SHOTS, 'ui-app-dark.png') });
-await page.evaluate(() => document.getElementById('vault-name').click());
-await sleep(500);
+await openVaultMenu();
+const menu = await page.evaluate(() => ({
+  open: !!document.querySelector('.context-menu'),
+  items: [...document.querySelectorAll('.context-menu button')].map((b) => b.textContent.trim()),
+  welcomeStillHidden: document.getElementById('welcome').hidden,
+  checked: document.querySelectorAll('.context-menu .mi-icon svg').length,
+}));
+check('点工作区名先弹下拉（不直接跳管理页）',
+  menu.open && menu.welcomeStillHidden && menu.items.some((t) => t.includes('管理仓库')), JSON.stringify(menu));
+check('下拉里列出最近仓库（当前仓库有标记）', menu.items.length >= 2 && menu.checked >= 1, menu.items.join(' / '));
+await page.screenshot({ path: path.join(SHOTS, 'ui-vault-menu-dark.png') });
+await openManage();
 const overlay = await page.evaluate(() => ({
   welcomeOpen: !document.getElementById('welcome').hidden,
   appVisible: !document.getElementById('app').hidden,
@@ -113,16 +133,14 @@ const afterEsc = await page.evaluate((isCm) => ({
 check('Esc 可退出浮层并回到编辑器', !afterEsc.welcomeOpen && afterEsc.appVisible && afterEsc.editorVisible, JSON.stringify(afterEsc));
 
 // 5. 关闭按钮（切换仓库入口统一收敛到左上角工作区名称）
-await page.evaluate(() => document.getElementById('vault-name').click());
-await sleep(400);
+await openManage();
 await page.evaluate(() => document.getElementById('btn-welcome-close').click());
 await sleep(300);
 const afterClose = await page.evaluate(() => !document.getElementById('welcome').hidden);
 check('关闭按钮可退出浮层', !afterClose);
 
 // 6. 移除最近仓库（临时配置，安全）
-await page.evaluate(() => document.getElementById('vault-name').click());
-await sleep(400);
+await openManage();
 const before = await page.evaluate(() => document.querySelectorAll('#recent-list .recent-item').length);
 // 建第二个临时仓库并打开，制造两条记录
 const secondVault = path.join(HOME, 'second-vault');
@@ -136,10 +154,8 @@ await page.evaluate(async (vp) => {
   return r.status;
 }, secondVault.replace(/\\/g, '/'));
 await sleep(1500);
-const twoItems = await page.evaluate(() => {
-  document.getElementById('vault-name').click();
-  return new Promise((r) => setTimeout(() => r(document.querySelectorAll('#recent-list .recent-item').length), 500));
-});
+await openManage();
+const twoItems = await page.evaluate(() => document.querySelectorAll('#recent-list .recent-item').length);
 check('最近仓库列表随打开新增', twoItems >= 2, `items=${twoItems} (之前 ${before})`);
 check('切换仓库后标题栏同步', await page.evaluate(() => document.getElementById('vault-name').textContent.includes('second-vault')));
 
