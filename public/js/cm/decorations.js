@@ -19,7 +19,7 @@
  */
 import { parseMarkdown } from '../markdown.js';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
-import { StateField } from '@codemirror/state';
+import { Annotation, StateField } from '@codemirror/state';
 
 /* ================= 行内 span 扫描（装饰用，只求区间） =================
  * 顺序与 inlineToHtml 的行内链一致：代码/嵌入/双链优先（它们的内部不再
@@ -29,8 +29,11 @@ import { StateField } from '@codemirror/state';
  * 只给内容上样式）；marker=0 的（#标签）整段挂牌。 */
 const INLINE_PATTERNS = [
   { re: /`([^`\n]+)`/g, cls: 'cm-lp-code', marker: 1 },
-  { re: /!\[\[([^\]]+)\]\]/g, cls: 'cm-lp-embed', marker: 4 },
-  { re: /\[\[([^\]]+)\]\]/g, cls: 'cm-lp-wikilink', marker: 2 },
+  // `![[x]]` 的开闭标记长度不对称（`![[` = 3、`]]` = 2），不能用单一 marker：
+  // 早先写成 marker:4 会把名字的首尾各吃掉一个字（实测 `![[常用代码]]` 只显示「用」）。
+  // 这里用 head/tail 分开声明；图片类嵌入由 widgets.js 的行内图片 widget 接管（见 embed 标记）。
+  { re: /!\[\[([^\]]+)\]\]/g, cls: 'cm-lp-embed', head: 3, tail: 2, embed: true },
+  { re: /\[\[([^\]]+)\]\]/g, cls: 'cm-lp-wikilink', marker: 2, link: true },
   { re: /\*\*([^*]+)\*\*/g, cls: 'cm-lp-bold', marker: 2 },
   { re: /__([^_]+)__/g, cls: 'cm-lp-bold', marker: 2 },
   { re: /\*([^*\n]+)\*/g, cls: 'cm-lp-em', marker: 1 },
@@ -40,12 +43,19 @@ const INLINE_PATTERNS = [
   { re: /(^|[\s(（])(#[\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu, cls: 'cm-lp-tag', marker: 0, inner: 2 },
 ];
 
+/** 默认图片判定（与 widgets.js 同口径；调用方可用 opts.isImage 覆盖） */
+const DEFAULT_IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+const isImageName = (n) => DEFAULT_IMG_RE.test(String(n || '').split('|')[0].split('#')[0].trim());
+
 /** 在 text（doc 中从 base 开始的片段）里扫行内装饰：
- *  marker>0 → 首尾标记各推一个 hide + 内容区间推一个 mark；
- *  marker=0 → 整段推一个 mark。 */
-function scanInline(text, base, out) {
+ *  marker/head+tail>0 → 首尾标记各推一个 hide + 内容区间推一个 mark；
+ *  marker=0 → 整段推一个 mark。
+ *  opts.isImage 命中的 `![[..]]` **不挂牌**——留给 widgets.js 的行内图片 widget 整段 replace。 */
+function scanInline(text, base, out, opts = {}) {
   const consumed = [];
   const overlaps = (s, e) => consumed.some(([a, b]) => s < b && a < e);
+  const isImage = opts.isImage || isImageName;
+  const resolveLink = opts.resolveLink;
   for (const p of INLINE_PATTERNS) {
     p.re.lastIndex = 0;
     let m;
@@ -61,13 +71,24 @@ function scanInline(text, base, out) {
         continue;
       }
       consumed.push([s, e]);
-      const mk = p.marker || 0;
-      if (mk > 0 && e - s > 2 * mk) {
-        out.push({ from: base + s, to: base + s + mk, cls: '', kind: 'hide' });
-        out.push({ from: base + e - mk, to: base + e, cls: '', kind: 'hide' });
-        out.push({ from: base + s + mk, to: base + e - mk, cls: p.cls, kind: 'mark' });
+      // 图片嵌入：整段交给行内 widget（此处占用区间，避免 [[..]] 双链规则重复命中）
+      if (p.embed && isImage(String(m[1] || '').split('|')[0].split('#')[0].trim())) continue;
+      // 双链的解析结果决定 cls：未解析补 `cm-lp-unresolved`（与块级 .wikilink.unresolved 对齐）
+      let cls = p.cls;
+      if (p.link && resolveLink) {
+        const target = String(m[1] || '').split('|')[0].split('#')[0].trim();
+        let resolved = null;
+        try { resolved = resolveLink(target); } catch { resolved = null; }
+        if (!resolved) cls += ' cm-lp-unresolved';
+      }
+      const head = p.head ?? p.marker ?? 0;
+      const tail = p.tail ?? p.marker ?? 0;
+      if (head > 0 && e - s > head + tail) {
+        out.push({ from: base + s, to: base + s + head, cls: '', kind: 'hide' });
+        out.push({ from: base + e - tail, to: base + e, cls: '', kind: 'hide' });
+        out.push({ from: base + s + head, to: base + e - tail, cls, kind: 'mark' });
       } else {
-        out.push({ from: base + s, to: base + e, cls: p.cls, kind: 'mark' });
+        out.push({ from: base + s, to: base + e, cls, kind: 'mark' });
       }
     }
   }
@@ -104,7 +125,7 @@ function docLine(state, lineIdx0) { return state.doc.line(lineIdx0 + 1); }
 /* ================= 装饰收集 =================
  * 产出 {from, to, cls, kind}：kind = 'line'（行装饰，点区间）/
  * 'mark'（行内挂牌）/ 'hide'（替换为空）。 */
-function collectBlockDecos(blocks, state, cursor, out) {
+function collectBlockDecos(blocks, state, cursor, out, opts = {}) {
   for (const b of blocks) {
     switch (b.type) {
       case 'heading': {
@@ -112,17 +133,17 @@ function collectBlockDecos(blocks, state, cursor, out) {
         if (!cursor.has(b.line + 1)) {
           out.push({ from: b.lineStart, to: b.contentStart, cls: '', kind: 'hide' }); // 藏 # 前缀
         }
-        scanInline(b.text, b.contentStart, out);
+        scanInline(b.text, b.contentStart, out, opts);
         break;
       }
       case 'paragraph':
         // 整行就是一个嵌入（![[...]]）——P3 交给 widgets.js 的块级 widget 接管，
         // 这里不再挂行内装饰（否则行内 mark 与整行 block replace 重叠，可能被 CM 判为冲突）
         if (b.line === b.endLine && /^\s*!\[\[[^\]]+\]\]\s*$/.test(b.text)) break;
-        scanInline(b.text, b.lineStart, out);
+        scanInline(b.text, b.lineStart, out, opts);
         break;
       case 'list':
-        for (const it of b.items) collectItemDecos(it, state, out);
+        for (const it of b.items) collectItemDecos(it, state, out, opts);
         break;
       case 'quote': {
         for (let n = b.line; n <= b.endLine; n++) {
@@ -131,11 +152,11 @@ function collectBlockDecos(blocks, state, cursor, out) {
           const m = QUOTE_MARK_RE.exec(line.text);
           if (m) out.push({ from: line.from, to: line.from + m[1].length, cls: '', kind: 'hide' });
         }
-        collectBlockDecos(b.blocks, state, cursor, out);
+        collectBlockDecos(b.blocks, state, cursor, out, opts);
         break;
       }
       case 'callout':
-        collectBlockDecos(b.blocks, state, cursor, out);
+        collectBlockDecos(b.blocks, state, cursor, out, opts);
         break;
       case 'fence':
         out.push({ from: b.lineStart, cls: 'cm-lp-fence', kind: 'line' });
@@ -165,7 +186,7 @@ function collectBlockDecos(blocks, state, cursor, out) {
 /** 列表项：标记 muted（Obsidian 里列表标记常显）+ 逐行行内 span + 递归子项。
  *  续言行的 base 按「源码行行首 + 该行缩进」算——scanList 把续言缩进剥掉过，
  *  但 doc 里原行还在，逐行对着 doc 扫才挂得上。 */
-function collectItemDecos(item, state, out) {
+function collectItemDecos(item, state, out, opts = {}) {
   out.push({ from: item.lineStart, to: item.contentStart, cls: 'cm-lp-marker', kind: 'mark' });
   const lines = item.text.split('\n');
   for (let k = 0; k < lines.length; k++) {
@@ -173,52 +194,69 @@ function collectItemDecos(item, state, out) {
     const srcLine = docLine(state, item.startLine + k);
     if (!srcLine) break;
     const base = k === 0 ? item.contentStart : srcLine.from + (/^\s*/.exec(srcLine.text)?.[0].length ?? 0);
-    scanInline(lines[k], base, out);
+    scanInline(lines[k], base, out, opts);
   }
-  if (item.children) for (const c of item.children) collectItemDecos(c, state, out);
+  if (item.children) for (const c of item.children) collectItemDecos(c, state, out, opts);
 }
 
-/* ================= 视图插件：行内 mark + 行装饰 ================= */
+/* ================= 视图插件：行内 mark + 行装饰 =================
+ * 做成工厂是为了把「业务判定」注入进来（引擎零业务 import 的约定）：
+ *   opts.isImage(name)      → 图片嵌入交给 widgets.js 的行内 widget，这里不挂牌
+ *   opts.resolveLink(name)  → 双链是否需要 `cm-lp-unresolved` 变体类（与块级同口径）
+ * 不传 opts 时的行为与 P1 完全一致（探针页仍然这么用）。 */
 
-export const livePreviewPlugin = ViewPlugin.fromClass(class {
-  constructor(view) {
-    this.decorations = this.build(view);
-  }
-  update(u) {
-    if (u.docChanged || u.viewportChanged || u.selectionSet) {
-      this.decorations = this.build(u.view);
+/** 「链接/文件索引变了，请重建装饰」的注解。
+ *  装饰的依赖不只有 doc/选区：`[[双链]]` 是否解析得出、`![[图]]` 能否找到文件，都取决于
+ *  app 侧的 nameIndex / 文件树。这两者异步到达（刷新带 150ms 防抖），而 ViewPlugin 只在
+ *  doc/视口/选区变化时重建 → 笔记开得太早时链接会一直停在「未解析」、新粘贴的图片不显示。
+ *  修法：索引刷新后 dispatch 一个只带注解的空事务，显式让装饰重建。 */
+export const refreshLivePreview = Annotation.define();
+
+export function createLivePreview(opts = {}) {
+  return ViewPlugin.fromClass(class {
+    constructor(view) {
+      this.decorations = this.build(view);
     }
-  }
-  build(view) {
-    const state = view.state;
-    const { blocks } = parseCached(state);
-    const cursor = cursorLines(state);
-    const raw = [];
-    try {
-      collectBlockDecos(blocks, state, cursor, raw);
-      // 只装饰视口范围（visibleRanges 自带缓冲区；视口外不建 DOM）
-      const lo = view.visibleRanges[0]?.from ?? 0;
-      const hi = view.visibleRanges[view.visibleRanges.length - 1]?.to ?? state.doc.length;
-      const spans = [];
-      for (const d of raw) {
-        const to = d.to ?? d.from;
-        // 防御：偏移缺失/越界的项直接跳过——一个坏装饰不该拖垮整个编辑器
-        // （CM6 对崩溃的插件是整体禁用，2026-10-18 实测：hr 描述符漏偏移时全站装饰消失）
-        if (!Number.isFinite(d.from) || !Number.isFinite(to) || d.from < 0 || to > state.doc.length) continue;
-        if (to < lo || d.from > hi) continue;
-        // 光标行规则：mark/hide 在光标行一律不挂（显示原始语法）；行装饰（字号等）照常
-        if (d.kind !== 'line' && cursor.has(state.doc.lineAt(d.from).number)) continue;
-        if (d.kind === 'line') spans.push(Decoration.line({ class: d.cls }).range(d.from));
-        else if (d.kind === 'mark') spans.push(Decoration.mark({ class: d.cls }).range(d.from, to));
-        else if (d.from < to) spans.push(Decoration.replace({}).range(d.from, to));
+    update(u) {
+      if (u.docChanged || u.viewportChanged || u.selectionSet
+        || u.transactions.some((tr) => tr.annotation(refreshLivePreview))) {
+        this.decorations = this.build(u.view);
       }
-      return Decoration.set(spans, true);
-    } catch (e) {
-      console.error('[decorations] build 崩溃，本帧放弃装饰:', e.message);
-      return Decoration.none;
     }
-  }
-}, { decorations: (v) => v.decorations });
+    build(view) {
+      const state = view.state;
+      const { blocks } = parseCached(state);
+      const cursor = cursorLines(state);
+      const raw = [];
+      try {
+        collectBlockDecos(blocks, state, cursor, raw, opts);
+        // 只装饰视口范围（visibleRanges 自带缓冲区；视口外不建 DOM）
+        const lo = view.visibleRanges[0]?.from ?? 0;
+        const hi = view.visibleRanges[view.visibleRanges.length - 1]?.to ?? state.doc.length;
+        const spans = [];
+        for (const d of raw) {
+          const to = d.to ?? d.from;
+          // 防御：偏移缺失/越界的项直接跳过——一个坏装饰不该拖垮整个编辑器
+          // （CM6 对崩溃的插件是整体禁用，2026-10-18 实测：hr 描述符漏偏移时全站装饰消失）
+          if (!Number.isFinite(d.from) || !Number.isFinite(to) || d.from < 0 || to > state.doc.length) continue;
+          if (to < lo || d.from > hi) continue;
+          // 光标行规则：mark/hide 在光标行一律不挂（显示原始语法）；行装饰（字号等）照常
+          if (d.kind !== 'line' && cursor.has(state.doc.lineAt(d.from).number)) continue;
+          if (d.kind === 'line') spans.push(Decoration.line({ class: d.cls }).range(d.from));
+          else if (d.kind === 'mark') spans.push(Decoration.mark({ class: d.cls }).range(d.from, to));
+          else if (d.from < to) spans.push(Decoration.replace({}).range(d.from, to));
+        }
+        return Decoration.set(spans, true);
+      } catch (e) {
+        console.error('[decorations] build 崩溃，本帧放弃装饰:', e.message);
+        return Decoration.none;
+      }
+    }
+  }, { decorations: (v) => v.decorations });
+}
+
+/** 无注入版本（探针页 / 兼容旧引用） */
+export const livePreviewPlugin = createLivePreview();
 
 /* ================= 状态字段：整行收起（块级 replace） =================
  * P0 教训：块级 replace 只能来自 StateField（provide: decorations.from）。

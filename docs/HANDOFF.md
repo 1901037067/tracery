@@ -1,13 +1,15 @@
 # Tracery 交接文档（Handoff）
 
 > 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
-> 最后更新：2026-10-19 10:40（对应代码状态：v1.1.1 + **CM6 迁移 P2~P5 全部完成、默认编辑内核已切 cm**；
+> 最后更新：2026-10-19 11:30（对应代码状态：v1.2.0 + **cm 三处渲染缺口已补齐**；
 > 测试套件已参数化 —— **block / cm 双引擎各跑一遍全绿**；打包链路打通（`dist:dir:nosign`）；打包版验证 14/14）
 >
 > **✅ 编辑区内核迁移已完成主体**：从「块级实时预览」迁到「行级 CodeMirror 6」，**默认内核 = cm**
 > （设置 → 编辑器 一键回退块级；`?engine=block|cm` 可按页覆盖，测试用它跑双口径）。
-> 全过程与逐阶段结论在 **`docs/EDITOR-MIGRATION.md`**（P0~P5 + 7.1~7.11）。
-> **剩余**：cm 侧 3 处渲染缺口（行内 `![[图片]]` / `![](路径)` 不出图、未解析双链没有 `unresolved` 类）+ 可选发版。
+> 全过程与逐阶段结论在 **`docs/EDITOR-MIGRATION.md`**（P0~P5 + 7.1~7.12）。
+> **cm 与块级的渲染断层已消除**（7.12）：行内 `![[图片]]`、`![](路径)` 都出图（带 `|宽` 与拖宽手柄），
+> 未解析双链有 `.cm-lp-unresolved`；跑套件的测试门控已拆（ui-ux 4 条 + e2e #11）。
+> **剩余**：发版 1.2.1（可选）、cm 表格单元格编辑，见 §7。
 
 ---
 
@@ -126,12 +128,13 @@ test/*.mjs              九个测试套件（见 §2）
   （CM 样式，**全部用 app 的 CSS 变量** → 明暗主题自动跟随）+ `public/cmlab.html`（探针页）。
   `public/vendor/cm/**` 是离线 vendor 包（`npm run build:cmvendor` 生成；`index.html` / `cmlab.html`
   里的 importmap 也是它注入的 —— **主页面曾经漏了 importmap 导致白屏，见 7.6 结论 1**）。
-- **cm 侧已知的 3 处渲染缺口**（相对块级，下一轮补）：
-  1. **行内** `![[图片]]`（前面有文字那种）只渲染成 `.cm-lp-embed` 文字标记、**不出图**——cm 的图片
-     widget 只认「整行就是一个 `![[..]]`」（`widgets.js` 的 `EMBED_LINE_RE` + `blk.line === blk.endLine`）。
-  2. `![](路径)` 的 Markdown 图片在 cm 实时预览里也**不渲染**（只认 `![[..]]`）。
-  3. 未解析双链**没有** `unresolved` 变体类（`decorations.js` 的 wikilink 装饰不带解析结果），
-     所以 e2e 那条按引擎门控。
+- **cm 侧 3 处渲染缺口已补齐**（7.12，2026-10-19）：
+  1. 行内 `![[图片]]`（前面有文字那种）由 `inlineImageDecos` 产出**行内 replace widget**，
+     出图 + `|宽` + 拖宽手柄 + 点图灯箱（`widgets.js`）。
+  2. `![](路径)` 的 Markdown 图片同样走行内 widget（`engine.resolveMdImage` 负责相对路径 → `/api/file`）。
+  3. 未解析双链补 `.cm-lp-unresolved`（`createLivePreview({resolveLink})`，与块级 `.wikilink.unresolved` 同视觉）。
+  两个连带修复：**装饰在笔记索引/文件树刷新后显式重建**（`refreshDecorations`，修「开得太早链接一直未解析」
+  与「刚粘贴的附件不出图」）；**`![[..]]` 行内标记的吃字 bug**（`marker:4` → `head:3/tail:2`）。
 - **写 cm 断言的三条铁律**（实测踩出来的，详见 `EDITOR-MIGRATION.md` 7.11）：
   1. cm 装饰是**视口作用域**的（视口外不建 DOM）→ 任何「全文找 N 个 X」的断言必须**先分段滚动再累加**；
   2. cm 的 history 有 ~500ms 的**合并窗口**（`newGroupDelay`）→「连续操作 → 分步撤销」的测试
@@ -226,13 +229,19 @@ test/*.mjs              九个测试套件（见 §2）
 
 ## 7. 新对话怎么继续（按优先级）
 
-1. **cm 侧 3 处渲染缺口**（见 §4b）：行内 `![[图片]]` 与 `![](路径)` 出图（补**行内 widget**）、给 wikilink 补 `unresolved` 变体类。改完可以把 e2e #11 的引擎门控、`ui-ux` 里被门控的 3 条、`features`/`layout`/`backspace` 里被门控的条目逐步回收。
-2. **发版（可选，但这次改动够大值得发）**：默认内核切 cm 是用户可见变化，建议 `package.json` bump 到 **1.2.0**，照 `docs/RELEASE-1.1.1.md` 的格式写 `docs/RELEASE-1.2.0.md`，然后 `npm run dist:dir:nosign` + `npm run release` → 再把 `dist/Tracery-1.2.0-win32-x64.zip` 传到 Gitee → Releases。两处代价：exe 文件本身没有自定义图标/版本信息（nosign 的取舍）、zip 体积 ~110MB。
-3. **同步 v3：端到端加密**。路线：scrypt(密码) 派生 masterKey → 内容 AES-GCM 加密后再上传 → manifest 路径用 HMAC 存。服务端接口不用改（本来就只认 blob+sha）。注意：合并会失效（服务端看不到明文），需改成「客户端持有 base 明文」策略。
-4. **绘图二次编辑**：场景 JSON 已存 `附件/*.draw.json`（v2：`{v:2, elements:[...]}`），做「右键图片 → 编辑绘图」把它回填进 draw.js 的 `elements` 即可；跨设备时 JSON 也参与同步。
-5. **PWA + 响应式**（ROADMAP P0 最后一项）：manifest + service worker + 移动三栏。
-6. **大仓库性能**：文件树虚拟滚动 + 增量索引落盘。
-7. **mDNS 精细发现**（替代当前 UDP 广播启发式）。
+1. ~~cm 侧 3 处渲染缺口~~ ✅ **已完成（7.12）**：行内 `![[图片]]`/`![](路径)` 出图、双链 `unresolved` 类；
+   e2e #11 与 `ui-ux` 的 4 条图片断言已拆掉门控。仍未回收的 3 条门控（features ②③、layout ②、backspace ④）
+   与渲染无关，理由写在 7.12「门控清单变化」。
+2. **发版 v1.2.1（建议）**：渲染缺口修复是用户可见变化。`package.json` bump 到 **1.2.1**，照
+   `docs/RELEASE-1.1.1.md` 的格式写 `docs/RELEASE-1.2.1.md`，`npm run dist:dir:nosign` + `npm run release`
+   → `dist/Tracery-1.2.1-win32-x64.zip` 传 Gitee Releases。代价：exe 文件本身没有自定义图标/版本信息、zip ~110MB。
+   升级前先跑 `node test/verify-exe.mjs`（应 14/14）。
+3. **cm 表格单元格编辑**：表格现在只有行装饰（`.cm-lp-tr`），Tab 跳格/回车加行仍是块级专用。
+4. **同步 v3：端到端加密**。路线：scrypt(密码) 派生 masterKey → 内容 AES-GCM 加密后再上传 → manifest 路径用 HMAC 存。服务端接口不用改（本来就只认 blob+sha）。注意：合并会失效（服务端看不到明文），需改成「客户端持有 base 明文」策略。
+5. **绘图二次编辑**：场景 JSON 已存 `附件/*.draw.json`（v2：`{v:2, elements:[...]}`），做「右键图片 → 编辑绘图」把它回填进 draw.js 的 `elements` 即可；跨设备时 JSON 也参与同步。
+6. **PWA + 响应式**（ROADMAP P0 最后一项）：manifest + service worker + 移动三栏。
+7. **大仓库性能**：文件树虚拟滚动 + 增量索引落盘。
+8. **mDNS 精细发现**（替代当前 UDP 广播启发式）。
 
 ## 8. 协作方式约定
 

@@ -118,24 +118,10 @@ async function main() {
     [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.trim() === '图')?.click();
   });
   await sleep(1500);
-  const imgs = await page.evaluate((isCm) => {
-    if (isCm) {
-      // cm：`![[..]]` 由 widget 渲染成 figure.cm-lp-img.embed-image（定位信息在 dataset.name，
-      // 没有块级的 dataset.target）；`![](path)` 在 cm 实时预览里不渲染（只有 ![[..]] 嵌入）
-      const fig = [...document.querySelectorAll('#editor-live .embed-image')];
-      return {
-        embeds: fig.map((f) => {
-          const img = f.querySelector('img');
-          return {
-            name: f.dataset.name,
-            hasImg: !!img,
-            loaded: img ? img.naturalWidth > 0 : false,
-            width: img ? Math.round(img.getBoundingClientRect().width) : 0,
-          };
-        }),
-        md: [],
-      };
-    }
+  const imgs = await page.evaluate(() => {
+    // 两个内核现在都走 `.embed-image`：
+    //   block = figure.embed-image（整行）或 img.md-image（行内 `![](路径)`）；
+    //   cm    = widget（整行 figure / 行内 span，都带 dataset.target，口径与块级一致）。
     const fig = [...document.querySelectorAll('#editor-live .embed-image')];
     const mdImgs = [...document.querySelectorAll('#editor-live img.md-image')];
     return {
@@ -150,24 +136,12 @@ async function main() {
       }),
       md: mdImgs.map((i) => ({ src: i.getAttribute('src'), loaded: i.naturalWidth > 0 })),
     };
-  }, IS_CM);
-  if (IS_CM) {
-    // cm 的图片 widget 只认「整行就是一个 ![[..]]」（EMBED_LINE_RE）；夹具里那 4 条都是
-    // 「前缀文字 + 行内 ![[..]]」，cm 下只渲染成 `.cm-lp-embed` 文字标记、不出图。
-    // 这里验证「整行嵌入」这条链路（widget 出图 + 可点开灯箱），行内渲染差异记为已知边界。
-    const whole = await page.evaluate(() => {
-      const fig = document.querySelector('#editor-live .cm-lp-img img');
-      return fig ? { loaded: fig.naturalWidth > 0, src: fig.getAttribute('src') } : null;
-    });
-    check('整行图片嵌入能显示（cm widget）', !!whole && whole.loaded, JSON.stringify(whole));
-    console.log('  ⏭ 跳过「行内 ![[图片]] 能显示」3 条：cm 只渲染整行嵌入，行内嵌入是 .cm-lp-embed 文字标记（已知边界）');
-  } else {
-    check('图片嵌入（裸文件名）能显示', imgs.embeds.some((e) => e.target === '测试图.png' && e.loaded), JSON.stringify(imgs.embeds));
-    check('图片嵌入（带目录）能显示', imgs.embeds.some((e) => e.target === 'z_图片/测试图.png' && e.loaded));
-    const sized = imgs.embeds.find((e) => e.target === '测试图.png|200');
-    check('图片嵌入支持 |200 尺寸', !!sized && sized.loaded && sized.width <= 220 && sized.width >= 150, JSON.stringify(sized));
-    check('Markdown 相对路径图片能显示', imgs.md.some((m) => m.loaded), JSON.stringify(imgs.md));
-  }
+  });
+  check('图片嵌入（裸文件名）能显示', imgs.embeds.some((e) => e.target === '测试图.png' && e.loaded), JSON.stringify(imgs.embeds));
+  check('图片嵌入（带目录）能显示', imgs.embeds.some((e) => e.target === 'z_图片/测试图.png' && e.loaded));
+  const sized = imgs.embeds.find((e) => e.target === '测试图.png|200');
+  check('图片嵌入支持 |200 尺寸', !!sized && sized.loaded && sized.width <= 220 && sized.width >= 150, JSON.stringify(sized));
+  check('Markdown 相对路径图片能显示', imgs.md.some((m) => m.loaded), JSON.stringify(imgs.md));
 
   // 点图 → 灯箱
   await page.evaluate(() => document.querySelector('#editor-live .embed-image img').click());

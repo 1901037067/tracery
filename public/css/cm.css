@@ -83,6 +83,11 @@
   transition: background var(--dur) var(--ease);
 }
 .cm-lp-wikilink:hover { background: var(--accent-soft); }
+/* 未解析双链：与块级 `.wikilink.unresolved` 同视觉（灰字 + 虚线底边） */
+.cm-lp-wikilink.cm-lp-unresolved {
+  color: var(--link-unresolved);
+  border-bottom: 1px dashed var(--link-unresolved);
+}
 .cm-lp-embed {
   color: var(--link);
   background: var(--accent-soft);
@@ -158,6 +163,18 @@
   padding: 4px 8px;
 }
 .cm-lp-img-missing { color: var(--danger); font-size: 12px; }
+
+/* 行内图片（`前缀 ![[图]] 后缀` / `![](路径)`）：与文字同一行的 inline-block，
+ * 不能沿用块级那条 `margin:6px 0`（会在行里撑出一大块空白）。 */
+#editor-live .cm-lp-img-inline {
+  display: inline-block;
+  vertical-align: bottom;
+  margin: 2px 4px;
+  padding: 2px;
+  max-width: 100%;
+}
+#editor-live .cm-lp-img-inline img { max-height: 420px; object-fit: contain; }
+#editor-live .cm-lp-img-grip-inline { width: 12px; height: 12px; right: 0; bottom: 0; }
 
 /* 复选框（任务列表） */
 #editor-live input.cm-lp-cb {

@@ -60,6 +60,10 @@ const state = {
   settings: null,
 };
 
+/** 编辑器实例（boot 之后才创建；定义在这里是为了让 refreshTree / refreshGraph
+ *  这类「先声明后调用」的辅助函数能安全地通知它重建装饰）。 */
+let editor = null;
+
 /* ================= 启动 ================= */
 async function boot() {
   // 调试/测试钩子
@@ -261,12 +265,17 @@ function iconForFile(name) {
 async function refreshTree() {
   state.tree = await Api.tree();
   renderTree();
+  // 文件树变了 → 装饰里的 `![[图片]]`/`![](路径)` 可能从「找不到」变「找得到」（或反之）。
+  // CM 的装饰只在 doc/视口/选区变化时重建，索引变化必须显式通知（块级内核没这方法，忽略）。
+  editor?.refreshDecorations?.();
 }
 
 const refreshGraph = debounce(async () => {
   const g = await Api.graph();
   state.graph = g;
   state.nameIndex = new Map(g.nodes.map((n) => [n.name.toLowerCase(), n.id]));
+  // 双链的「解析得到 / 解析不到」直接取决于这份索引 → 通知装饰重算 unresolved 类
+  editor?.refreshDecorations?.();
   if (graphView) {
     graphView.opts.activePath = state.currentPath;
     graphView.setData(g);
@@ -1611,7 +1620,7 @@ const ENGINE = (engineOverride === 'cm' || engineOverride === 'block')
   ? engineOverride
   : (getSettings().editorEngine || 'block');
 
-const editor = new (ENGINE === 'cm' ? CmEditor : LiveEditor)({
+editor = new (ENGINE === 'cm' ? CmEditor : LiveEditor)({
   liveEl: $('editor-live'),
   sourceEl: $('editor-source'),
   gutterEl: $('source-gutter'),

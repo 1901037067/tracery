@@ -976,6 +976,59 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
 
 ---
 
+### 7.12 cm 渲染缺口补齐（2026-10-19 · **行内 `![[图]]` 出图 + `![](路径)` 出图 + 双链 unresolved**；连带修 3 个缺陷）
+
+**范围**：7.11「剩余待办 1」列的三处渲染缺口，外加把因此能回收的测试门控拆掉。
+
+**交付物**
+
+| 文件 | 内容 |
+|---|---|
+| `public/js/cm/widgets.js` | **新增 `InlineImageWidget` + `inlineImageDecos`**：逐源码行扫视口内的 `![[..]]`（图片）与 `![alt](路径)`，产出**行内 replace** widget（出图、`|宽` 生效、右下角拖宽手柄、点图进灯箱）。跳过围栏内行、整行嵌入行、行内代码里的假 token。`setEmbedWidth` 改为**按 token 起点原地改写**；`widgetsPlugin(opts)` 接收注入；块级 `ImageEmbedWidget` 补 `dataset.target`（右键菜单「复制路径」同口径） |
+| `public/js/cm/decorations.js` | `livePreviewPlugin` 改为工厂 **`createLivePreview(opts)`**（`isImage` 命中时行内图让位给 widget、`resolveLink` 命中不了补 `cm-lp-unresolved`）；`![[..]]` 行内标记改用 `head/tail`（修老吃字 bug）；导出 `refreshLivePreview` 注解，供「索引变了 → 装饰重建」 |
+| `public/js/cm/engine.js` | 用 `createLivePreview` 注入 `isImage` / `resolveLink`；新增 `resolveMdImage(url)`（相对路径走 `resolveFile` + `fileUrl`，外链原样）；`removeImageAt` 改按 `dataset.from` 精确删（行内嵌入不能按名字删第一个）；新增 `refreshDecorations()` |
+| `public/js/app.js` | `editor` 改 `let`（辅助函数可安全通知）+ `refreshTree()` / `refreshGraph()` 完成后调 `editor?.refreshDecorations?.()` |
+| `public/css/cm.css` | `.cm-lp-img-inline`（inline-block、`max-height: 420px`）、`.cm-lp-wikilink.cm-lp-unresolved`（与块级 `.wikilink.unresolved` 同视觉） |
+| `test/ui-ux-test.mjs` | 图片 4 条断言**拆掉门控**（行内裸名 / 带目录 / `\|200` / `![](路径)`），block + cm 同一套断言 |
+| `test/e2e.mjs` | #11 未解析双链**拆掉门控**（cm 查 `.cm-lp-wikilink.cm-lp-unresolved`） |
+
+**实测**：`test:uiux` block **16/16**、cm **16/16**；`test:e2e` block **15/15**、cm **15/15**；
+其余 13 个应用套件（enter/gap/polish/menu/features/layout/backspace/asset/tabs/trash/draw/roundtrip）
+block + cm 各一遍全绿；`test:engine` 12/12、`test:cmlab` 8 探针 + IME 全绿、无页面错误。
+
+**6 个关键结论**
+
+1. **行内图必须走行内 replace（ViewPlugin），不能借用块级 StateField 那条路**：块级 replace 的 range 是
+   `[line.from, line.to)`（整行），拿去替换行内 token 会把整行包括邻居文字一起吃掉。行内 replace 只改
+   行内内容、不改「块级高度语义」，在 ViewPlugin 里下发是合法的（P0 只禁止 ViewPlugin 下发 **block** replace）。
+2. **`setEmbedWidth` 原来按「整行 trim 后整段替换」**，行内用会把前后文字一起写掉
+   （`前缀 ![[图]] 后缀` → 整行变成 `![[图|400]]`）。改成从 token 起点 `^\s*!\[\[..\]\]` 只替换 token；
+   块级调用点的 `dataset.from` 仍是行首，行为不变（`|200` 尺寸断言两个内核都过）。
+3. **行内 widget 没有 `estimatedHeight`，图加载完行高会变**（26px → 300px+）→ CM 不会自动重算行号槽，
+   截图实证：行号 4~11 全挤在图片中间。修法 `img.onload → view.requestMeasure()`（块级 widget 靠
+   `estimatedHeight` 占位，没这个毛病——所以这是**行内特有**的坑）。
+4. **装饰的依赖不止 doc / 视口 / 选区**：`unresolved` 类取决于 app 的 `nameIndex`、图片 URL 取决于文件树，
+   两者都是 **150ms 防抖异步**到达 → 笔记开得早时装饰按「索引还空着」建好，之后再没人重建（实测
+   `nameIndex` 里明明有「图」，`[[图]]` 仍一直是未解析）。配方：`refreshLivePreview` 注解 + 空事务，
+   `refreshTree` / `refreshGraph` 完成后 `editor.refreshDecorations()`。同一条也顺手修了
+   **刚粘贴的附件不出图**（插入时立刻重建，但那时文件树还没刷新）。
+5. **`![[..]]` 的老标记长度写错了**：开闭标记是 `![[`(3) + `]]`(2) 不对称，P1 却给了单一 `marker:4` →
+   首尾各多藏一个字，`![[常用代码]]` 只显示中间一个字。改为 `head:3 / tail:2`。这条一直没被发现，
+   是因为整行嵌入都被块级 widget 覆盖、行内非图片嵌入平时没人细看。
+6. **行内图只扫视口内的行**（`visibleRanges` 覆盖到的源码行，与块级 widget 的 StateField 全文扫描不同），
+   所以「全文数图片」的断言依旧要**分段滚动累加**（7.11 结论 1 同样适用）。
+
+**门控清单变化**
+
+- ✅ 已回收：`ui-ux` 的 3 条行内图 + 1 条 md 图；`e2e` #11 未解析双链。
+- ⏳ 仍按引擎门控（**与这三处缺口无关**，不是本轮欠账）：`features` ② `.tok-*` 高亮（cm 走 CM 自己的
+  syntaxHighlighting，类名是 CM 内部的）、`features` ③ 表格 Tab/换行（cm 表格是行装饰，没有 `td`，
+  改键位需要先做「表格单元格编辑」）、`layout` ② 源码模式独立行号槽（cm 源码模式共用同一视图）、
+  `backspace` ④ 列表内容起点 Backspace 的 outdent 语义（块级「去标记」vs cm `deleteMarkupBackward`
+  「缩进续行」，两边都合理，按引擎分别断言）。
+
+---
+
 ## 8. 下个会话从这里开始
 
 1. 读这份文档 + `docs/HANDOFF.md` 的 #14 / #21 / #26 / #34 / #36 / #40 / #41 / #42（空行/光标/行号/跨行删除的既有结论）
@@ -999,36 +1052,43 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
    明暗验收截图 `test/screenshots/p5-cm-{light,dark}.png`（结论见 7.10）；
    ✅ ② `test/_engine-helpers.mjs` 落地；**17 个 pin 套件全部参数化，双引擎各跑一遍全绿**
    （block 22 个套件 / cm 16 个套件，见 7.11「实测」）；
-   ⏳ 剩余（下一轮）：**cm 的 3 处渲染缺口**（行内 `![[图片]]` / `![](path)` 不出图、未解析双链无
-   unresolved 类）。**打包已解决**（`npm run dist:dir:nosign` + `npm run release`，打包版验证 14/14，见 7.11）。
-   **跑套件后记得复原 `test/screenshots/*.png` 与 `demo-vault/Markdown 语法.md`**（7.11 结论 4）
-5. 发布后保留 `settings.editorEngine` 一键回退；后续小迭代（块级嵌入露源码、Callout 正文行内偏移、
-   块级序列化 bug）见 7.4/7.5/7.7 边界
+   ✅ ③ **cm 的 3 处渲染缺口已补齐**（7.12）：行内 `![[图片]]` 与 `![](路径)` 出图、双链 unresolved 类，
+   对应测试门控已拆（ui-ux 4 条 + e2e #11）。**打包已解决**（`npm run dist:dir:nosign` + `npm run release`，
+   打包版验证 14/14，见 7.11）。**跑套件后记得复原 `test/screenshots/*.png` 与 `demo-vault/Markdown 语法.md`**（7.11 结论 4）
+5. 发布后保留 `settings.editorEngine` 一键回退；后续可选方向：
+   ① 发版（渲染修复值得一个 1.2.1，流程见 7.11「打包结论」+ `docs/RELEASE-1.1.1.md` 格式）；
+   ② **cm 表格单元格编辑**（现在是行装饰 + 源码编辑，做完能回收 features ③ 的门控）；
+   ③ 源码模式的 `.tok-*` 等价断言（回收 features ②）；
+   ④ 块级内核遗留（块级嵌入露源码、Callout 正文行内偏移、块级序列化 bug）——只在维护回退路时才值得动
 
 ### 给用户的开场提示词（可直接粘贴）
 
 ```
-读 docs/HANDOFF.md（当前状态 / 已知坑 / 下一步优先级），再看 docs/EDITOR-MIGRATION.md 的 7.10、7.11
-（CM6 迁移收尾两轮的结论）。迁移主体已完成，不用重新调研。
+读 docs/HANDOFF.md（当前状态 / 已知坑 / 下一步优先级），再看 docs/EDITOR-MIGRATION.md 的 7.11、7.12
+（CM6 迁移收尾三轮的结论）。迁移主体 + cm 渲染缺口都已收口，不用重新调研。
 
-现状（v1.2.0 已发布，Gitee tag v1.2.0）：
-- 默认编辑内核已是 cm（CodeMirror 6，P0~P5 全过）：设置 → 编辑器 可一键回退块级，
-  `?engine=block|cm` 可按页覆盖；旧块级内核不删（既是回归网也是回退路）。
-- 测试：17 个套件已参数化为 TRACERY_TEST_ENGINE（默认 block），block 22 套件 / cm 16 套件
-  各跑一遍全绿；test:engine（12 条）与 test:cmlab（探针）只跑 cm。
-- 打包：本机 GitHub 不通（下载 winCodeSign 超时）+ 无符号链接权限 → 出包走
-  `npm run dist:dir:nosign` + `npm run release`；打包版验证 `node test/verify-exe.mjs` 应 14/14。
+现状（v1.2.0 已发布；本地代码 = v1.2.0 + 渲染缺口修复，未发版）：
+- 默认编辑内核 = cm（CodeMirror 6）：设置 → 编辑器 可一键回退块级，`?engine=block|cm` 可按页覆盖；
+  旧块级内核不删（回归网 + 回退路）。
+- cm 实时预览现在与块级对齐：**行内 `![[图片]]`、`![](路径)` 都出图**（带 `|宽` 与拖宽手柄），
+  未解析双链有 `.cm-lp-unresolved`。装饰在「笔记索引/文件树」刷新后会显式重建（`refreshDecorations`）。
+- 测试：17 个套件已参数化为 TRACERY_TEST_ENGINE（默认 block），block / cm 各跑一遍全绿；
+  test:engine（12 条）与 test:cmlab（8 探针）只跑 cm。
+- 打包：`npm run dist:dir:nosign` + `npm run release`；打包版验证 `node test/verify-exe.mjs` 应 14/14。
 
 本轮目标（按优先级，先做 1）：
-1. **补 cm 的 3 处渲染缺口**：
-   ① 行内 `![[图片]]`（前面有文字那种）要出图——cm 的图片 widget 目前只认「整行就是一个 `![[..]]`」
-      （见 public/js/cm/widgets.js 的 EMBED_LINE_RE 与 blk.line === blk.endLine）；
-   ② `![](路径)` 的 Markdown 图片在 cm 实时预览里也要出图；
-   ③ 给 wikilink 补 `unresolved` 变体类（decorations.js 的装饰不带解析结果），好把 e2e #11 的引擎门控拆掉。
-   改完把 ui-ux 里被门控的 3 条、features/layout/backspace 里被门控的条目逐步回收，
-   并跑相关套件的 block + cm 两遍（`$env:TRACERY_TEST_ENGINE='cm'`）。
-2. （可选，网络恢复后）`git push github main --tags`：GitHub 落后 3 个 commit + tag v1.2.0。
-3. 结论写回本文件第 7 节（7.12）并推 Gitee（origin）与 GitHub（github）两个远端。
+1. 发版 v1.2.1：渲染缺口修复是用户可见变化——`package.json` bump 到 1.2.1，
+   照 docs/RELEASE-1.1.1.md 的格式写 docs/RELEASE-1.2.1.md，`npm run dist:dir:nosign` + `npm run release`，
+   跑 `node test/verify-exe.mjs` 确认 14/14，zip 传 Gitee Releases。
+2. **cm 表格单元格编辑**：现在表格只有行装饰（`.cm-lp-tr`），Tab 跳格/回车加行仍是块级专用
+   （features ③ 门控）。做完可以把 features 里 table 那条门控拆掉。
+3. 顺带核一遍 7.12「门控清单变化」里仍未回收的 3 条（features ②、layout ②、backspace ④），
+   能等价改写就改，纯语义差异就保留并写明理由。
+
+硬约束：
+- **不要改 public/js/editor.js**（旧块级内核只读：它是回归网，也是用户回退路）；
+- 跑完套件记得 `git checkout -- test/screenshots "demo-vault/Markdown 语法.md"` 复原污染，别提交；
+- 提交信息用中文；UI 文案与代码注释也是中文。
 
 硬约束：
 - **不要改 public/js/editor.js**（旧块级内核只读：它是回归网，也是用户回退路）；

@@ -22,7 +22,7 @@
  */
 import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
-import { parseCached } from './decorations.js';
+import { parseCached, refreshLivePreview } from './decorations.js';
 import { renderMarkdown } from '../markdown.js';
 
 const DEFAULT_IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
@@ -75,6 +75,7 @@ class ImageEmbedWidget extends WidgetType {
     fig.className = 'cm-lp-img' + (isImage ? ' embed-image' : ' embed-file');
     fig.contentEditable = 'false';
     fig.dataset.name = name;
+    fig.dataset.target = this.embed.raw;   // 与块级渲染同口径：右键菜单「复制路径/删除图片」靠它
     fig.dataset.from = String(this.from);   // 供 setImageWidth / removeImageAt 定位
     if (!isImage) { fig.textContent = `📎 ${name}`; return fig; }
     if (!src) { fig.innerHTML = `<div class="cm-lp-img-missing">图片不存在：<code>${name}</code></div>`; return fig; }
@@ -115,16 +116,99 @@ class ImageEmbedWidget extends WidgetType {
   // 不实现 ignoreEvent（默认 false）；拖宽手柄自己 stopPropagation，不让 CM 抢走指针事件。
 }
 
-/** 改写某行嵌入的宽度（0 = 去掉尺寸），走 doc 事务。与 editor.js setImageWidth 同口径。 */
+/* ---------- ①b 行内图片 widget（`前缀 ![[图]] 后缀` / `![](路径)`） ----------
+ * 背景（7.11 结论 4）：块级嵌入只认「整行就是一个 ![[..]]」，行内的只渲染成文字标记、
+ * 不出图；`![](路径)` 更是完全不渲染。补法是**行内 replace widget**（内联替换走 ViewPlugin
+ * 即可，不需要 StateField——只有会改变行高的**块级** replace 才必须走 StateField）。
+ *
+ * 三条与块级 widget 一致的口径：
+ *   - 恒定显示，不套「光标行露源码」（P3 结论 1：StateField/行内 widget 的选区重建刷新时机
+ *     不可靠，套上去会闪；图片本来也不需要「点进去改语法」）；
+ *   - 拖宽只在 pointerup 时 dispatch 一次 doc 变更（P0 结论 2：原地改 DOM 会被 CM 测量抢锚点）；
+ *   - 拖宽基准用 `img.style.width`（逻辑宽度），图未加载时 rect 可能是 0（P3 结论 5）。 */
+class InlineImageWidget extends WidgetType {
+  /** @param embed {raw,name,width,src,isImage,wiki} */
+  constructor(embed, from, onImageClick) {
+    super();
+    this.embed = embed;
+    this.from = from;
+    this.onImageClick = onImageClick || null;
+  }
+  eq(o) { return o.from === this.from && o.embed.raw === this.embed.raw && o.embed.src === this.embed.src; }
+  toDOM(view) {
+    const { name, width, src, raw, wiki } = this.embed;
+    const box = document.createElement('span');
+    box.className = 'cm-lp-img cm-lp-img-inline embed-image';
+    box.contentEditable = 'false';
+    box.dataset.name = name;
+    // `![[..]]` 的 target 就是 token 内容（`名字|宽`）；`![](路径)` 的 target 用 URL 本身
+    // ——右键菜单「复制路径/删除图片」都按它解析，塞整个 `![alt](url)` 会解析不出来。
+    box.dataset.target = wiki ? raw : name;
+    box.dataset.from = String(this.from);
+    if (!src) {
+      box.classList.add('cm-lp-img-missing');
+      box.textContent = `🖼 ${name}（未找到）`;
+      return box;
+    }
+    const img = document.createElement('img');
+    img.src = src; img.alt = name; img.draggable = false; img.loading = 'lazy';
+    // 行内 widget 没有 estimatedHeight（图片尺寸要等加载才知道），图加载完行高会变 →
+    // 必须请 CM 重测一次，否则行号槽会停在「图还没加载」时的旧位置（实测行号挤在图中间）。
+    img.addEventListener('load', () => { try { view.requestMeasure(); } catch { /* view 已销毁 */ } });
+    if (wiki) img.dataset.embed = name;
+    else { img.dataset.mdSrc = name; img.classList.add('md-image'); }
+    if (width) { img.style.width = `${width}px`; img.style.maxWidth = '100%'; }
+    // 点图 → 灯箱（与块级内核 onImageClick 同口径）
+    box.addEventListener('click', (e) => { e.stopPropagation(); this.onImageClick?.(src, name); });
+    box.append(img);
+    // 只有 `![[..]]` 支持 `|宽`；`![](路径)` 的语法里没有宽度位，不给手柄（拖了也没地方写）
+    if (wiki) {
+      const grip = document.createElement('span');
+      grip.className = 'cm-lp-img-grip cm-lp-img-grip-inline';
+      grip.title = '拖动调整宽度（双击还原）';
+      grip.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const startX = e.clientX;
+        const specified = Number.parseInt(img.style.width, 10);
+        const startW = Number.isFinite(specified) && specified > 0 ? specified : img.getBoundingClientRect().width;
+        const move = (ev) => {
+          const w = Math.round(Math.min(1200, Math.max(80, startW + ev.clientX - startX)));
+          img.style.width = `${w}px`; img.style.maxWidth = '100%';
+          grip.dataset.w = String(w);
+        };
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          const w = Number(grip.dataset.w);
+          if (w > 0) setEmbedWidth(view, this.from, w);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      });
+      grip.addEventListener('dblclick', (e) => { e.stopPropagation(); img.style.width = ''; setEmbedWidth(view, this.from, 0); });
+      grip.addEventListener('click', (e) => e.stopPropagation());
+      box.append(grip);
+    }
+    return box;
+  }
+  ignoreEvent() { return true; }   // 点击只走灯箱，不让 CM 把光标塞进 widget
+}
+
+/** 改写某个嵌入的宽度（0 = 去掉尺寸），走 doc 事务。与 editor.js setImageWidth 同口径。
+ *  `pos` 指向 token 起点：整行嵌入传行首、行内嵌入传 token 起点（widget 的 dataset.from）。
+ *  只替换 `![[..]]` 这一段，**前后文字原样保留**——行内嵌入写宽度不能吃掉邻居。 */
 export function setEmbedWidth(view, pos, width) {
-  const line = view.state.doc.lineAt(pos);
-  const m = EMBED_LINE_RE.exec(line.text.trim());
+  const doc = view.state.doc;
+  const line = doc.lineAt(pos);
+  const m = /^\s*!\[\[([^\]\n]+)\]\]/.exec(doc.sliceString(pos, line.to));
   if (!m) return false;
-  const idx = line.text.indexOf('![[');
-  const raw = m[1];
-  const name = raw.split('|')[0].replace(/#.*$/, '').trim();
+  const lead = m[0].indexOf('![[');
+  const from = pos + lead;
+  const to = from + (m[0].length - lead);
+  const name = m[1].split('|')[0].replace(/#.*$/, '').trim();
   const next = width > 0 ? `![[${name}|${Math.round(width)}]]` : `![[${name}]]`;
-  view.dispatch({ changes: { from: line.from + idx, to: line.from + line.text.trim().length, insert: next }, userEvent: 'input' });
+  if (doc.sliceString(from, to) === next) return true;
+  view.dispatch({ changes: { from, to, insert: next }, userEvent: 'input' });
   return true;
 }
 
@@ -293,11 +377,97 @@ function walkItem(item, state, cursor, out) {
   if (item.children) for (const c of item.children) walkItem(c, state, cursor, out);
 }
 
-/** 行级装饰插件（视口作用域）：Callout 色条/藏标记、表格边框、列表复选框 */
-export function widgetsPlugin() {
+/* ---------- ③ 行内图片扫描（`文字 ![[图]] 文字` / `![](路径)`） ----------
+ * 与 widgetsPlugin 同一帧产出（同一份视口作用域），只是描述符带 always:true——
+ * 图片恒定显示，不受「光标行露源码」过滤。 */
+const MD_IMG_RE = /!\[([^\]]*)\]\(([^)\n]+)\)/g;
+const INLINE_EMBED_RE = /!\[\[([^\]]+)\]\]/g;
+const WHOLE_EMBED_LINE_RE = /^\s*!\[\[[^\]]+\]\]\s*$/;
+
+/** 该位置是否落在行内代码的反引号里（奇偶判断，够用且零成本） */
+function inInlineCode(text, idx) {
+  let n = 0;
+  for (let i = 0; i < idx; i++) if (text[i] === '`') n++;
+  return n % 2 === 1;
+}
+
+/** `![alt](url "title")` → { url, src }；相对路径按仓库文件解析（与 markdown.js inlineToHtml 同口径） */
+function mdImageSrc(inner, opts) {
+  let url = String(inner || '').trim().replace(/^<|>$/g, '');
+  const tm = url.match(/^(.*?)\s+"[^"]*"$/);   // 去掉可选的 title
+  if (tm) url = tm[1].trim();
+  if (!url) return null;
+  if (/^(https?:|data:|blob:)/i.test(url)) return { url, src: url };
+  let plain = url;
+  try { plain = decodeURI(url); } catch { /* 保留原样 */ }
+  if (opts.resolveMdImage) return { url, src: opts.resolveMdImage(url, plain) };
+  const resolved = opts.resolveFile?.(plain);
+  const target = resolved || plain;
+  return { url, src: opts.fileUrl?.(target) ?? target };
+}
+
+function inlineImageDecos(state, lo, hi, opts, out) {
+  const { blocks } = parseCached(state);
+  const skip = new Set();
+  const walk = (bs) => {
+    for (const b of bs) {
+      // 代码块里的 `![[..]]` 只是代码文本，不能出图
+      if (b.type === 'fence') { for (let n = b.line; n <= b.endLine; n++) skip.add(n + 1); }
+      // 整行嵌入由块级 widget 接管（重复挂会在同一区间叠两个 replace）
+      else if (b.type === 'paragraph' && b.line === b.endLine && WHOLE_EMBED_LINE_RE.test(b.text)) skip.add(b.line + 1);
+      if (b.blocks) walk(b.blocks);
+    }
+  };
+  walk(blocks);
+  const isImage = opts.isImage ?? ((n) => DEFAULT_IMG_RE.test(n));
+  const firstLine = state.doc.lineAt(Math.max(0, Math.min(lo, state.doc.length))).number;
+  const lastLine = state.doc.lineAt(Math.max(0, Math.min(hi, state.doc.length))).number;
+  for (let n = firstLine; n <= lastLine; n++) {
+    if (skip.has(n)) continue;
+    const line = state.doc.line(n);
+    const text = line.text;
+    if (text.indexOf('![') < 0) continue;
+    INLINE_EMBED_RE.lastIndex = 0;
+    let m;
+    while ((m = INLINE_EMBED_RE.exec(text))) {
+      if (inInlineCode(text, m.index)) continue;
+      const raw = m[1];
+      const name = raw.split('|')[0].replace(/#.*$/, '').trim();
+      if (!isImage(name)) continue;   // 非图片嵌入：仍由 decorations.js 挂牌成 `.cm-lp-embed` 文字标记
+      const emb = parseEmbed(raw, opts);
+      if (!emb.src) continue;         // 找不到文件 → 保留原始语法（比渲染一个坏图框有用）
+      const from = line.from + m.index;
+      out.push({
+        from, to: from + m[0].length, kind: 'replace', always: true,
+        // raw 用 token **内容**（`名字|宽`），与块级 widget 的 dataset.target 同口径
+        widget: new InlineImageWidget({ raw, ...emb, wiki: true }, from, opts.onImageClick),
+      });
+    }
+    MD_IMG_RE.lastIndex = 0;
+    while ((m = MD_IMG_RE.exec(text))) {
+      if (inInlineCode(text, m.index)) continue;
+      const info = mdImageSrc(m[2], opts);
+      if (!info || !info.src) continue;
+      const from = line.from + m.index;
+      out.push({
+        from, to: from + m[0].length, kind: 'replace', always: true,
+        widget: new InlineImageWidget(
+          { raw: m[0], name: info.url, width: 0, src: info.src, isImage: true, isAsset: false, wiki: false },
+          from, opts.onImageClick,
+        ),
+      });
+    }
+  }
+}
+
+/** 行级装饰插件（视口作用域）：Callout 色条/藏标记、表格边框、列表复选框、行内图片 */
+export function widgetsPlugin(opts = {}) {
   return ViewPlugin.fromClass(class {
     constructor(view) { this.decorations = this.build(view); }
-    update(u) { if (u.docChanged || u.viewportChanged || u.selectionSet) this.decorations = this.build(u.view); }
+    update(u) {
+      if (u.docChanged || u.viewportChanged || u.selectionSet
+        || u.transactions.some((tr) => tr.annotation(refreshLivePreview))) this.decorations = this.build(u.view);
+    }
     build(view) {
       const state = view.state;
       let blocks;
@@ -309,6 +479,7 @@ export function widgetsPlugin() {
         walkBlocks(blocks, state, cursor, raw);
         const lo = view.visibleRanges[0]?.from ?? 0;
         const hi = view.visibleRanges[view.visibleRanges.length - 1]?.to ?? state.doc.length;
+        inlineImageDecos(state, lo, hi, opts, raw);
         for (const d of raw) {
           const to = d.to ?? d.from;
           // 防御（P1 坑 1）：一个非法 range 会让整个插件被 CM6 禁用
@@ -351,11 +522,12 @@ export function linkEvents({ onOpenWikilink, onHoverWikilink, onTagClick } = {})
 
 /* ================= 装配 ================= */
 
-/** P3 扩展集合。opts: { resolveImage(name)->url|null, isImage, isAsset, loadNote(name)->md|Promise, onOpenWikilink, onHoverWikilink, onTagClick } */
+/** P3 扩展集合。opts: { resolveImage(name)->url|null, resolveMdImage(url,plain)->url|null,
+ *  isImage, isAsset, loadNote(name)->md|Promise, onImageClick, onOpenWikilink, onHoverWikilink, onTagClick } */
 export function widgetExtensions(opts = {}) {
   return [
     ...embedWidgets(opts),
-    widgetsPlugin(),
+    widgetsPlugin(opts),
     linkEvents(opts),
   ];
 }

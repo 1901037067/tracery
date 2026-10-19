@@ -294,14 +294,12 @@ async function main() {
       items.find((i) => i.textContent.includes('双链与反链'))?.click();
     });
     await sleep(500);
-    if (IS_CM) {
-      // cm 的 wikilink 行内装饰不带「解析结果」信息 → 没有 `.unresolved` 变体类（见 7.9-C #11）。
-      // 这里门控掉该条（下一轮二选一：给 cm 补 unresolved 类，或维持门控）。
-      console.log('  ⏭ 跳过「未解析双链灰色虚线」：cm 侧无 unresolved 变体类');
-    } else {
-      const unresolved = await page.evaluate(() => document.querySelectorAll('#editor-live a.wikilink.unresolved').length);
-      check('未解析双链显示为灰色虚线样式', unresolved >= 1, `${unresolved} 个未解析链接`);
-    }
+    // cm 侧由 createLivePreview 注入 resolveLink，未解析的双链补 `.cm-lp-unresolved` 变体类
+    // （与块级 `.wikilink.unresolved` 同视觉），两个内核都能断言
+    const unresolved = await page.evaluate((isCm) => (isCm
+      ? document.querySelectorAll('#editor-live .cm-lp-wikilink.cm-lp-unresolved').length
+      : document.querySelectorAll('#editor-live a.wikilink.unresolved').length), IS_CM);
+    check('未解析双链显示为灰色虚线样式', unresolved >= 1, `${unresolved} 个未解析链接`);
 
     // 12. 设置面板：打开 → 改强调色/圆角（即时生效）→ 持久化
     await page.keyboard.down('Control');

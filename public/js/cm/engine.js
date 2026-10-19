@@ -21,7 +21,7 @@ import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { history, undo, redo, undoDepth, redoDepth, defaultKeymap, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
-import { livePreviewPlugin, fenceHiding } from './decorations.js';
+import { createLivePreview, fenceHiding, refreshLivePreview } from './decorations.js';
 import { editingExtensions, editingKeymap } from './editing.js';
 import { widgetExtensions, setEmbedWidth } from './widgets.js';
 
@@ -100,12 +100,23 @@ export class CmEditor {
   _liveExtensions() {
     if (this._liveExt) return this._liveExt;
     this._liveExt = [
-      livePreviewPlugin,
+      // 装饰层需要两个业务判定：图片嵌入让位给行内 widget、双链补 unresolved 类
+      createLivePreview({
+        isImage: this.opts.isImage,
+        resolveLink: (target) => this.opts.resolveLink?.(target) || null,
+      }),
       fenceHiding,
       ...widgetExtensions({
         resolveImage: (name) => {
           const p = this.opts.resolveFile?.(name);
           return p ? (this.opts.fileUrl?.(p) ?? p) : null;
+        },
+        // `![](路径)`：相对路径先按仓库文件解析，再由 fileUrl 编码成 /api/file?path=…；
+        // 外链/data/blob 原样用（与 markdown.js inlineToHtml 的判定顺序一致）
+        resolveMdImage: (url, plain) => {
+          if (/^(https?:|data:|blob:)/i.test(url)) return url;
+          const p = this.opts.resolveFile?.(plain) || plain;
+          return this.opts.fileUrl?.(p) ?? p ?? null;
         },
         isImage: this.opts.isImage,
         isAsset: this.opts.isAsset,
@@ -195,6 +206,12 @@ export class CmEditor {
 
   focus() { this.view.focus(); }
 
+  /** 业务索引（笔记名 / 文件树）刷新后调用：装饰的重建条件里没有「索引版本」，
+   *  这里 dispatch 一个只带注解的空事务，让 livePreviewPlugin / widgetsPlugin 重扫一遍。 */
+  refreshDecorations() {
+    try { this.view.dispatch({ annotations: refreshLivePreview.of(true) }); } catch { /* view 已销毁 */ }
+  }
+
   setLineNumbers(on) {
     this.showLineNumbers = !!on;
     // compartment.reconfigure 返回 effect，必须 dispatch 才生效（P0 结论 4）
@@ -268,10 +285,28 @@ export class CmEditor {
     return setEmbedWidth(this.view, pos, width);
   }
 
-  /** 从正文里移除某张图片/附件的嵌入标记（右键菜单「移除图片」） */
+  /** 从正文里移除某张图片/附件的嵌入标记（右键菜单「移除图片」）
+   *  优先按 widget 记的 `data-from` 精确删（行内嵌入前后还有文字，不能按名字删第一个）；
+   *  老路径（块级遗留的 .embed-image / 没有 from）退回「按名字找第一个 ![[..]]」。 */
   removeImageAt(el) {
     const fig = el?.closest?.('.cm-lp-img') || el?.closest?.('.embed-image');
-    const name = fig?.dataset?.name;
+    if (!fig) return false;
+    const pos = Number(fig.dataset?.from);
+    if (Number.isFinite(pos)) {
+      const doc = this.view.state.doc;
+      const line = doc.lineAt(Math.max(0, Math.min(pos, doc.length)));
+      const m = /^\s*(?:!\[\[[^\]]+\]\]|!\[[^\]]*\]\([^)]+\))/.exec(doc.sliceString(pos, line.to));
+      if (m) {
+        const lead = m[0].length - m[0].trimStart().length;
+        const from = pos + lead;
+        // 连同后面的空格一起收掉，避免留下「文字  文字」双空格
+        const after = doc.sliceString(from + m[0].length - lead, from + m[0].length - lead + 1);
+        const to = from + m[0].length - lead + (after === ' ' ? 1 : 0);
+        this.view.dispatch({ changes: { from, to }, userEvent: 'delete' });
+        return true;
+      }
+    }
+    const name = fig.dataset?.name;
     if (!name) return false;
     const doc = this.view.state.doc.toString();
     const re = /!\[\[([^\]]+)\]\]/g;
