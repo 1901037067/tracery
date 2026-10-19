@@ -34,20 +34,30 @@ const page = await browser.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push('console:' + m.text()); });
-await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
+const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block，cm 用 TRACERY_TEST_ENGINE=cm
+await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
 await sleep(1000);
 await page.evaluate(() => [...document.querySelectorAll('#file-tree .tree-item')].find(i => i.textContent.includes('图'))?.click());
 await sleep(1200);
 const info = await page.evaluate(() => ({
+  // 块级：`.embed` 块（data-target / embed-title / embed-body）
   embeds: [...document.querySelectorAll('#editor-live .embed')].map(el => ({
     target: el.dataset.target,
     title: el.querySelector('.embed-title')?.textContent,
     bodyHtml: el.querySelector('.embed-body')?.innerHTML?.slice(0, 160),
     img: el.querySelector('img') ? { src: el.querySelector('img').src, w: el.querySelector('img').naturalWidth, h: el.querySelector('img').naturalHeight } : null,
   })),
+  // cm：`![[..]]` widget（figure.cm-lp-img）与 `![[笔记]]` 卡片（.cm-lp-note）
+  cmEmbeds: [...document.querySelectorAll('#editor-live .cm-lp-img')].map(el => ({
+    name: el.dataset.name,
+    cls: el.className,
+    w: Math.round(el.getBoundingClientRect().width),
+    img: el.querySelector('img') ? { src: el.querySelector('img').src, w: el.querySelector('img').naturalWidth, h: el.querySelector('img').naturalHeight } : null,
+  })),
+  cmNotes: [...document.querySelectorAll('#editor-live .cm-lp-note')].map(el => el.dataset.name),
   imgs: [...document.querySelectorAll('#editor-live img')].map(i => ({ src: i.getAttribute('src'), nat: `${i.naturalWidth}x${i.naturalHeight}` })),
   imgCount: document.querySelectorAll('#editor-live img').length,
-  md: window.__tracery.editor.md.slice(0, 200),
+  md: window.__tracery.editor.getContent().slice(0, 200),
 }));
 console.log(JSON.stringify(info, null, 1));
 console.log('errors:', JSON.stringify(errors));

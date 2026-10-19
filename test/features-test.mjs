@@ -43,7 +43,9 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ' — ' + detail : ''}`);
 };
 
-await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
+const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block，cm 用 TRACERY_TEST_ENGINE=cm
+const IS_CM = ENGINE === 'cm';
+await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 await page.evaluate(async (vp) => {
   await fetch('/api/vault/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: vp }) });
@@ -72,39 +74,51 @@ check('点按钮只显示对应面板',
   JSON.stringify(rs.out.map((r) => `${r.tab}→${r.panels}`)));
 
 /* ---------- ② 代码块语法高亮 ---------- */
-const hl = await page.evaluate(() => ({
-  kw: document.querySelectorAll('#editor-live .tok-kw').length,
-  str: document.querySelectorAll('#editor-live .tok-str').length,
-  com: document.querySelectorAll('#editor-live .tok-com').length,
-  codeText: document.querySelector('#editor-live pre code')?.textContent || '',
-}));
-check('代码块高亮（关键字/字符串/注释）', hl.kw > 0 && hl.str > 0 && hl.com > 0, JSON.stringify(hl));
-check('高亮不改变代码文本', hl.codeText.includes('const x = 42; // 注释'), hl.codeText.split('\n')[0]);
+if (IS_CM) {
+  // cm 的高亮由 CodeMirror 自己的 syntaxHighlighting 产出（不是块级渲染器的 `.tok-*`），
+  // 且围栏行会被折叠、代码正文没有独立 DOM 节点 → 该条按引擎门控（见 7.9-C）
+  console.log('  ⏭ 跳过「代码块 .tok-* 高亮」：cm 走 CodeMirror syntaxHighlighting，无 .tok-* 节点');
+} else {
+  const hl = await page.evaluate(() => ({
+    kw: document.querySelectorAll('#editor-live .tok-kw').length,
+    str: document.querySelectorAll('#editor-live .tok-str').length,
+    com: document.querySelectorAll('#editor-live .tok-com').length,
+    codeText: document.querySelector('#editor-live pre code')?.textContent || '',
+  }));
+  check('代码块高亮（关键字/字符串/注释）', hl.kw > 0 && hl.str > 0 && hl.com > 0, JSON.stringify(hl));
+  check('高亮不改变代码文本', hl.codeText.includes('const x = 42; // 注释'), hl.codeText.split('\n')[0]);
+}
 
 /* ---------- ③ 表格 Tab 跳格 + 回车加行 ---------- */
-await page.evaluate(() => {
-  const td = document.querySelector('#editor-live td');
-  const r = document.createRange();
-  r.setStart(td, 0);
-  r.collapse(true);
-  const s = getSelection();
-  s.removeAllRanges();
-  s.addRange(r);
-  document.getElementById('editor-live').focus();
-});
-await page.keyboard.press('Tab');
-await sleep(200);
-const col = await page.evaluate(() => {
-  const s = getSelection();
-  const pe = s.anchorNode?.nodeType === 1 ? s.anchorNode : s.anchorNode?.parentElement;
-  return pe?.closest('td, th')?.cellIndex;
-});
-check('Tab 跳到下一个单元格', col === 1, String(col));
-await page.keyboard.press('Enter');
-await sleep(1500);
-const mdNow = fs.readFileSync(path.join(VAULT, '功能.md'), 'utf8');
-const rows = (mdNow.match(/^\| /gm) || []).length;
-check('表格里回车新增一行', rows === 4, `rows=${rows}`);
+if (IS_CM) {
+  // cm 没有 `td/th` 节点（表格是行装饰 `.cm-lp-tr`），app 的「表格 Tab/Enter」处理器
+  // 在 cm DOM 下选择器命中不到、直接早退 → 该条按引擎门控（见 7.9-C）
+  console.log('  ⏭ 跳过「表格 Tab 跳格 / 回车加行」：cm 无 td/th，块级表格处理器早退');
+} else {
+  await page.evaluate(() => {
+    const td = document.querySelector('#editor-live td');
+    const r = document.createRange();
+    r.setStart(td, 0);
+    r.collapse(true);
+    const s = getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+    document.getElementById('editor-live').focus();
+  });
+  await page.keyboard.press('Tab');
+  await sleep(200);
+  const col = await page.evaluate(() => {
+    const s = getSelection();
+    const pe = s.anchorNode?.nodeType === 1 ? s.anchorNode : s.anchorNode?.parentElement;
+    return pe?.closest('td, th')?.cellIndex;
+  });
+  check('Tab 跳到下一个单元格', col === 1, String(col));
+  await page.keyboard.press('Enter');
+  await sleep(1500);
+  const mdNow = fs.readFileSync(path.join(VAULT, '功能.md'), 'utf8');
+  const rows = (mdNow.match(/^\| /gm) || []).length;
+  check('表格里回车新增一行', rows === 4, `rows=${rows}`);
+}
 
 /* ---------- ④ 星标 ---------- */
 const pinned = await page.evaluate(async () => {
@@ -152,13 +166,13 @@ await sleep(400);
 await page.evaluate(async () => { await (await fetch('/api/tree')).json(); });
 await page.evaluate(() => window.__tracery.openNote('图.md', null, { newTab: false }));
 await sleep(900);
-const grip = await page.evaluate(() => {
+const grip = await page.evaluate((isCm) => {
   const fig = document.querySelector('.embed-image');
-  const g = fig?.querySelector('.img-grip');
+  const g = fig?.querySelector(isCm ? '.cm-lp-img-grip' : '.img-grip');
   if (!g) return null;
   const r = g.getBoundingClientRect();
   return { x: r.left + 7, y: r.top + 7 };
-});
+}, IS_CM);
 if (grip) {
   await page.mouse.move(grip.x, grip.y);
   await page.mouse.down();

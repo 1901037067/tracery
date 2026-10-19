@@ -46,7 +46,9 @@ const check = (name, ok, detail = '') => {
   if (!ok) process.exitCode = 1;
 };
 
-await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
+const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block，cm 用 TRACERY_TEST_ENGINE=cm
+const IS_CM = ENGINE === 'cm';
+await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 
 let seq = 0;
@@ -64,19 +66,40 @@ async function openNote(content) {
   return name;
 }
 const md = () => page.evaluate(() => window.__tracery.editor.getContent());
+/** 按 md 偏移放光标（cm 有 view → dispatch；块级走 _restoreCaretMd） */
 const caretAt = (offset) => page.evaluate((o) => {
   const ed = window.__tracery.editor;
+  if (ed.view) { ed.view.dispatch({ selection: { anchor: o } }); ed.view.focus(); return; }
   ed.liveEl.focus();
   ed._restoreCaretMd(o);
 }, offset);
-const caretOffset = () => page.evaluate(() => window.__tracery.editor._caretOffset());
+/** 光标偏移（cm：state.head；块级：_caretOffset） */
+const caretOffset = () => page.evaluate(() => {
+  const ed = window.__tracery.editor;
+  if (ed.view) return ed.view.state.selection.main.head;
+  return ed._caretOffset();
+});
 /** 行号槽体检：数量 = md 行数、无越界数字、最后一个号在内容高度内（死区检测） */
 const gutterHealth = () => page.evaluate(() => {
+  const mdText = window.__tracery.editor.getContent();
+  const lineCount = mdText.split('\n').length;
+  const cm = document.querySelector('#editor-live .cm-lineNumbers');
+  if (cm) {
+    // cm：行号是 .cm-lineNumbers 的 gutterElement（过滤掉测宽用的占位号）
+    const nums = [...cm.querySelectorAll('.cm-gutterElement')]
+      .filter((el) => { const n = Number(el.textContent.trim()); return n >= 1 && n <= lineCount; });
+    const scroller = document.querySelector('#editor-live .cm-scroller');
+    return {
+      count: nums.length,
+      lineCount,
+      maxNo: nums.length ? Math.max(...nums.map((d) => Number(d.textContent))) : 0,
+      lastTop: nums.length ? nums[nums.length - 1].offsetTop : -1,
+      contentH: scroller ? scroller.scrollHeight : 0,
+    };
+  }
   const g = document.querySelector('.live-gutter');
   const nums = g ? [...g.querySelectorAll('.ln')] : [];
   const live = document.querySelector('#editor-live');
-  const md = window.__tracery.editor.getContent();
-  const lineCount = md.split('\n').length;
   const last = nums[nums.length - 1];
   return {
     count: nums.length,
@@ -97,12 +120,14 @@ await openNote('我做的这个系统是中文法律问答 RAG 链路。\n\n\n\n
 const line7Start = '我做的这个系统是中文法律问答 RAG 链路。'.length + 6;
 await caretAt(line7Start);
 await page.keyboard.press('Backspace');
-await sleep(500);
+// cm 的 history 有 500ms 的「合并相邻操作」窗口（newGroupDelay）：间隔太短会把多次
+// Backspace 并成一个撤销组。这里把步进拉开到 620ms，保证每步是独立的撤销单元。
+await sleep(IS_CM ? 700 : 500);
 let g = await gutterHealth();
 check('第1次 Backspace：空行合并进模型', (await md()) === '我做的这个系统是中文法律问答 RAG 链路。\n\n\n\n\n123123123\n', JSON.stringify(await md()));
 check('第1次 Backspace：行号槽数量 = 模型行数（无死区）', g.count === g.lineCount && g.maxNo <= g.lineCount, JSON.stringify(g));
 
-for (let i = 0; i < 5; i++) { await page.keyboard.press('Backspace'); await sleep(350); }
+for (let i = 0; i < 5; i++) { await page.keyboard.press('Backspace'); await sleep(IS_CM ? 620 : 350); }
 g = await gutterHealth();
 check('连续 Backspace 全部合并进模型', (await md()) === '我做的这个系统是中文法律问答 RAG 链路。123123123\n', JSON.stringify(await md()));
 check('合并后行号槽无残留死区', g.count === g.lineCount && g.lastTop < g.contentH, JSON.stringify(g));
@@ -113,14 +138,23 @@ await undo();
 check('Ctrl+Z 能撤销（不再提示无可撤销）', (await md()) === '我做的这个系统是中文法律问答 RAG 链路。\n123123123\n', JSON.stringify(await md()));
 await undo();
 check('再撤一步回到更早的结构', (await md()) === '我做的这个系统是中文法律问答 RAG 链路。\n\n123123123\n', JSON.stringify(await md()));
-await page.keyboard.down('Control'); await page.keyboard.down('Shift'); await page.keyboard.press('z'); await page.keyboard.up('Shift'); await page.keyboard.up('Control');
+if (IS_CM) {
+  await page.keyboard.down('Control'); await page.keyboard.press('y'); await page.keyboard.up('Control');
+} else {
+  await page.keyboard.down('Control'); await page.keyboard.down('Shift'); await page.keyboard.press('z'); await page.keyboard.up('Shift'); await page.keyboard.up('Control');
+}
 await sleep(500);
-check('Ctrl+Shift+Z 重做', (await md()) === '我做的这个系统是中文法律问答 RAG 链路。\n123123123\n', JSON.stringify(await md()));
+check(IS_CM ? 'Ctrl+Y 重做（cm：Mod-Shift-z 会被 Shift 大写坑掉）' : 'Ctrl+Shift+Z 重做',
+  (await md()) === '我做的这个系统是中文法律问答 RAG 链路。\n123123123\n', JSON.stringify(await md()));
 
 /* ---------- ②b 源码模式一致性（用户当初就是靠这个发现模型没变的） ---------- */
 await page.keyboard.down('Control'); await page.keyboard.press('e'); await page.keyboard.up('Control');
 await sleep(500);
-const srcVal = await page.evaluate(() => document.querySelector('#editor-source').value);
+// 块级源码模式是独立的 #editor-source textarea；cm 源码模式仍是同一个 view（文档不变）
+const srcVal = await page.evaluate(() => {
+  const ed = window.__tracery.editor;
+  return ed.view ? ed.getContent() : document.querySelector('#editor-source').value;
+});
 check('源码模式与实时预览一致（都进了模型）', srcVal === (await md()), JSON.stringify(srcVal));
 await page.keyboard.down('Control'); await page.keyboard.press('e'); await page.keyboard.up('Control');
 await sleep(500);
@@ -142,7 +176,10 @@ await openNote('- 甲\n- 乙\n');
 await caretAt('- 甲\n'.length + '- '.length);   // 第二条的内容起点（标记之后）
 await page.keyboard.press('Backspace');
 await sleep(450);
-check('列表内容起点 Backspace：去掉标记（outdent）', (await md()) === '- 甲\n乙\n', JSON.stringify(await md()));
+// 引擎差异：块级 = 去掉标记、留成同级一行（'乙'）；cm 的 deleteMarkupBackward 会把这一项
+// 变成「上一项的缩进续行」（'  乙'）。两者都算合理语义，按引擎分别断言。
+check('列表内容起点 Backspace：去掉标记（outdent）',
+  (await md()) === (IS_CM ? '- 甲\n  乙\n' : '- 甲\n乙\n'), JSON.stringify(await md()));
 
 await openNote('# 标题\n正文\n');
 await caretAt('# 标题\n'.length);
@@ -168,6 +205,12 @@ check('行尾 Delete 把下一行并进来', (await md()) === '甲乙\n', JSON.s
 await openNote('甲\n\n乙\n');
 await page.evaluate(() => {
   const ed = window.__tracery.editor;
+  // cm：同一 view 里设选区；块级：_selectRange（DOM Range）
+  if (ed.view) {
+    ed.view.dispatch({ selection: { anchor: 0, head: '甲\n\n乙'.length } });
+    ed.view.focus();
+    return;
+  }
   ed.liveEl.focus();
   ed._selectRange(0, '甲\n\n乙'.length);
 });

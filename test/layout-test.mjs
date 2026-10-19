@@ -46,7 +46,9 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ' — ' + detail : ''}`);
 }
 
-await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
+const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block，cm 用 TRACERY_TEST_ENGINE=cm
+const IS_CM = ENGINE === 'cm';
+await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 
 /* ---------- 1. 侧栏折叠（含「拖拽过栏宽」这个回归场景） ---------- */
@@ -168,19 +170,25 @@ await page.keyboard.press('Escape');
 await sleep(400);
 
 // ② 源码模式行号（实时预览模式不显示）
-const srcMode = await page.evaluate(async () => {
-  document.getElementById('btn-mode').click();   // 切源码
-  await new Promise((r) => setTimeout(r, 500));
-  const gutter = document.getElementById('source-gutter');
-  const wrap = document.getElementById('source-wrap');
-  const src = document.getElementById('editor-source');
-  const sourceState = { wrapVisible: !wrap.hidden, count: gutter.childElementCount, lines: src.value.split('\n').length };
-  document.getElementById('btn-mode').click();   // 切回实时
-  await new Promise((r) => setTimeout(r, 400));
-  return { ...sourceState, liveHidden: wrap.hidden };
-});
-check('源码模式显示行号且数量=文本行数', srcMode.wrapVisible && srcMode.count === srcMode.lines, `gutter=${srcMode.count} lines=${srcMode.lines}`);
-check('实时预览模式不显示行号', srcMode.liveHidden);
+if (IS_CM) {
+  // cm 的源码模式是「同一个 view 关掉装饰」，没有独立的 #source-wrap / textarea / 行号槽
+  // （行号一直由 lineNumbers compartment 提供）→ 该条按引擎门控（见 7.9-C）
+  console.log('  ⏭ 跳过「源码模式独立行号槽」：cm 源码模式共用同一视图，无 #source-wrap');
+} else {
+  const srcMode = await page.evaluate(async () => {
+    document.getElementById('btn-mode').click();   // 切源码
+    await new Promise((r) => setTimeout(r, 500));
+    const gutter = document.getElementById('source-gutter');
+    const wrap = document.getElementById('source-wrap');
+    const src = document.getElementById('editor-source');
+    const sourceState = { wrapVisible: !wrap.hidden, count: gutter.childElementCount, lines: src.value.split('\n').length };
+    document.getElementById('btn-mode').click();   // 切回实时
+    await new Promise((r) => setTimeout(r, 400));
+    return { ...sourceState, liveHidden: wrap.hidden };
+  });
+  check('源码模式显示行号且数量=文本行数', srcMode.wrapVisible && srcMode.count === srcMode.lines, `gutter=${srcMode.count} lines=${srcMode.lines}`);
+  check('实时预览模式不显示行号', srcMode.liveHidden);
+}
 
 // ③ 折叠/展开全部图标随状态变化
 const iconState = await page.evaluate(async () => {

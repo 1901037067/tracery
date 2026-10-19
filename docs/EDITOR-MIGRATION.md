@@ -885,6 +885,71 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
 复跑：`npm run test:engine` + `npm run test:polish` / `test:menu` / `test:enter` / `test:gap`
 （+ `$env:TRACERY_TEST_ENGINE='cm'` 各一遍）。
 
+### 7.11 P5 收尾 · 第二轮（2026-10-19 · **17 个 pin 全部参数化 + 全量双引擎回归 + 1 个真缺陷**）
+
+**范围约定**：把 7.10 的「剩余待办」1~3 做完（① e2e + 其余 12 个套件参数化；② 块级专用断言的
+逐条改写/门控；③ 全量双引擎回归；④ 试打包）。**7.10 说的「大多只改 goto」确实偏乐观**，
+实测有 6 个套件带硬依赖块级 DOM 的断言，需要逐条门控或改写（清单见下）。
+
+**交付物**
+
+| 文件 | 内容 |
+|---|---|
+| `test/*.mjs`（17 个 pin 套件） | 全部按 7.9-D 参数化（`TRACERY_TEST_ENGINE`，**默认仍 block**；cm 用 `$env:TRACERY_TEST_ENGINE='cm'`） |
+| `test/e2e.mjs` | 4 处按 7.9-C 改写：渲染断言换 `.cm-lp-*`（**并且按视口分段滚动累加**，理由见结论 1）；输入驱动换「点 `.cm-content` + Ctrl+End」；点双链换按文本找 `.cm-lp-wikilink`；#11 未解析双链**按引擎门控**（cm 无 unresolved 类） |
+| `test/ui-ux-test.mjs` | 图片断言按引擎改写：cm 侧验证「**整行嵌入**」的 widget 出图 + 灯箱；夹具加了一条整行 `![[..]]`；行内嵌入 3 条门控（结论 4） |
+| `test/features-test.mjs` | ② `.tok-*` 高亮、③ 表格 Tab/回车 **门控**（cm 无 `.tok-*` / `td`） |
+| `test/layout-test.mjs` | ② 「源码模式独立行号槽」**门控**（cm 源码模式共用同一视图） |
+| `test/backspace-test.mjs` | 行号槽体检/光标偏移/选区/源码模式按引擎分支；undo 步进拉开到 620ms（结论 2）；列表 outdent 按引擎分别断言（结论 3） |
+| `test/asset-test.mjs` | 粘贴事件目标改 `.cm-content`；合成粘贴改用**普通 Event + defineProperty**（结论 5） |
+| `public/js/app.js` | cm 的 `saveAsset` 补「粘贴图片改名」（缺陷 ①） |
+
+**实测**
+
+- **block**：22 个套件全绿（asset / backspace / draw / e2e / enter / features / gap / layout / menu /
+  polish / roundtrip / tabs / trash / ui / ux / engine / cmlab / lan / merge / sync / sync-ui + design-check / img-probe）。
+- **cm**：16 个套件全绿（asset / backspace / draw / e2e / enter / features / gap / layout / menu /
+  polish / roundtrip / tabs / trash / ui / ux / engine；cmlab 是纯探针页、lan/merge/sync/sync-ui 不开编辑页，与内核无关）。
+- `npm run dist:dir` **仍失败**（`Cannot create symbolic link ... 客户端没有所需的特权`，electron-builder 解压
+  winCodeSign 缓存）——与 7.8 结论 5 完全一致，**既有环境问题**，`CSC_IDENTITY_AUTO_DISCOVERY=false` 也绕不过。
+  发布需在管理员/开启开发者模式的环境执行。
+
+**本轮抓到的 1 个真缺陷（产品行为差，已修）**
+
+1. **cm 侧粘贴的图片不做改名**（`public/js/app.js` 的注入式 `saveAsset`）：块级 `editor.js._saveAssetFile`
+   会把截图/复制的 `image.png` 换成 `粘贴的图片 <YYYYMMDD-HHMMSS>.png`，cm 侧只把 `file.name` 原样上传 →
+   连粘两张截图就是同一个 `image.png`（互相覆盖），而且 asset 套件整片红。
+   修法：在 app.js 的 cm `saveAsset` 里复刻同一段改名逻辑（`/^image\.(png|jpe?g|gif|webp)$/i` → 时间戳名）。
+
+**其余 4 条：cm 与块级/CM 原生的既有差异（按引擎分别断言或门控，不修/留待下一轮）**
+
+1. **cm 的装饰是「视口作用域」的**：视口外不建 DOM。所以 e2e 的「标题/双链/任务/Callout/表格」渲染断言
+   不能一次数完——改成在 0/0.2/…/1 六个滚动位置**分别计数再累加**（对 `>=` 断言足够）。
+   **这是写 cm 断言时要牢记的第一条**：任何「全文找 N 个 X」的断言都得先滚一遍。
+2. **cm 的 history 会把相邻操作并成一个撤销组**（`newGroupDelay` 默认 500ms）：backspace 套件原来
+   350ms 一步地连按 6 次 Backspace，cm 下 Ctrl+Z 一次退到底；把步进拉到 620ms 后每步独立，与块级口径一致。
+   **不是缺陷**（CM 的合并是设计），但写「连续操作 → 分步撤销」的测试时必须留意。
+3. **列表内容起点 Backspace 的语义不同**：块级 = 去掉标记、留成同级一行（`乙`）；cm 的
+   `deleteMarkupBackward` = 变成上一项的**缩进续行**（`  乙`）。两者都算合理，按引擎分别断言。
+4. **cm 的图片嵌入只认「整行 🡒 `![[..]]`」**（`widgets.js` 的 `EMBED_LINE_RE` + `blk.line === blk.endLine`）：
+   行内的 `前缀 ![[图片]]` 只渲染成 `.cm-lp-embed` 文字标记、**不出图**；同理 `![](path)` 的 Markdown 图片
+   在 cm 实时预览里也不渲染。**这是 cm 相对块级的真实功能缺口，下一轮要补行内 widget**（外加
+   「未解析双链没有 unresolved 变体类」这条，一起算 cm 的三处渲染缺口）。
+
+**打包（7.9-E）结论**：本机（普通账户、未开开发者模式）跑 `npm run dist:dir` 仍卡在 winCodeSign 的
+符号链接权限上，**未产出安装包**；`release` 依赖 `dist:dir` 产物，因此也没跑。换环境后一条命令即可：
+`npm run dist:dir && npm run release`。
+
+**剩余待办（下一轮，按优先级）**
+
+1. cm 的行内 `![[图片]]` 渲染成 widget（结论 4）；顺带给 wikilink 补 unresolved 变体类，让 e2e #11 在 cm 侧也能断言。
+2. 全量回归里的两个「非断言」项：`design-check` / `img-probe` 是截图/探针脚本，已分别在 block 下跑过；
+   若要 cm 版界面存档，用 `$env:TRACERY_TEST_ENGINE='cm'` 重跑 `node test/design-check.mjs`（会覆盖 `design-*.png`）。
+3. 打包发布（需权限）。
+4. **注意 git 污染**：跑套件会重写 `test/screenshots/*.png` 与 `demo-vault/Markdown 语法.md`
+   （block 运行的序列化 bug，见 7.7 结论 6——本轮实测又复现：`- 嵌入笔记：![[常用代码]]` 被拆成三行）。
+   跑完一律 `git checkout -- test/screenshots "demo-vault/Markdown 语法.md"` 复原，别提交。
+
 ---
 
 ## 8. 下个会话从这里开始
@@ -905,13 +970,14 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
    全量套件绿，结论 7.7 含 6 个关键结论）；
    **P5（部分）✅ 完成（cm 默认路径功能覆盖补齐）**（app.js 加 `window.__editor` 钩子；engine-test 扩到 12 条：
    撤销重做/行号开关/Enter 续任务，全过；`dist:dir` 因本机符号链接权限受阻，见结论 5）
-4. **剩余（P5 收尾）—— 详细工单见 7.9（未做完的部分以 7.10「剩余待办」为准）**：
+4. **P5 收尾（已完成）—— 工单见 7.9，结论见 7.10 / 7.11**：
    ✅ ① **样式已补**（7.9-A）：`public/css/cm.css` + `index.html` 引入 + 滚动收敛，
    明暗验收截图 `test/screenshots/p5-cm-{light,dark}.png`（结论见 7.10）；
-   ✅ ② `test/_engine-helpers.mjs` 已落地，**polish / menu / enter / gap 四个套件已参数化并双引擎全绿**；
-   ⏳ ③ 剩余：**e2e + 其余 12 个套件**参数化（有几条硬依赖块级 DOM，要门控或改写）；
-   全量回归后在具备符号链接权限（或开启 Windows 开发者模式）的环境跑 `npm run dist:dir` + `npm run release`
-   （7.9-E）
+   ✅ ② `test/_engine-helpers.mjs` 落地；**17 个 pin 套件全部参数化，双引擎各跑一遍全绿**
+   （block 22 个套件 / cm 16 个套件，见 7.11「实测」）；
+   ⏳ 剩余（下一轮）：**cm 的 3 处渲染缺口**（行内 `![[图片]]` / `![](path)` 不出图、未解析双链无
+   unresolved 类）+ 打包发布（需符号链接权限，7.9-E 与本机仍失败）。**跑套件后记得复原
+   `test/screenshots/*.png` 与 `demo-vault/Markdown 语法.md`**（7.11 结论 4）
 5. 发布后保留 `settings.editorEngine` 一键回退；后续小迭代（块级嵌入露源码、Callout 正文行内偏移、
    块级序列化 bug）见 7.4/7.5/7.7 边界
 

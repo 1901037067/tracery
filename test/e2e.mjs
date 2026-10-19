@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ENGINE, IS_CM, engineUrl } from './_engine-helpers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -105,8 +106,9 @@ async function main() {
   try {
     const page = await browser.newPage();
     page.on('pageerror', (e) => console.error('  [pageerror]', e.message));
-    // pin 块级内核：本套件的渲染断言依赖块级 DOM（#editor-live p/h1/td/.md-blank 等）
-    await page.goto(BASE + '/?engine=block', { waitUntil: 'networkidle0' });
+    // 内核由 TRACERY_TEST_ENGINE 决定（默认 block）；渲染/输入类断言按内核分支走
+    await page.goto(engineUrl(BASE), { waitUntil: 'networkidle0' });
+    console.log(`[e2e] 内核：${ENGINE}`);
     await sleep(800);
 
     // 1. 自动打开演示仓库
@@ -125,34 +127,77 @@ async function main() {
       items.find((i) => i.textContent.includes('Markdown 语法'))?.click();
     });
     await sleep(600);
-    const render = await page.evaluate(() => {
-      const live = document.getElementById('editor-live');
-      return {
-        h1: live.querySelectorAll('h1').length,
-        wikilinks: live.querySelectorAll('a.wikilink').length,
-        tasks: live.querySelectorAll('li.task-list-item input[type=checkbox]').length,
-        callouts: live.querySelectorAll('.callout').length,
-        pre: live.querySelectorAll('pre code').length,
-        table: live.querySelectorAll('table').length,
-      };
-    });
-    check('实时预览渲染（标题/双链/任务/Callout/代码块/表格）',
-      render.h1 >= 1 && render.wikilinks >= 5 && render.tasks >= 5 && render.callouts >= 1 && render.pre >= 2 && render.table >= 1,
-      JSON.stringify(render));
+    let render;
+    if (IS_CM) {
+      // cm 的实时预览装饰是「视口作用域」的（视口外不建 DOM），所以分段滚动把各段的
+      // 计数累加，才能覆盖到文档中后段的 Callout / 表格 / 双链。
+      // 注意：cm 没有 `pre code` / `table` 元素（代码就是普通行、表格是行装饰），
+      // 代码块断言按 7.9-C 去掉，表格改数 `.cm-lp-tr` 行装饰。
+      const agg = { h1: 0, wikilinks: 0, tasks: 0, callouts: 0, rows: 0 };
+      for (const f of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
+        await page.evaluate((frac) => {
+          const s = document.querySelector('#editor-live .cm-scroller');
+          if (s) s.scrollTop = Math.max(0, (s.scrollHeight - s.clientHeight) * frac);
+        }, f);
+        await sleep(300);
+        const c = await page.evaluate(() => {
+          const live = document.getElementById('editor-live');
+          return {
+            h1: live.querySelectorAll('.cm-lp-h1, .cm-lp-h2, .cm-lp-h3').length,
+            wikilinks: live.querySelectorAll('.cm-lp-wikilink').length,
+            tasks: live.querySelectorAll('input.cm-lp-cb').length,
+            callouts: live.querySelectorAll('.cm-lp-callout').length,
+            rows: live.querySelectorAll('.cm-lp-tr').length,
+          };
+        });
+        for (const k of Object.keys(agg)) agg[k] += c[k] || 0;
+      }
+      render = agg;
+      await page.evaluate(() => {
+        const s = document.querySelector('#editor-live .cm-scroller');
+        if (s) s.scrollTop = 0;
+      });
+      await sleep(300);
+      check('实时预览渲染（标题/双链/任务/Callout/表格行装饰）——cm：分段滚动累加',
+        render.h1 >= 1 && render.wikilinks >= 5 && render.tasks >= 5 && render.callouts >= 1 && render.rows >= 1,
+        JSON.stringify(render));
+    } else {
+      render = await page.evaluate(() => {
+        const live = document.getElementById('editor-live');
+        return {
+          h1: live.querySelectorAll('h1').length,
+          wikilinks: live.querySelectorAll('a.wikilink').length,
+          tasks: live.querySelectorAll('li.task-list-item input[type=checkbox]').length,
+          callouts: live.querySelectorAll('.callout').length,
+          pre: live.querySelectorAll('pre code').length,
+          table: live.querySelectorAll('table').length,
+        };
+      });
+      check('实时预览渲染（标题/双链/任务/Callout/代码块/表格）',
+        render.h1 >= 1 && render.wikilinks >= 5 && render.tasks >= 5 && render.callouts >= 1 && render.pre >= 2 && render.table >= 1,
+        JSON.stringify(render));
+    }
     await shot(page, '02-editor');
 
     // 4. 编辑器输入 → 自动保存
-    await page.evaluate(() => {
-      const live = document.getElementById('editor-live');
-      live.focus();
-      const sel = window.getSelection();
-      const range = document.createRange();
-      const last = live.lastElementChild || live;
-      range.selectNodeContents(last);
-      range.collapse(false);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    });
+    if (IS_CM) {
+      // cm：不能再用块级那套 `live.lastElementChild + DOM Range`（cm 的 DOM 是行，不是渲染产物）
+      await page.click('#editor-live .cm-content');
+      await page.keyboard.down('Control'); await page.keyboard.press('End'); await page.keyboard.up('Control');
+      await sleep(200);
+    } else {
+      await page.evaluate(() => {
+        const live = document.getElementById('editor-live');
+        live.focus();
+        const sel = window.getSelection();
+        const range = document.createRange();
+        const last = live.lastElementChild || live;
+        range.selectNodeContents(last);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      });
+    }
     await typeText(page, '\n\nTRACERY_E2E_TEST_LINE');
     await sleep(1800); // 等自动保存（900ms 防抖 + 余量）
     const saved = await page.evaluate(async () => {
@@ -172,11 +217,17 @@ async function main() {
       });
     });
 
-    // 5. 点击双链跳转
-    await page.evaluate(() => {
+    // 5. 点击双链跳转（cm：`.cm-lp-wikilink` 是 span，没有 dataset.target；按文本找）
+    await page.evaluate((isCm) => {
+      if (isCm) {
+        const span = [...document.querySelectorAll('#editor-live .cm-lp-wikilink')]
+          .find((s) => s.textContent.includes('双链与反链'));
+        span?.click();
+        return;
+      }
       const link = [...document.querySelectorAll('#editor-live a.wikilink')].find((a) => a.dataset.target === '双链与反链');
       link?.click();
-    });
+    }, IS_CM);
     await sleep(600);
     const navPath = await page.evaluate(() => document.getElementById('note-path').textContent);
     check('点击 [[双链]] 跳转到目标笔记', navPath.includes('双链与反链'), navPath);
@@ -243,8 +294,14 @@ async function main() {
       items.find((i) => i.textContent.includes('双链与反链'))?.click();
     });
     await sleep(500);
-    const unresolved = await page.evaluate(() => document.querySelectorAll('#editor-live a.wikilink.unresolved').length);
-    check('未解析双链显示为灰色虚线样式', unresolved >= 1, `${unresolved} 个未解析链接`);
+    if (IS_CM) {
+      // cm 的 wikilink 行内装饰不带「解析结果」信息 → 没有 `.unresolved` 变体类（见 7.9-C #11）。
+      // 这里门控掉该条（下一轮二选一：给 cm 补 unresolved 类，或维持门控）。
+      console.log('  ⏭ 跳过「未解析双链灰色虚线」：cm 侧无 unresolved 变体类');
+    } else {
+      const unresolved = await page.evaluate(() => document.querySelectorAll('#editor-live a.wikilink.unresolved').length);
+      check('未解析双链显示为灰色虚线样式', unresolved >= 1, `${unresolved} 个未解析链接`);
+    }
 
     // 12. 设置面板：打开 → 改强调色/圆角（即时生效）→ 持久化
     await page.keyboard.down('Control');

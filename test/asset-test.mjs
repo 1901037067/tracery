@@ -78,15 +78,26 @@ async function setAttachment(patch) {
   await sleep(900);
 }
 
-/** 在页面里派发粘贴事件（图片走 /icon.png 取真字节） */
+/** 在页面里派发粘贴事件（图片走 /icon.png 取真字节）。
+ *  注意目标元素：块级的 paste 监听挂在 #editor-live，cm 的挂在 CM 的 .cm-content
+ *  （事件只向祖先冒泡，挂错元素处理器收不到）。 */
 async function pasteImage(name = 'image.png') {
-  await page.evaluate(async (n) => {
+  // cm 的 paste 处理器挂在 CM 的 .cm-content 上，且要编辑器处于聚焦态才走真实粘贴链路
+  //（等价于用户先点进编辑区再 Ctrl+V）——源事件派发前先点一下内容区聚焦。
+  if (IS_CM) { try { await page.click('#editor-live .cm-content'); await sleep(150); } catch { /* 忽略 */ } }
+  const dbg = await page.evaluate(async (n) => {
     const blob = await (await fetch('/icon.png')).blob();
     const dt = new DataTransfer();
     dt.items.add(new File([blob], n, { type: 'image/png' }));
-    document.getElementById('editor-live')
-      .dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    // 用普通 Event + defineProperty 塞 clipboardData：`new ClipboardEvent(.., {clipboardData})`
+    // 在部分 Chromium 版本里 init 字典不进 clipboardData，合成粘贴会「有事件没文件」。
+    const ev = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'clipboardData', { value: dt });
+    const target = document.querySelector('#editor-live .cm-content') || document.getElementById('editor-live');
+    target.dispatchEvent(ev);
+    return ev.defaultPrevented;   // true = 内核拦下了默认粘贴（否则说明处理器没走到）
   }, name);
+  if (!dbg) console.log('  [提示] 粘贴事件未被内核拦截');
 }
 
 /** 在页面里派发拖拽事件（任意字节，用于 PDF / 非法类型） */
@@ -97,15 +108,17 @@ async function dropFile(b64, name, type) {
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const dt = new DataTransfer();
     dt.items.add(new File([bytes], n, { type: t }));
-    document.getElementById('editor-live')
-      .dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    const target = document.querySelector('#editor-live .cm-content') || document.getElementById('editor-live');
+    target.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
   }, { b64, name, type });
 }
 
 const noteAbs = path.join(VAULT, NOTE);
 const noteHas = (re) => { try { return new RegExp(re).test(fs.readFileSync(noteAbs, 'utf8')); } catch { return false; } };
 
-await page.goto(`http://localhost:${PORT}/?engine=block`, { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
+const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block（回归网），cm 用 TRACERY_TEST_ENGINE=cm
+const IS_CM = ENGINE === 'cm';
+await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 await openNoteInTestVault();
 

@@ -1636,8 +1636,17 @@ const editor = new (ENGINE === 'cm' ? CmEditor : LiveEditor)({
         r.readAsDataURL(file);
       });
     } catch (e) { toast(e.message); return { ok: false }; }
+    // 与 editor.js._saveAssetFile 同口径：截图/复制的图默认叫 image.png，一堆 image-2.png
+    // 很难认，换成带时间戳的名字（块级内核在同一处做这件事，cm 侧别漏）
+    let name = file.name || '';
+    if (!name || /^image\.(png|jpe?g|gif|webp)$/i.test(name)) {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+      name = `粘贴的图片 ${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.${ext}`;
+    }
     try {
-      const res = await Api.saveAsset({ data: dataUrl, name: file.name, dir: resolveAssetDir(getSettings(), editor.path) });
+      const res = await Api.saveAsset({ data: dataUrl, name, dir: resolveAssetDir(getSettings(), editor.path) });
       if (!res?.ok) toast(res?.error || '附件保存失败');
       return res || { ok: false };
     } catch (e) { toast(`附件保存失败：${e.message}`); return { ok: false }; }

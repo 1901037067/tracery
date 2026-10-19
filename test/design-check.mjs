@@ -28,7 +28,8 @@ const browser = await puppeteer.launch({
   args: ['--no-sandbox'],
 });
 const page = await browser.newPage();
-await page.goto(BASE + '/?engine=block', { waitUntil: 'networkidle0' });   // pin 块级内核（依赖块级 DOM）
+const ENGINE = process.env.TRACERY_TEST_ENGINE || 'block';   // 内核：默认 block，cm 用 TRACERY_TEST_ENGINE=cm
+await page.goto(BASE + `/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
 await sleep(700);
 
 // 欢迎页（临时切换显示，不改配置）
