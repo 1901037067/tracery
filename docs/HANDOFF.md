@@ -68,7 +68,7 @@ npm run sync -- --data ./tracery-sync
 npm run dist:dir             # electron-builder 产出 dist/win-unpacked
 npm run dist:dir:nosign      # 出包入口（跳过「签名 + 改 exe 资源」）：本机无权建符号链接 / 连不上 GitHub 时的唯一可行路
 npm run repack               # 只重打 app.asar（改完前端/服务端后用这条，绕过 winCodeSign）
-npm run release              # 一键：repack + 压 zip（先写 .new.zip 再改名，压缩失败不毁旧包）
+npm run release              # 一键：repack + 压 zip + 顺带压一份 .7z（Gitee 单附件上限 100MB）
 npm run release -- --shortcut  # 同上，并生成桌面快捷方式（手写 .lnk，不用 COM）
 
 # 打包版验证（先起包：$env:PORT='9540'; dist\win-unpacked\Tracery.exe --remote-debugging-port=9223）
@@ -294,6 +294,7 @@ test/*.mjs              九个测试套件（见 §2）
 | 打包时 electron-builder 解 winCodeSign 报「客户端没有所需的特权」（创建符号链接） | 那条路需要管理员 / 开启 Windows 开发者模式；**本机更稳的是 `npm run dist:dir:nosign`**（= `electron-builder --dir --config.win.signAndEditExecutable=false`，跳过签名 + 改 exe 资源，于是不需要 winCodeSign）。代价：**exe 文件本身**没有自定义图标/版本信息（窗口/任务栏图标正常，`main.cjs` 显式设了 `icon: build/icon.png`） |
 | 打包时 winCodeSign 从 GitHub 下载超时（`connect ETIMEDOUT 20.205.243.166:443`） | 这台机器上 GitHub 连不上（`git push github` 同样超时）→ 标准 `dist:dir` 是**网络 + 权限双重卡死**；`dist:dir:nosign` 完全离线可跑。补推 GitHub：网络好了跑 `git push github main` |
 | 右栏「大纲」对 CRLF 笔记显示「当前笔记没有标题」 | `refreshRightPanels` 用 `^(#{1,6})\s+(.*)$` 逐行扫标题，而 **JS 正则里 `.` 不匹配 `\r`、`$` 也不会落在 `\r` 之前** → Windows 上 git 检出的 CRLF 笔记一条标题都扫不到。修法：扫之前统一 `replace(/\r\n?/g, '\n')`。**凡「逐行正则 + `$` 锚点」都要先归一化换行**（Mac/Linux 上永远跑不出来） |
+| Gitee 发行版上传附件报 `Something went really wrong, and we can't process that file` | Gitee 发行版**单附件上限 100MB**（GVP 项目 200MB）。Electron 包 zip 约 110MB 必挂 → 上传 `npm run release` 自动产出的 `.7z`（约 71MB）；只想要 zip 时可以切成 `part1/part2` 让用户 `copy /b` 合并 |
 | 打包报 `remove dist\win-unpacked\d3dcompiler_47.dll: Access is denied` | 有打包版正在运行（句柄锁），先关掉应用再打包；或在另一个输出目录出包（`--config.directories.output=dist-x`）。`tasklist \| grep -i tracery` 能确认 |
 | 跑套件会重写 `test/screenshots/*.png` 与 `demo-vault/Markdown 语法.md` | 前者是截图存档的副作用，后者是**块级内核的序列化 bug**（`- 嵌入笔记：![[常用代码]]` 被拆成三行，见 #41 / 7.7 结论 6）。跑完一律 `git checkout -- test/screenshots "demo-vault/Markdown 语法.md"` 复原，别提交 |
 

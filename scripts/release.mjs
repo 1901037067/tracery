@@ -8,6 +8,8 @@
  *    所以发布链路固定为 dist:dir 出目录 + repack 只重打 asar + 压 zip。
  * 2. 压缩引擎优先 7za/7z（快），找不到就回退 PowerShell 的 Compress-Archive（系统自带）。
  * 3. 先压成 <name>.new.zip 成功后才改名覆盖——压缩中途失败不会毁掉上一版发布包。
+ * 4. 顺手再打一份 .7z：Gitee 的发行版**单个附件上限 100MB**，Electron 包 zip 一般 110MB 左右
+ *    会被拒绝（"Something went really wrong..."），7z 通常能压到 70MB 左右。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -65,4 +67,24 @@ if (process.argv.includes('--shortcut')) {
 }
 
 console.log(`✓ 发布包就绪：dist/${ZIP_NAME}（${mb} MB）`);
-console.log('  下一步：Gitee → 仓库 → Releases → 基于 tag 上传该 zip');
+
+// Gitee 发行版单附件上限 100MB（GVP 200MB）：zip 超了就必须给 7z 版本
+const SEVEN_ZIP = path.join(ROOT, 'node_modules', '7zip-bin', 'win', 'x64', '7za.exe');
+const SEVEN_NAME = `Tracery-${VERSION}-win32-x64.7z`;
+const SEVEN = path.join(ROOT, 'dist', SEVEN_NAME);
+if (fs.existsSync(SEVEN_ZIP)) {
+  try {
+    execFileSync(SEVEN_ZIP, ['a', '-t7z', '-mx=9', '-mmt=on', SEVEN, `${OUT}\\*`], { stdio: 'ignore' });
+    const sevenMb = (fs.statSync(SEVEN).size / 1024 / 1024).toFixed(1);
+    console.log(`✓ 7z 包：dist/${SEVEN_NAME}（${sevenMb} MB）`);
+    if (Number(mb) > 100) {
+      console.log('  ⚠️ zip 超过 100MB，Gitee 发行版拒收：请上传 .7z（Win11 可直接解压，Win10 需 7-Zip）');
+    }
+  } catch (e) {
+    console.log(`  7z 压缩失败（不影响 zip）：${e.message}`);
+  }
+} else {
+  console.log('  未找到 7zip-bin，跳过 .7z（Gitee 单附件 100MB，zip 超限时手动压一份 7z）');
+}
+
+console.log('  下一步：Gitee → 仓库 → Releases → 基于 tag 上传 .7z（zip 若 <100MB 也可直接传）');

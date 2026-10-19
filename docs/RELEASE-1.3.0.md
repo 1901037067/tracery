@@ -52,6 +52,22 @@
   `test:draw` 26/26、`test:tabs` 16/16、`test:features`（含表格 3 条）
 - 打包版 `node test/verify-exe.mjs` 通过
 
+## 下载
+
+Gitee 发行版的**单个附件上限是 100MB**，本项目的 zip 约 110MB 会被拒收（网页上会报
+"Something went really wrong, and we can't process that file"）。所以这版提供两种包：
+
+- **推荐：`Tracery-1.3.0-win32-x64.7z`（约 71MB）**
+  Windows 11（23H2 起）双击即可解压；Windows 10 需要装 7-Zip / WinRAR / Bandizip。
+- 备选：`Tracery-1.3.0-win32-x64.zip.part1` + `.part2`（各约 55MB）
+  两个文件下到**同一个目录**，在该目录打开命令提示符执行：
+
+  ```
+  copy /b Tracery-1.3.0-win32-x64.zip.part1 + Tracery-1.3.0-win32-x64.zip.part2 Tracery-1.3.0-win32-x64.zip
+  ```
+
+  合并后的 zip 与官方包逐字节一致（默认解压即可）。
+
 ## 升级
 
 替换 exe / 解压覆盖即可，**仓库与设置不受影响**。
