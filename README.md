@@ -19,7 +19,8 @@
 
 Obsidian 很好，但有四件事不舒服：同步 $4/月且服务端在海外、商用 $50/人/年、移动端必须装 App、
 安装包 225MB。Tracery 的取舍是 **MIT 免费商用 + 自托管同步 + 中文优先 + 轻量**，
-完整对比见 **[docs/ROADMAP.md](docs/ROADMAP.md)** · 接手开发先读 **[docs/HANDOFF.md](docs/HANDOFF.md)**。
+完整对比见 **[docs/ROADMAP.md](docs/ROADMAP.md)** · 接手开发先读 **[docs/HANDOFF.md](docs/HANDOFF.md)**；
+用 AI 继续开发时，把 **[docs/AI-START.md](docs/AI-START.md)** 里的开场白复制过去即可。
 
 ## 功能
 
