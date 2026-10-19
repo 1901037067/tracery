@@ -1277,12 +1277,16 @@ async function openNote(path, heading, opts = {}) {
 }
 
 function refreshRightPanels(content) {
+  // Windows 上的笔记可能是 CRLF：JS 正则里 `.` 不匹配 \r，`$` 也不会落在 \r 之前 →
+  // 用 `^(#{1,6})\s+(.*)$` 逐行扫会把 CRLF 笔记的标题全部漏掉（大纲变空）。
+  // 统一把换行归一化再扫（标签、代码围栏的判断同样受益）。
+  const src = String(content || '').replace(/\r\n?/g, '\n');
   // 大纲
   const outline = $('outline-list');
   outline.innerHTML = '';
   const heads = [];
   let inFence = false;
-  for (const line of (content || '').split('\n')) {
+  for (const line of src.split('\n')) {
     if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
     if (inFence) continue;
     const m = /^(#{1,6})\s+(.*)$/.exec(line);
@@ -1303,7 +1307,7 @@ function refreshRightPanels(content) {
   const tags = new Set();
   const tagRe = /(^|[\s(（])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
   let inF = false;
-  for (const line of (content || '').split('\n')) {
+  for (const line of src.split('\n')) {
     if (/^\s*```/.test(line)) { inF = !inF; continue; }
     if (inF) continue;
     let m;

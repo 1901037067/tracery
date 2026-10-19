@@ -21,6 +21,7 @@
     "start:electron": "electron .",
     "dist": "electron-builder --win portable",
     "dist:dir": "electron-builder --dir",
+    "dist:dir:nosign": "electron-builder --dir --config.win.signAndEditExecutable=false",
     "repack": "node scripts/repack.mjs",
     "build:cmvendor": "node scripts/build-cmvendor.mjs",
     "release": "node scripts/release.mjs",

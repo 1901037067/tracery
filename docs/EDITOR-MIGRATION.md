@@ -902,7 +902,9 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
 | `test/layout-test.mjs` | ② 「源码模式独立行号槽」**门控**（cm 源码模式共用同一视图） |
 | `test/backspace-test.mjs` | 行号槽体检/光标偏移/选区/源码模式按引擎分支；undo 步进拉开到 620ms（结论 2）；列表 outdent 按引擎分别断言（结论 3） |
 | `test/asset-test.mjs` | 粘贴事件目标改 `.cm-content`；合成粘贴改用**普通 Event + defineProperty**（结论 5） |
-| `public/js/app.js` | cm 的 `saveAsset` 补「粘贴图片改名」（缺陷 ①） |
+| `test/verify-exe.mjs` | 打包版验证脚本：渲染断言改 cm 口径（按「编辑区里有没有 `.cm-editor`」**自动选口径**，cm 侧分段滚动累加） |
+| `public/js/app.js` | ① cm 的 `saveAsset` 补「粘贴图片改名」；② 右栏面板扫描前**归一化换行**（CRLF 笔记的大纲/标签，见缺陷 ②） |
+| `package.json` | 加 `dist:dir:nosign`（本机无权建符号链接时的打包入口，见「打包结论」） |
 
 **实测**
 
@@ -914,12 +916,18 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
   winCodeSign 缓存）——与 7.8 结论 5 完全一致，**既有环境问题**，`CSC_IDENTITY_AUTO_DISCOVERY=false` 也绕不过。
   发布需在管理员/开启开发者模式的环境执行。
 
-**本轮抓到的 1 个真缺陷（产品行为差，已修）**
+**本轮抓到的 2 个真缺陷（产品行为差，已修）**
 
 1. **cm 侧粘贴的图片不做改名**（`public/js/app.js` 的注入式 `saveAsset`）：块级 `editor.js._saveAssetFile`
    会把截图/复制的 `image.png` 换成 `粘贴的图片 <YYYYMMDD-HHMMSS>.png`，cm 侧只把 `file.name` 原样上传 →
    连粘两张截图就是同一个 `image.png`（互相覆盖），而且 asset 套件整片红。
    修法：在 app.js 的 cm `saveAsset` 里复刻同一段改名逻辑（`/^image\.(png|jpe?g|gif|webp)$/i` → 时间戳名）。
+2. **CRLF 换行的笔记「大纲」是空的**（`refreshRightPanels`，与内核无关的既有 bug，本轮跑打包版验证时抓到）：
+   逐行扫标题用的是 `^(#{1,6})\s+(.*)$`，而 **JS 正则里 `.` 不匹配 `\r`、`$` 也不会落在 `\r` 之前** →
+   整篇 CRLF（Windows 上 git 检出的 demo-vault 就是 CRLF）的标题**一条都扫不到**，右栏大纲显示
+   「当前笔记没有标题」。修法：扫之前统一 `String(content||'').replace(/\r\n?/g, '\n')`（标签/围栏判断同收益）。
+   **教训**：凡是「逐行正则 + `$` 锚点」的扫描都要先归一化换行；这类 bug 只在 Windows 检出/CRLF 笔记上现形，
+   Mac/Linux 上跑多少遍都不会红。
 
 **其余 4 条：cm 与块级/CM 原生的既有差异（按引擎分别断言或门控，不修/留待下一轮）**
 
@@ -936,16 +944,32 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
    在 cm 实时预览里也不渲染。**这是 cm 相对块级的真实功能缺口，下一轮要补行内 widget**（外加
    「未解析双链没有 unresolved 变体类」这条，一起算 cm 的三处渲染缺口）。
 
-**打包（7.9-E）结论**：本机（普通账户、未开开发者模式）跑 `npm run dist:dir` 仍卡在 winCodeSign 的
-符号链接权限上，**未产出安装包**；`release` 依赖 `dist:dir` 产物，因此也没跑。换环境后一条命令即可：
-`npm run dist:dir && npm run release`。
+**打包（7.9-E）结论 —— 本机已经能出包了**
+
+- `npm run dist:dir`（标准入口）在本机仍失败：electron-builder 解压 `winCodeSign` 缓存（内含 macOS 的
+  `.dylib` 符号链接）需要**创建符号链接的特权**，普通账户报 `Cannot create symbolic link ... 客户端没有所需的特权`；
+  `CSC_IDENTITY_AUTO_DISCOVERY=false` 绕不过。**既有环境问题，非本次改动引入。**
+- **但本机有一条可用的低权限入口**（新增 `npm run dist:dir:nosign`，等价于
+  `electron-builder --dir --config.win.signAndEditExecutable=false`）：跳过「签名 + 改 exe 资源」这一步，
+  就不再需要 winCodeSign。代价只有一个：**`Tracery.exe` 文件本身没有自定义图标/版本信息**（资源管理器里是
+  Electron 默认图标、右键属性没有版本）；**窗口/任务栏图标不受影响**，因为 `electron/main.cjs` 显式设了
+  `icon: build/icon.png`。
+- 本轮流程（已实测跑通）：`npm run dist:dir:nosign` → `npm run release`（= `repack` 重打 app.asar + 压 zip）
+  → `dist/Tracery-1.1.1-win32-x64.zip`（110.2 MB）→ Gitee → 仓库 → Releases → 基于 tag 上传该 zip。
+- **要「完整包」（exe 带图标+版本信息）**：在管理员终端跑 `npm run dist:dir` + `npm run release`，
+  或先开 设置 → 隐私和安全性 → 开发者选项 → 开发人员模式（本机现在是关的），再用普通终端跑同样两条。
+- **打包版验证**（`test/verify-exe.mjs`，跑法：`$env:PORT='9540'; dist\win-unpacked\Tracery.exe --remote-debugging-port=9223`，
+  另开终端 `node test/verify-exe.mjs`）：本轮改成 cm 口径后 **14/14 全过**（含「分段滚动累加的渲染断言」与修好后的
+  「大纲面板 12 项」）——即**打包产物本身是好的**。
 
 **剩余待办（下一轮，按优先级）**
 
 1. cm 的行内 `![[图片]]` 渲染成 widget（结论 4）；顺带给 wikilink 补 unresolved 变体类，让 e2e #11 在 cm 侧也能断言。
 2. 全量回归里的两个「非断言」项：`design-check` / `img-probe` 是截图/探针脚本，已分别在 block 下跑过；
    若要 cm 版界面存档，用 `$env:TRACERY_TEST_ENGINE='cm'` 重跑 `node test/design-check.mjs`（会覆盖 `design-*.png`）。
-3. 打包发布（需权限）。
+3. ~~打包发布（需权限）~~ ✅ **本轮已解决**：用 `npm run dist:dir:nosign` + `npm run release` 出包，
+   并用 `test/verify-exe.mjs` 验证 14/14（见「打包结论」）；只剩「想要 exe 带自定义图标/版本信息的完整包」
+   才需要管理员终端 / 开发者模式。
 4. **注意 git 污染**：跑套件会重写 `test/screenshots/*.png` 与 `demo-vault/Markdown 语法.md`
    （block 运行的序列化 bug，见 7.7 结论 6——本轮实测又复现：`- 嵌入笔记：![[常用代码]]` 被拆成三行）。
    跑完一律 `git checkout -- test/screenshots "demo-vault/Markdown 语法.md"` 复原，别提交。
@@ -976,8 +1000,8 @@ await page.goto(`http://localhost:${PORT}/?engine=${ENGINE_PARAM}`, { waitUntil:
    ✅ ② `test/_engine-helpers.mjs` 落地；**17 个 pin 套件全部参数化，双引擎各跑一遍全绿**
    （block 22 个套件 / cm 16 个套件，见 7.11「实测」）；
    ⏳ 剩余（下一轮）：**cm 的 3 处渲染缺口**（行内 `![[图片]]` / `![](path)` 不出图、未解析双链无
-   unresolved 类）+ 打包发布（需符号链接权限，7.9-E 与本机仍失败）。**跑套件后记得复原
-   `test/screenshots/*.png` 与 `demo-vault/Markdown 语法.md`**（7.11 结论 4）
+   unresolved 类）。**打包已解决**（`npm run dist:dir:nosign` + `npm run release`，打包版验证 14/14，见 7.11）。
+   **跑套件后记得复原 `test/screenshots/*.png` 与 `demo-vault/Markdown 语法.md`**（7.11 结论 4）
 5. 发布后保留 `settings.editorEngine` 一键回退；后续小迭代（块级嵌入露源码、Callout 正文行内偏移、
    块级序列化 bug）见 7.4/7.5/7.7 边界
 
