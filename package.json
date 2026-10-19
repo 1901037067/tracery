@@ -17,6 +17,7 @@
     "test:sync": "node test/sync-test.mjs",
     "test:sync-ui": "node test/sync-ui-test.mjs",
     "test:sync-enc": "node test/sync-enc-test.mjs",
+    "upload:github": "node scripts/upload-github.mjs",
     "test:ui": "node test/ui-vault-test.mjs",
     "test:ux": "node test/ui-ux-test.mjs",
     "start:electron": "electron .",
