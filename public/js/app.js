@@ -496,7 +496,12 @@ function renderFile(f) {
 
 /* ================= 右键菜单 ================= */
 let ctxMenu = null;
-function closeCtxMenu() { if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; } }
+let vaultMenuRequest = 0;
+function closeCtxMenu() {
+  vaultMenuRequest++;
+  $('vault-name')?.setAttribute('aria-expanded', 'false');
+  if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; }
+}
 document.addEventListener('click', closeCtxMenu);
 
 /** 字型图标（H1 / B / I / ¶ 这类排版项用文字比画图形更清楚） */
@@ -1243,6 +1248,31 @@ function loadTabsState() {
  * 约定：移动超过 5px 才算拖拽（否则当点击）；落点按「指针在中线左/右」决定插前还是插后。 */
 let tabDrag = null;            // { from, startX, moved }
 let suppressTabClick = false;  // 拖完会补一个 click，别把它当成切标签
+let tabDragPreview = null;
+
+function clearTabDragPreview() {
+  tabDragPreview?.remove();
+  tabDragPreview = null;
+}
+window.addEventListener('blur', () => {
+  tabDrag = null;
+  clearTabDragPreview();
+  clearTabDropMarks();
+  document.querySelectorAll('#tablist .dragging').forEach((el) => el.classList.remove('dragging'));
+});
+
+function moveTabDragPreview(e, path) {
+  if (!tabDragPreview) {
+    tabDragPreview = document.createElement('div');
+    tabDragPreview.className = 'tab-drag-preview';
+    tabDragPreview.textContent = basename(path);
+    document.body.appendChild(tabDragPreview);
+  }
+  const box = tabDragPreview.getBoundingClientRect();
+  const x = e.clientX + box.width + 16 < innerWidth ? e.clientX + 14 : e.clientX - box.width - 14;
+  tabDragPreview.style.left = `${Math.max(4, x)}px`;
+  tabDragPreview.style.top = `${Math.max(4, Math.min(e.clientY + 12, innerHeight - box.height - 4))}px`;
+}
 
 function clearTabDropMarks() {
   document.querySelectorAll('#tablist .tab.drop-before, #tablist .tab.drop-after')
@@ -1264,6 +1294,7 @@ function reorderTabs(from, to) {
 }
 
 function renderTabs() {
+  clearTabDragPreview();
   // 标签栏已并入标题栏：标题栏永远可见（拖拽区 + 窗口按钮），
   // 无标签时只隐藏标签列表本身，不能再隐藏整个 bar
   const list = $('tablist');
@@ -1288,16 +1319,17 @@ function renderTabs() {
     // 拖拽换序（pointer 实现，见上）
     tab.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || e.target.closest('.tab-close')) return;
-      tabDrag = { from: i, startX: e.clientX, moved: false };
+      tabDrag = { from: i, startX: e.clientX, startY: e.clientY, moved: false };
       try { tab.setPointerCapture(e.pointerId); } catch { /* 老内核忽略 */ }
     });
     tab.addEventListener('pointermove', (e) => {
       if (!tabDrag || tabDrag.from !== i) return;
       if (!tabDrag.moved) {
-        if (Math.abs(e.clientX - tabDrag.startX) < 5) return;
+        if (Math.hypot(e.clientX - tabDrag.startX, e.clientY - tabDrag.startY) < 5) return;
         tabDrag.moved = true;
         tab.classList.add('dragging');
       }
+      moveTabDragPreview(e, p);
       const over = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.tab');
       clearTabDropMarks();
       if (!over || over === tab) return;
@@ -1309,6 +1341,7 @@ function renderTabs() {
       const { moved } = tabDrag;
       const over = moved ? document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.tab') : null;
       tabDrag = null;
+      clearTabDragPreview();
       tab.classList.remove('dragging');
       clearTabDropMarks();
       if (!moved || !commit || !over) return;
@@ -1321,6 +1354,7 @@ function renderTabs() {
     };
     tab.addEventListener('pointerup', (e) => endDrag(e, true));
     tab.addEventListener('pointercancel', (e) => endDrag(e, false));
+    tab.addEventListener('lostpointercapture', (e) => endDrag(e, false));
 
     tab.append(name, close);
     tab.onclick = () => { if (suppressTabClick) return; activateTab(i); };
@@ -1972,18 +2006,30 @@ function initGraph() {
 }
 
 /** 打开绘图面板：画完的 PNG 会插入到当前笔记光标处 */
-function openDrawPanel() {
-  if (!state.currentPath) { toast('先打开一篇笔记，绘图会插入到光标处'); return; }
-  // 阅读模式是只读的，插不进去：先切回实时预览，避免「画完点了插入却什么也没发生」
-  if (editor.isRead) editor.setMode('live');
-  openDraw({
-    getNotePath: () => state.currentPath,   // 「跟随笔记」模式时决定绘图落点
+function drawingOptions() {
+  return {
+    vaultRoot: state.vault?.root || '',
+    getNotePath: () => state.currentPath,
     onInserted: async (path) => {
       await refreshTree();
       await refreshGraph();
       editor.insertSnippet(`![[${path}|640]]`);
+      await editor.flush();
     },
-  });
+    onUpdated: async (path) => {
+      await refreshTree();
+      reloadImagesFor(path);
+      editor.refreshDecorations?.();
+    },
+  };
+}
+
+async function openDrawPanel() {
+  if (!state.currentPath) { toast('先打开一篇笔记，绘图会插入到光标处'); return; }
+  // 阅读模式是只读的，插不进去：先切回实时预览，避免「画完点了插入却什么也没发生」
+  if (editor.isRead) editor.setMode('live');
+  await editor.flush();
+  openDraw(drawingOptions());
 }
 
 /** 覆盖写之后，正文里指向这张图的 <img> 必须重新取一次（src 没变，浏览器会拿旧图） */
@@ -2016,14 +2062,9 @@ async function editDrawing(rel) {
     return;
   }
   openDraw({
+    ...drawingOptions(),
     elements: scene.elements,
     editingPath: norm,
-    getNotePath: () => state.currentPath,
-    onUpdated: async (path) => {
-      await refreshTree();
-      reloadImagesFor(path || norm);
-      editor.refreshDecorations?.();
-    },
   });
 }
 
@@ -2133,8 +2174,14 @@ function bindGlobalEvents() {
   $('vault-name').onclick = async (e) => {
     e.stopPropagation();
     const anchor = e.currentTarget;
+    // 第二下点击也能取消尚未完成的请求，快速双击不会被迟到的响应重新展开。
+    if (anchor.getAttribute('aria-expanded') === 'true') { closeCtxMenu(); return; }
+    closeCtxMenu();
+    anchor.setAttribute('aria-expanded', 'true');
+    const request = vaultMenuRequest;
     let recents = [];
     try { const s = await Api.state(); recents = s.recentVaults || []; } catch { recents = []; }
+    if (request !== vaultMenuRequest || anchor.getAttribute('aria-expanded') !== 'true') return;
     const current = state.vault?.root || '';
     const items = recents.slice(0, 8).map((v) => ({
       icon: v === current ? ICON.check : ICON.folder,
@@ -2147,6 +2194,7 @@ function bindGlobalEvents() {
     items.push({ icon: ICON.folderOpen, label: '管理仓库…', action: () => openVaultPicker() });
     const r = anchor.getBoundingClientRect();
     showMenu(r.left, r.bottom + 6, items);
+    anchor.setAttribute('aria-expanded', 'true');
   };
 
   // 标签条：滚轮横滚 + 溢出渐隐（标签多了不挤压，滚着看）

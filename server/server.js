@@ -421,6 +421,39 @@ class Vault {
     return build(root);
   }
 
+  /** 图片库由实际文件与引用推导，旧绘图也能进入列表，删掉引用后自然回到「未插入」。 */
+  drawings() {
+    const drawings = [];
+    for (const [scenePath, stat] of this.files) {
+      if (!/\.draw\.json$/i.test(scenePath)) continue;
+      const stem = scenePath.replace(/\.draw\.json$/i, '');
+      const imagePath = ['png', 'jpg', 'jpeg', 'webp', 'gif'].map((ext) => `${stem}.${ext}`).find((p) => this.files.has(p));
+      if (imagePath) drawings.push({ path: imagePath, scenePath, name: path.posix.basename(stem), updatedAt: stat.mtimeMs || stat.mtime || 0, notes: [] });
+    }
+    const byPath = new Map(drawings.map((d) => [d.path, d]));
+    const byName = new Map();
+    for (const d of drawings) {
+      const name = path.posix.basename(d.path);
+      byName.set(name, [...(byName.get(name) || []), d]);
+    }
+    for (const [notePath, content] of this.contentCache) {
+      // 代码示例不算插图；双链与 Markdown 图片均按原路径或唯一文件名匹配。
+      const text = content.replace(/^\s*(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\s*\1\s*$/gm, '').replace(/`[^`\n]*`/g, '');
+      const refs = [...text.matchAll(/!\[\[([^\]]+)\]\]|!\[[^\]]*\]\(([^)]+)\)/g)];
+      for (const match of refs) {
+        let target = match[1] ? match[1].split('|')[0] : match[2].replace(/\s+"[^"]*"$/, '').replace(/^<|>$/g, '');
+        try { target = decodeURIComponent(target); } catch { /* 保留原路径 */ }
+        target = target.trim().replace(/\\/g, '/');
+        const relative = path.posix.normalize(path.posix.join(path.posix.dirname(notePath), target));
+        const names = byName.get(target) || [];
+        const drawing = match[1] ? byPath.get(target) || byPath.get(relative) || (names.length === 1 ? names[0] : null)
+          : byPath.get(relative) || byPath.get(target);
+        if (drawing && !drawing.notes.includes(notePath)) drawing.notes.push(notePath);
+      }
+    }
+    return { drawings: drawings.map((d) => ({ ...d, inserted: d.notes.length > 0 })).sort((a, b) => b.updatedAt - a.updatedAt || a.path.localeCompare(b.path)) };
+  }
+
   /** 反链 + 出链 + 未解析链接（带上下文行） */
   linksFor(rel) {
     const note = this.notes.get(rel);
@@ -694,6 +727,7 @@ const server = http.createServer(async (req, res) => {
     if (!vault) return sendJson(res, 409, { error: '尚未打开仓库' });
 
     if (p === '/api/tree') return sendJson(res, 200, vault.tree());
+    if (p === '/api/drawings') return sendJson(res, 200, vault.drawings());
 
     if (p === '/api/note' && req.method === 'GET') {
       const rel = u.searchParams.get('path');

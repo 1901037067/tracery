@@ -129,7 +129,7 @@ function collectBlockDecos(blocks, state, cursor, out, opts = {}) {
   for (const b of blocks) {
     switch (b.type) {
       case 'heading': {
-        out.push({ from: b.lineStart, cls: `cm-lp-h${b.level}`, kind: 'line' });
+        out.push({ from: state.doc.lineAt(b.lineStart).from, cls: `cm-lp-h${b.level}`, kind: 'line' });
         if (!cursor.has(b.line + 1)) {
           out.push({ from: b.lineStart, to: b.contentStart, cls: '', kind: 'hide' }); // 藏 # 前缀
         }
@@ -140,7 +140,8 @@ function collectBlockDecos(blocks, state, cursor, out, opts = {}) {
         // 整行就是一个嵌入（![[...]]）——P3 交给 widgets.js 的块级 widget 接管，
         // 这里不再挂行内装饰（否则行内 mark 与整行 block replace 重叠，可能被 CM 判为冲突）
         if (b.line === b.endLine && /^\s*!\[\[[^\]]+\]\]\s*$/.test(b.text)) break;
-        scanInline(b.text, b.lineStart, out, opts);
+        if (b.sourceSegments) for (const segment of b.sourceSegments) scanInline(segment.text, segment.from, out, opts);
+        else scanInline(b.text, b.lineStart, out, opts);
         break;
       case 'list':
         for (const it of b.items) collectItemDecos(it, state, out, opts);
@@ -159,10 +160,10 @@ function collectBlockDecos(blocks, state, cursor, out, opts = {}) {
         collectBlockDecos(b.blocks, state, cursor, out, opts);
         break;
       case 'fence':
-        out.push({ from: b.lineStart, cls: 'cm-lp-fence', kind: 'line' });
+        out.push({ from: state.doc.lineAt(b.lineStart).from, cls: 'cm-lp-fence', kind: 'line' });
         break;
       case 'hr':
-        out.push({ from: b.lineStart, cls: 'cm-lp-hr', kind: 'line' });
+        out.push({ from: state.doc.lineAt(b.lineStart).from, cls: 'cm-lp-hr', kind: 'line' });
         if (!cursor.has(b.line + 1)) {
           out.push({ from: b.lineStart, to: b.lineEnd, cls: '', kind: 'hide' });
         }

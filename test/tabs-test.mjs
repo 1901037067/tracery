@@ -171,7 +171,16 @@ async function main() {
     await page.mouse.move(boxes[1].x + (boxes[0].left + 5 - boxes[1].x) * (i / 10), boxes[1].y);
     await sleep(20);
   }
+  const dragPreview = await page.evaluate(() => {
+    const el = document.querySelector('.tab-drag-preview');
+    const r = el?.getBoundingClientRect();
+    return { name: el?.textContent, x: r?.left, y: r?.top, pointerEvents: el ? getComputedStyle(el).pointerEvents : '' };
+  });
+  check('拖动时鼠标旁显示正在拖动的标签名且不遮挡落点',
+    dragPreview.name === order0[1] && dragPreview.pointerEvents === 'none'
+    && Math.abs(dragPreview.x - (boxes[0].left + 5)) < 280 && Math.abs(dragPreview.y - boxes[1].y) <= 20, JSON.stringify(dragPreview));
   await page.mouse.up();
+  check('拖动结束移除标签预览', await page.evaluate(() => !document.querySelector('.tab-drag-preview')));
   await sleep(500);
   const order1 = await page.evaluate(() => ({
     names: [...document.querySelectorAll('#tablist .tab-name')].map((e) => e.textContent),

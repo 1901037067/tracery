@@ -245,26 +245,33 @@
   cursor: pointer;
 }
 
-/* Callout：底色与左侧色条按类型区分，与块级 .callout 的配色保持一致 */
-.cm-lp-callout {
-  border-left: 3px solid var(--accent);
-  background: var(--bg-fill);
-  padding-left: 8px;
+/* 每行仍可直接编辑，首尾装饰拼成连续卡片；显式压过 .cm-line 的零 padding。 */
+#editor-live .cm-line.cm-lp-callout {
+  --callout-color: #1d7fa8;
+  border: 0; padding: 2px 22px; background: rgba(50, 173, 230, .10);
 }
-.cm-lp-callout-title { font-weight: 650; }
-.cm-lp-callout-body { color: var(--text-secondary); }
-.cm-lp-callout-note { background: rgba(91, 141, 239, 0.10); border-left-color: #3b74d1; }
-.cm-lp-callout-tip { background: rgba(52, 199, 89, 0.10); border-left-color: #1f9d45; }
-.cm-lp-callout-warning { background: rgba(255, 159, 10, 0.12); border-left-color: #b26a00; }
-.cm-lp-callout-danger { background: rgba(255, 59, 48, 0.10); border-left-color: #d32b20; }
-.cm-lp-callout-info { background: rgba(50, 173, 230, 0.10); border-left-color: #1d7fa8; }
-.cm-lp-callout-example { background: rgba(175, 82, 222, 0.10); border-left-color: #8e44ad; }
-[data-theme="dark"] .cm-lp-callout-note { background: rgba(91, 141, 239, 0.14); border-left-color: #8fb5ff; }
-[data-theme="dark"] .cm-lp-callout-tip { background: rgba(52, 199, 89, 0.14); border-left-color: #6ce39a; }
-[data-theme="dark"] .cm-lp-callout-warning { background: rgba(255, 159, 10, 0.16); border-left-color: #ffc35c; }
-[data-theme="dark"] .cm-lp-callout-danger { background: rgba(255, 59, 48, 0.16); border-left-color: #ff8a80; }
-[data-theme="dark"] .cm-lp-callout-info { background: rgba(50, 173, 230, 0.16); border-left-color: #7dd3fc; }
-[data-theme="dark"] .cm-lp-callout-example { background: rgba(175, 82, 222, 0.16); border-left-color: #d8b4fe; }
+#editor-live .cm-line.cm-lp-callout-first {
+  border-radius: 6px 6px 0 0; margin-top: 14px; padding-top: 16px; padding-bottom: 10px;
+  color: var(--callout-color); font-weight: 650;
+}
+#editor-live .cm-line.cm-lp-callout-last { border-radius: 0 0 6px 6px; padding-bottom: 18px; margin-bottom: 14px; }
+#editor-live .cm-line.cm-lp-callout-first.cm-lp-callout-last { border-radius: 6px; padding-bottom: 16px; }
+#editor-live .cm-line.cm-lp-callout-body { color: var(--text-primary); }
+.cm-lp-callout-icon { display: inline-flex; align-items: center; gap: 6px; vertical-align: -3px; margin-right: 6px; color: inherit; }
+.cm-lp-callout-icon svg { width: 18px; height: 18px; flex-shrink: 0; }
+#editor-live .cm-line.cm-lp-callout-note { --callout-color: #3b74d1; background: rgba(91, 141, 239, .10); }
+#editor-live .cm-line.cm-lp-callout-tip { --callout-color: #1f9d45; background: rgba(52, 199, 89, .10); }
+#editor-live .cm-line.cm-lp-callout-warning { --callout-color: #b26a00; background: rgba(255, 159, 10, .12); }
+#editor-live .cm-line.cm-lp-callout-danger { --callout-color: #d32b20; background: rgba(255, 59, 48, .10); }
+#editor-live .cm-line.cm-lp-callout-info { --callout-color: #007aff; background: rgba(0, 122, 255, .10); }
+#editor-live .cm-line.cm-lp-callout-example { --callout-color: #8e44ad; background: rgba(175, 82, 222, .10); }
+[data-theme="dark"] #editor-live .cm-line.cm-lp-callout { --callout-color: #7dd3fc; background: rgba(50, 173, 230, .16); }
+[data-theme="dark"] #editor-live .cm-line.cm-lp-callout-note { --callout-color: #8fb5ff; background: rgba(91, 141, 239, .14); }
+[data-theme="dark"] #editor-live .cm-line.cm-lp-callout-tip { --callout-color: #6ce39a; background: rgba(52, 199, 89, .14); }
+[data-theme="dark"] #editor-live .cm-line.cm-lp-callout-warning { --callout-color: #ffc35c; background: rgba(255, 159, 10, .16); }
+[data-theme="dark"] #editor-live .cm-line.cm-lp-callout-danger { --callout-color: #ff8a80; background: rgba(255, 59, 48, .16); }
+[data-theme="dark"] #editor-live .cm-line.cm-lp-callout-info { --callout-color: #7ab5ff; background: rgba(0, 122, 255, .16); }
+[data-theme="dark"] #editor-live .cm-line.cm-lp-callout-example { --callout-color: #d8b4fe; background: rgba(175, 82, 222, .16); }
 
 /* 笔记嵌入卡片 ![[笔记]]（P4 引擎适配器） */
 .cm-lp-note {

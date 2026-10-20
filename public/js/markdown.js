@@ -170,37 +170,58 @@ function subLineStarts(text) {
   return { lines, starts };
 }
 
-/** 把一组块描述符的偏移整体加一个常量（对应旧实现的 shiftOffsets）。
- *  通用深遍历：块、列表项、表格单元格——凡是带 lineStart/lineEnd/contentStart
- *  三元组的节点都平移，对应旧实现 querySelectorAll('[data-md-content-start]')
- *  覆盖所有后代元素（含 li / th / td）。 */
-function shiftBlocks(node, delta) {
-  if (Array.isArray(node)) { for (const n of node) shiftBlocks(n, delta); return; }
+/** 引用解析前剥掉了每行的 >，偏移必须逐行映射回原文，整体加常量会让第二行起的装饰错位。 */
+function mapQuotedBlocks(nodes, sub, originalLines, originalStarts, firstLine) {
+  const position = (offset) => {
+    let lo = 0, hi = sub.starts.length - 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (sub.starts[mid] <= offset) lo = mid; else hi = mid - 1;
+    }
+    const original = firstLine + lo;
+    const prefix = originalLines[original].length - sub.lines[lo].length;
+    return originalStarts[original] + prefix + offset - sub.starts[lo];
+  };
+  const walk = (node) => {
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (!node || typeof node !== 'object') return;
+    // 多行段落的 text 不含 > 前缀，不能再把整段当作原文里的连续子串扫描。
+    if (node.type === 'paragraph' && !node.sourceSegments) {
+      node.sourceSegments = node.text.split('\n').map((text, i) => ({ text, from: sub.starts[node.line + i] }));
+    }
+    for (const key of Object.keys(node)) {
+      const value = node[key];
+      if (typeof value === 'number' && ['lineStart', 'lineEnd', 'contentStart', 'from'].includes(key)) node[key] = position(value);
+      else if (typeof value === 'number' && ['line', 'endLine', 'startLine', 'openLine', 'closeLine'].includes(key)) node[key] += firstLine;
+      else if (value && typeof value === 'object') walk(value);
+    }
+  };
+  walk(nodes);
+}
+
+/** HTML 序列化器用去掉引用前缀后的内容间距，保留它原有的坐标口径以免往返时凭空增加空行。 */
+function shiftContentOffsets(node, delta) {
+  if (Array.isArray(node)) { node.forEach((n) => shiftContentOffsets(n, delta)); return; }
   if (!node || typeof node !== 'object') return;
   if (typeof node.lineStart === 'number') {
-    node.lineStart += delta;
-    node.lineEnd += delta;
-    node.contentStart += delta;
+    node.lineStart += delta; node.lineEnd += delta; node.contentStart += delta;
   }
-  for (const k of Object.keys(node)) {
-    const v = node[k];
-    if (v && typeof v === 'object') shiftBlocks(v, delta);
-  }
+  for (const value of Object.values(node)) if (value && typeof value === 'object') shiftContentOffsets(value, delta);
 }
 
 /** Markdown → { blocks, lines, lineStarts, lineEnd }（装饰生成器直接用） */
-export function parseMarkdown(md) {
+export function parseMarkdown(md, opts = {}) {
   const lines = String(md).replace(/\r\n?/g, '\n').split('\n');
   const lineStarts = [0];
   for (let i = 0; i < lines.length - 1; i++) lineStarts.push(lineStarts[i] + lines[i].length + 1);
   const lineEnd = (idx) => lineStarts[idx] + lines[idx].length;
-  const blocks = scanDoc(lines, lineStarts, lineEnd);
+  const blocks = scanDoc(lines, lineStarts, lineEnd, opts);
   return { blocks, lines, lineStarts, lineEnd };
 }
 
 /** 扫一份「文档」：块 + 文末空行占位（主文档与引用/Callout 子文档都走这里） */
-function scanDoc(lines, lineStarts, lineEnd) {
-  const ctx = { usedSlugs: new Map() };
+function scanDoc(lines, lineStarts, lineEnd, opts = {}) {
+  const ctx = { usedSlugs: new Map(), sourceOffsets: opts.sourceOffsets !== false };
   const blocks = scanBlocks(lines, lineStarts, lineEnd, 0, lines.length, ctx);
   // 文档以空行结尾时补占位（不能带 md-blank，见 renderBlock 注释）
   let lastText = lines.length - 1;
@@ -284,9 +305,9 @@ function scanBlocks(lines, lineStarts, lineEnd, start, stop, ctx) {
       if (callout) {
         // buf[0] 是 "[!type] 标题" 行本身，正文从 buf.slice(1) 开始
         const sub = subLineStarts(buf.slice(1).join('\n'));
-        const bodyBlocks = scanDoc(sub.lines, sub.starts, (idx) => sub.starts[idx] + sub.lines[idx].length);
-        // 修正 body 内块的源码偏移：整体平移到原文档位置（与旧实现同公式）
-        shiftBlocks(bodyBlocks, lineStarts[quoteStart + 1]);
+        const bodyBlocks = buf.length > 1 ? scanDoc(sub.lines, sub.starts, (idx) => sub.starts[idx] + sub.lines[idx].length, ctx) : [];
+        if (ctx.sourceOffsets) mapQuotedBlocks(bodyBlocks, sub, lines, lineStarts, quoteStart + 1);
+        else shiftContentOffsets(bodyBlocks, lineStarts[quoteStart + 1]);
         out.push({
           type: 'callout', calloutType: callout[1].toLowerCase(), title: callout[2] || callout[1],
           blocks: bodyBlocks, line: quoteStart, endLine: Math.min(lines.length - 1, i - 1),
@@ -296,8 +317,9 @@ function scanBlocks(lines, lineStarts, lineEnd, start, stop, ctx) {
         });
       } else {
         const sub = subLineStarts(buf.join('\n'));
-        const innerBlocks = scanDoc(sub.lines, sub.starts, (idx) => sub.starts[idx] + sub.lines[idx].length);
-        shiftBlocks(innerBlocks, lineStarts[quoteStart]);
+        const innerBlocks = scanDoc(sub.lines, sub.starts, (idx) => sub.starts[idx] + sub.lines[idx].length, ctx);
+        if (ctx.sourceOffsets) mapQuotedBlocks(innerBlocks, sub, lines, lineStarts, quoteStart);
+        else shiftContentOffsets(innerBlocks, lineStarts[quoteStart]);
         out.push({ type: 'quote', blocks: innerBlocks, line: quoteStart, endLine: Math.min(lines.length - 1, i - 1) });
       }
       continue;
@@ -442,7 +464,7 @@ function tagEl(el, b, tagOffsets) {
 }
 
 export function renderMarkdown(md, opts = {}) {
-  const doc = parseMarkdown(md);
+  const doc = parseMarkdown(md, { sourceOffsets: false });
   const tagOffsets = opts.tagOffsets !== false; // 嵌入/预览渲染时关闭（其 md 来源不同）
   const ctx = { opts, tagOffsets, lineStarts: doc.lineStarts, lines: doc.lines };
   const frag = document.createDocumentFragment();

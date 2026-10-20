@@ -118,6 +118,27 @@ const fullGraph = await page.evaluate(() => ({
 }));
 check('打包版：图谱入口直接铺满工作区', fullGraph.focus && fullGraph.width >= fullGraph.available - 24, JSON.stringify(fullGraph));
 await page.keyboard.press('Escape');
+await page.click('#btn-draw');
+await page.waitForFunction(() => document.querySelector('.draw-overlay') && !document.querySelector('.draw-overlay').hidden);
+const drawingLayout = await page.evaluate(() => {
+  const left = document.querySelector('.draw-drafts').getBoundingClientRect();
+  const right = document.querySelector('.draw-props').getBoundingClientRect();
+  const canvas = document.getElementById('draw-canvas').getBoundingClientRect();
+  return { left: left.right, canvasLeft: canvas.left, canvasRight: canvas.right, right: right.left, tabs: document.querySelectorAll('.dd-tabs button').length };
+});
+check('打包版：图片库 / 画布 / 样式固定分栏且有两种状态分类', drawingLayout.left <= drawingLayout.canvasLeft && drawingLayout.canvasRight <= drawingLayout.right && drawingLayout.tabs === 2, JSON.stringify(drawingLayout));
+await page.click('#draw-cancel');
+await page.evaluate(async () => {
+  await window.__tracery.openNote('双链与反链.md');
+  const ed = window.__tracery.editor; ed.setMode('read');
+  const pos = ed.getContent().indexOf('> [!');
+  if (pos >= 0) ed.view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+});
+await new Promise((r) => setTimeout(r, 400));
+check('打包版：Callout 显示图标与圆角卡片', await page.evaluate(() => {
+  const el = document.querySelector('.cm-lp-callout-first');
+  return !!el?.querySelector('svg') && getComputedStyle(el).borderTopLeftRadius !== '0px' && parseFloat(getComputedStyle(el).paddingLeft) >= 18;
+}));
 check('打包版：渲染进程无 JS 错误', errors.length === 0, errors.join('; '));
 await browser.disconnect();
 

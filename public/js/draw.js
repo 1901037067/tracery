@@ -85,6 +85,10 @@ let saving = false;
 let spaceDown = false;
 let rafId = 0;
 let activeDraftId = null;   // 当前画板对应的草稿（null = 新画板）
+let savedDrawings = [];
+let libraryFilter = 'drafts';
+let libraryRequest = 0;
+let libraryError = '';
 
 function defaultStyle() {
   return {
@@ -344,9 +348,8 @@ function drawElement(c, el) {
 /* ================= 画布 ================= */
 function resizeCanvas() {
   if (!canvas || !stage) return;
-  const rect = stage.getBoundingClientRect();
-  W = Math.max(1, Math.round(rect.width));
-  H = Math.max(1, Math.round(rect.height));
+  W = Math.max(1, stage.clientWidth);
+  H = Math.max(1, stage.clientHeight);
   dpr = Math.min(3, window.devicePixelRatio || 1);
   canvas.width = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
@@ -1134,7 +1137,6 @@ function ensure() {
         <button id="draw-zoom-in" title="放大 (Ctrl+滚轮)">+</button>
       </div>
       <div class="draw-actions">
-        <button id="draw-drafts-btn" class="btn-ghost" title="草稿箱：暂存与重开多块画板">草稿箱</button>
         <button id="draw-stash" class="btn-ghost" title="把当前画板暂存为草稿（不插入笔记）；从草稿箱重开的画板会覆盖该草稿">暂存</button>
         <button id="draw-cancel" class="btn-ghost">取消</button>
         <button id="draw-save" class="btn-primary">插入笔记</button>
@@ -1160,6 +1162,7 @@ function ensure() {
         </button>
       </div>
       <aside class="draw-props">
+        <div class="draw-side-title">样式</div>
         <div class="dp-group">
           <div class="dp-label">描边</div>
           <div class="dp-row">
@@ -1174,23 +1177,46 @@ function ensure() {
           </div>
         </div>
         <div class="dp-group">
-          <div class="dp-label">填充 / 线宽 / 线型</div>
+          <div class="dp-label">填充</div>
           <div class="dp-row">
             ${FILLS.map(([v, n]) => `<button class="draw-fill" data-fill="${v}" title="填充：${n}">${n}</button>`).join('')}
           </div>
+        </div>
+        <div class="dp-group">
+          <div class="dp-label">线宽</div>
           <div class="dp-row">
             ${WIDTHS.map((w, i) => `<button class="draw-size${i === 1 ? ' active' : ''}" data-size="${w}" title="线宽 ${w}"><span style="width:${w + 3}px;height:${w + 3}px"></span></button>`).join('')}
+          </div>
+        </div>
+        <div class="dp-group">
+          <div class="dp-label">线型</div>
+          <div class="dp-row">
             ${DASHES.map(([v, n]) => `<button class="draw-dash" data-dash="${v}" title="线型：${n}"><span class="dash-${v}"></span></button>`).join('')}
           </div>
         </div>
       </aside>
       <div class="draw-hint" id="draw-hint">拖拽画形状 · 空格拖动画布 · Ctrl+滚轮缩放 · Delete 删除 · Esc 取消</div>
-      <aside class="draw-drafts" id="draw-drafts" hidden>
-        <div class="dd-head"><span>草稿箱</span><button class="dd-new" id="draw-draft-new" title="清空当前画板，开始新的一块（已有草稿保留）">新建画板</button></div>
+      <aside class="draw-drafts" id="draw-drafts">
+        <div class="dd-head"><span>图片库</span><button class="dd-new" id="draw-draft-new" title="新建画板（已有草稿保留）">＋ 新建</button></div>
+        <div class="dd-tabs" role="tablist" aria-label="绘图状态">
+          <button id="draw-drafts-btn" role="tab" data-library="drafts">未插入 <span></span></button>
+          <button id="draw-inserted-btn" role="tab" data-library="inserted">已插入 <span></span></button>
+        </div>
         <div class="dd-list" id="draw-draft-list"></div>
       </aside>
       <textarea class="draw-textedit" id="draw-textedit" spellcheck="false" hidden></textarea>
     </div>`;
+  // 侧栏与工具条参与正常布局，让画布始终只占中间可绘制的区域。
+  const workspace = document.createElement('div');
+  workspace.className = 'draw-workspace';
+  const center = document.createElement('div');
+  center.className = 'draw-center';
+  const stageNode = overlay.querySelector('.draw-stage');
+  const toolsNode = overlay.querySelector('.draw-tools');
+  const hintNode = overlay.querySelector('.draw-hint');
+  workspace.append(overlay.querySelector('.draw-drafts'), center, overlay.querySelector('.draw-props'));
+  center.append(toolsNode, stageNode, hintNode);
+  overlay.appendChild(workspace);
   document.body.appendChild(overlay);
 
   canvas = overlay.querySelector('#draw-canvas');
@@ -1218,6 +1244,7 @@ function ensure() {
   overlay.querySelector('#draw-save').onclick = () => save();
   overlay.querySelector('#draw-stash').onclick = () => stashCurrent();
   overlay.querySelector('#draw-drafts-btn').onclick = () => toggleDrafts();
+  overlay.querySelector('#draw-inserted-btn').onclick = () => { libraryFilter = 'inserted'; renderDrafts(); };
   overlay.querySelector('#draw-draft-new').onclick = () => newBoard();
   overlay.querySelector('#draw-zoom-in').onclick = () => zoomBy(1.15);
   overlay.querySelector('#draw-zoom-out').onclick = () => zoomBy(1 / 1.15);
@@ -1338,43 +1365,123 @@ function renderDrafts() {
   if (!draftPanel) return;
   const listBox = draftPanel.querySelector('#draw-draft-list');
   listBox.innerHTML = '';
-  const drafts = readDrafts();
-  if (!drafts.length) {
+  const drafts = readDrafts().filter((d) => !d.vaultRoot || d.vaultRoot === opts.vaultRoot);
+  const pending = savedDrawings.filter((d) => !d.inserted);
+  for (const btn of draftPanel.querySelectorAll('[data-library]')) {
+    const active = btn.dataset.library === libraryFilter;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+    btn.querySelector('span').textContent = btn.dataset.library === 'drafts' ? drafts.length + pending.length : savedDrawings.length - pending.length;
+  }
+  const entries = libraryFilter === 'drafts'
+    ? [...drafts.map((d) => ({ ...d, localDraft: true })), ...pending]
+    : savedDrawings.filter((d) => d.inserted);
+  if (!entries.length) {
     const empty = document.createElement('div');
     empty.className = 'dd-empty';
-    empty.textContent = '还没有草稿：点右上角「暂存」把当前画板存下来';
+    empty.textContent = libraryError || (libraryFilter === 'drafts' ? '暂存画板后会显示在这里，随时继续画。' : '插入笔记的绘图会显示在这里，可重新编辑。');
     listBox.appendChild(empty);
     return;
   }
-  for (const d of drafts) {
+  for (const d of entries) {
     const row = document.createElement('div');
-    row.className = 'dd-row' + (d.id === activeDraftId ? ' active' : '');
+    row.className = 'dd-row' + ((d.localDraft && d.id === activeDraftId) || (!d.localDraft && d.path === opts.editingPath) ? ' active' : '');
+    row.dataset.kind = d.localDraft ? 'draft' : 'saved';
+    row.dataset.path = d.path || '';
+    const preview = document.createElement('button');
+    preview.className = 'dd-preview';
+    preview.title = `打开${d.name}`;
+    preview.onclick = () => d.localDraft ? openDraft(d.id) : openSavedDrawing(d);
+    if (d.localDraft) {
+      const thumb = document.createElement('canvas');
+      thumb.width = 360; thumb.height = 180;
+      const g = thumb.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, 360, 180);
+      const bounds = (d.elements || []).map(elementExtent);
+      if (bounds.length) {
+        const x = Math.min(...bounds.map((b) => b.x)), y = Math.min(...bounds.map((b) => b.y));
+        const w = Math.max(...bounds.map((b) => b.x + b.w)) - x, h = Math.max(...bounds.map((b) => b.y + b.h)) - y;
+        const scale = Math.min(320 / Math.max(w, 1), 140 / Math.max(h, 1), 2);
+        g.translate(180 - (x + w / 2) * scale, 90 - (y + h / 2) * scale);
+        g.scale(scale, scale);
+        for (const el of d.elements || []) drawElement(g, el);
+      }
+      preview.appendChild(thumb);
+    } else {
+      const img = document.createElement('img');
+      img.src = `${Api.fileUrl(d.path)}&v=${d.updatedAt}`;
+      img.alt = d.name; img.loading = 'lazy';
+      preview.appendChild(img);
+    }
     const name = document.createElement('span');
     name.className = 'dd-name';
     name.textContent = d.name;
     name.title = d.name;
     const time = document.createElement('span');
     time.className = 'dd-time';
-    time.textContent = draftTimeText(d.updatedAt || 0);
+    time.textContent = d.localDraft ? `本机草稿 · ${draftTimeText(d.updatedAt || 0)}`
+      : d.inserted ? `用于 ${d.notes.length} 篇笔记` : '尚未插入笔记';
+    time.title = d.notes?.join('\n') || '';
     const openBtn = document.createElement('button');
     openBtn.className = 'dd-open';
-    openBtn.textContent = '打开';
-    openBtn.onclick = () => openDraft(d.id);
+    openBtn.textContent = d.inserted ? '编辑' : '继续画';
+    openBtn.onclick = preview.onclick;
     const delBtn = document.createElement('button');
     delBtn.className = 'dd-del';
     delBtn.textContent = '删除';
     delBtn.title = '删除这份草稿';
     delBtn.onclick = () => deleteDraft(d.id);
-    row.append(name, time, openBtn, delBtn);
+    row.append(preview, name, time, openBtn);
+    if (d.localDraft) row.appendChild(delBtn);
     listBox.appendChild(row);
   }
 }
 
-function toggleDrafts(force) {
+function toggleDrafts() {
   if (!draftPanel) return;
-  const show = force ?? draftPanel.hidden;
-  if (show) renderDrafts();
-  draftPanel.hidden = !show;
+  libraryFilter = 'drafts';
+  draftPanel.hidden = false;
+  renderDrafts();
+}
+
+async function refreshDrawingLibrary() {
+  const request = ++libraryRequest;
+  try {
+    const result = await Api.drawings();
+    if (request !== libraryRequest || overlay.hidden) return;
+    savedDrawings = result.drawings || [];
+    libraryError = '';
+  } catch {
+    if (request !== libraryRequest || overlay.hidden) return;
+    libraryError = '图片库加载失败，重新打开绘图可重试。';
+  }
+  renderDrafts();
+}
+
+function saveLabel() { return opts.editingPath && !opts.insertOnSave ? '更新绘图' : '插入笔记'; }
+function resetSaveTarget() {
+  opts.editingPath = null;
+  opts.insertOnSave = false;
+  overlay.querySelector('#draw-save').textContent = saveLabel();
+}
+
+async function openSavedDrawing(drawing) {
+  if (elements.length && opts.editingPath !== drawing.path) {
+    if (!await askConfirm({ title: `打开「${drawing.name}」？`, desc: '当前画板将被替换，请先暂存需要保留的改动。', okText: '打开' })) return;
+  }
+  try {
+    const response = await fetch(Api.fileUrl(drawing.scenePath), { cache: 'no-store' });
+    if (!response.ok) throw new Error('找不到绘图数据');
+    const scene = await response.json();
+    if (!Array.isArray(scene.elements)) throw new Error('绘图数据格式不正确');
+    activeDraftId = null;
+    opts.editingPath = drawing.path;
+    opts.insertOnSave = !drawing.inserted;
+    overlay.querySelector('#draw-save').textContent = saveLabel();
+    style = defaultStyle(); setTool('select'); syncStyleUI();
+    setScene(scene.elements);
+    renderDrafts();
+  } catch (error) { toast(`无法打开绘图：${error.message}`); }
 }
 
 /** 暂存：新建草稿要起名；已经在草稿上继续画则直接覆盖 */
@@ -1400,9 +1507,10 @@ async function stashCurrent() {
   if (!name) return;
   const id = newDraftId();
   const drafts = readDrafts();
-  drafts.unshift({ id, name, updatedAt: Date.now(), elements: clone(elements) });
+  drafts.unshift({ id, name, vaultRoot: opts.vaultRoot || '', updatedAt: Date.now(), elements: clone(elements) });
   if (!writeDrafts(drafts)) return;
   activeDraftId = id;
+  resetSaveTarget();
   renderDrafts();
   toast('已暂存到草稿箱');
 }
@@ -1420,6 +1528,7 @@ async function openDraft(id) {
     if (!ok) return;
   }
   activeDraftId = id;
+  resetSaveTarget();
   style = defaultStyle();
   setTool('select');
   syncStyleUI();
@@ -1456,6 +1565,8 @@ async function newBoard() {
     if (!ok) return;
   }
   activeDraftId = null;
+  resetSaveTarget();
+  resetView();
   style = defaultStyle();
   syncStyleUI();
   setTool('select');
@@ -1525,12 +1636,14 @@ async function save() {
         dir: resolveAssetDir(getSettings(), opts.getNotePath?.()),
         drawing,
       });
-    if (editingPath) {
+    if (editingPath && !opts.insertOnSave) {
       await opts.onUpdated?.(res.path || editingPath);
       close();
       toast('绘图已更新');
     } else {
       await opts.onInserted?.(res.path);
+      // 成功插入后只保留仓库中的成品，避免同一画板同时出现在两个分类。
+      if (activeDraftId) writeDrafts(readDrafts().filter((d) => d.id !== activeDraftId));
       close();
       toast('绘图已插入笔记');
     }
@@ -1539,7 +1652,7 @@ async function save() {
   } finally {
     saving = false;
     btn.disabled = false;
-    btn.textContent = opts.editingPath ? '更新绘图' : '插入笔记';
+    btn.textContent = saveLabel();
   }
 }
 
@@ -1564,9 +1677,12 @@ export function openDraw(options = {}) {
   style = defaultStyle();
   view = { x: 0, y: 0, zoom: 1 };
   overlay.hidden = false;
-  toggleDrafts(false);
+  savedDrawings = [];
+  libraryError = '';
+  toggleDrafts();
+  refreshDrawingLibrary();
   const btn = overlay.querySelector('#draw-save');
-  if (btn) btn.textContent = opts.editingPath ? '更新绘图' : '插入笔记';
+  if (btn) btn.textContent = saveLabel();
   setTool('select');
   syncStyleUI();
   updateZoomLabel();
@@ -1577,6 +1693,7 @@ export function close() {
   if (!overlay || overlay.hidden) return;
   commitText();
   overlay.hidden = true;
+  libraryRequest++;
   elements = [];
   selected.clear();
   history = [[]];

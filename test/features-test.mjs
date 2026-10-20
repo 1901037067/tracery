@@ -25,6 +25,8 @@ fs.writeFileSync(path.join(VAULT, '功能.md'), [
   // 第二张表专测「单元格里的行内语法」（2026-10-20）：不动上面那张表的文本，
   // 免得下面的 Tab 跳格断言里 `doc.indexOf('| 列A')` 找不到
   '| 行内甲 | 行内乙 |', '| --- | --- |', '| [[第二篇]] | **粗** `码` #标签 |', '',
+  '> [!info] 关于重名', '> Obsidian 的规则是「最短路径唯一匹配」。这里保留 **强调** 与 [[第二篇]]。', '> 这是一段**可编辑**的正文。', '',
+  '> [!warning]', '> 注意备份。', '',
 ].join('\n'), 'utf8');
 fs.writeFileSync(path.join(VAULT, '第二篇.md'), '# 第二篇\n\n内容\n', 'utf8');
 
@@ -260,6 +262,52 @@ if (hist.length) {
   const back = fs.readFileSync(path.join(VAULT, '图.md'), 'utf8');
   check('可恢复到历史版本', restore && back.includes('# 图片'), JSON.stringify(back.trim().split('\n')[0]));
 }
+
+/* ---------- Callout：卡片外观与真实行编辑共存 ---------- */
+await page.evaluate(async () => { await window.__tracery.openNote('功能.md'); });
+await sleep(400);
+for (const theme of ['light', 'dark']) {
+  const card = await page.evaluate((theme) => {
+    document.documentElement.dataset.theme = theme;
+    const ed = window.__tracery.editor;
+    ed.setMode('read');
+    ed.view.dispatch({ selection: { anchor: ed.getContent().indexOf('> [!info]') }, scrollIntoView: true });
+    return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
+      const first = document.querySelector('.cm-lp-callout-info.cm-lp-callout-first');
+      const last = document.querySelector('.cm-lp-callout-info.cm-lp-callout-last');
+      const body = document.querySelector('.cm-lp-callout-info.cm-lp-callout-body');
+      const s = getComputedStyle(first), b = getComputedStyle(body);
+      resolve({ icon: !!first.querySelector('svg'), padding: parseFloat(s.paddingLeft), topRadius: s.borderTopLeftRadius,
+        bottomRadius: getComputedStyle(last).borderBottomLeftRadius, border: s.borderLeftWidth,
+        titleColor: s.color, bodyColor: b.color, markerHidden: !first.textContent.includes('[!info]'),
+        fallback: document.querySelector('.cm-lp-callout-warning')?.textContent,
+        inline: body.querySelector('.cm-lp-bold')?.textContent === '强调' && body.querySelector('.cm-lp-wikilink')?.textContent === '第二篇'
+          && last.querySelector('.cm-lp-bold')?.textContent === '可编辑'
+          && !/\*\*|\[\[/.test(body.textContent) });
+    })));
+  }, theme);
+  check(`${theme} 提示块有图标、圆角和留白，标题正文分色且保留行内渲染`,
+    card.icon && card.padding >= 18 && card.topRadius !== '0px' && card.bottomRadius !== '0px'
+    && card.border === '0px' && card.titleColor !== card.bodyColor && card.markerHidden && card.inline
+    && card.fallback?.includes('注意'), JSON.stringify(card));
+  await page.evaluate(() => {
+    const scroller = document.querySelector('#editor-live .cm-scroller');
+    const card = document.querySelector('.cm-lp-callout-info.cm-lp-callout-first');
+    scroller.scrollTop += card.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 80;
+  });
+  await sleep(150);
+  await page.screenshot({ path: path.join(ROOT, 'test', 'screenshots', `callout-${theme}.png`) });
+}
+await page.evaluate(() => {
+  const ed = window.__tracery.editor; ed.setMode('live');
+  ed.view.dispatch({ selection: { anchor: ed.getContent().length }, scrollIntoView: false });
+});
+const calloutBody = await page.$('.cm-lp-callout-info.cm-lp-callout-body');
+await calloutBody.click();
+await page.keyboard.press('End');
+await page.keyboard.type('CALL_OUT_EDIT');
+const editedCallout = await page.evaluate(() => window.__tracery.editor.getContent());
+check('提示块正文真实鼠标点击后可以继续编辑，原语法仍保留', editedCallout.includes('CALL_OUT_EDIT') && editedCallout.includes('> [!info] 关于重名'));
 
 /* ---------- ⑩ 首行 UTF-8 BOM：标题仍要被识别（2026-10-20 修复） ----------
  * 契约：带 BOM 的笔记，首行 `# 标题` 要照常隐藏 `#`、带标题样式，右栏大纲也要列出它。

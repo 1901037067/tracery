@@ -17,6 +17,7 @@ export const Api = {
   openVault: (path) => api('/api/vault/open', { method: 'POST', body: { path } }),
   forgetVault: (path) => api('/api/vault/forget', { method: 'POST', body: { path } }),
   tree: () => api('/api/tree'),
+  drawings: () => api('/api/drawings'),
   note: (path) => api(`/api/note?path=${encodeURIComponent(path)}`),
   saveNote: (path, content) => api('/api/note', { method: 'PUT', body: { path, content } }),
   createNote: (path, content) => api('/api/note/create', { method: 'POST', body: { path, content } }),

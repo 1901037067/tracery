@@ -88,6 +88,14 @@ async function main() {
     `${opened.tools}/${opened.colors}/${opened.bgs}/${opened.sizes}`);
   check('属性面板有填充与线型 + 文字输入浮层',
     opened.fills === 3 && opened.dashes === 3 && opened.hasText);
+  const regions = await page.evaluate(() => {
+    const rect = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width }; };
+    return { library: rect('.draw-drafts'), canvas: rect('#draw-canvas'), props: rect('.draw-props'), tools: rect('.draw-tools'), width: innerWidth };
+  });
+  check('图片库固定在左，样式固定在右，工具条位于画布上方且互不遮挡',
+    regions.library.width >= 170 && regions.props.width >= 170
+    && regions.library.right <= regions.canvas.left && regions.props.left >= regions.canvas.right
+    && regions.tools.bottom <= regions.canvas.top && regions.props.right <= regions.width, JSON.stringify(regions));
 
   /* ---------- 2. 空画布保存应被拒绝 ---------- */
   await page.evaluate(() => document.getElementById('draw-save').click());
@@ -336,6 +344,78 @@ async function main() {
   await sleep(400);
   check('关闭绘图后草稿仍在（本地暂存不随浮层清空）',
     (await page.evaluate(() => JSON.parse(localStorage.getItem('tracery.drawDrafts') || '[]').length)) === 2);
+
+  /* ---------- 12. 固定图片库：旧图、草稿插入迁移与新画板隔离 ---------- */
+  await page.click('#btn-draw');
+  await sleep(800);
+  check('未插入区显示草稿缩略图', await page.evaluate(() =>
+    document.querySelectorAll('#draw-drafts .dd-preview canvas').length === 2));
+  await page.click('#draw-inserted-btn');
+  await page.waitForFunction(() => document.querySelector('#draw-drafts img')?.naturalWidth > 0);
+  const insertedRow = await page.evaluate(() => ({
+    count: document.querySelectorAll('#draw-drafts .dd-row').length,
+    imageLoaded: document.querySelector('#draw-drafts img')?.naturalWidth > 0,
+    path: document.querySelector('#draw-drafts .dd-row')?.dataset.path,
+  }));
+  check('已插入区可发现既有绘图并显示缩略图', insertedRow.count === 1 && insertedRow.path === embed?.[1] && insertedRow.imageLoaded, JSON.stringify(insertedRow));
+  await page.click('#draw-drafts .dd-open');
+  await sleep(400);
+  check('图片库可重开既有场景并更新原图', (await counts()).n === 4 && await page.$eval('#draw-save', (el) => el.textContent === '更新绘图'));
+  const originalImage = fs.readFileSync(imgPath);
+  await page.click('#draw-draft-new');
+  await sleep(150);
+  await page.click('.dialog-ok');
+  await sleep(300);
+  await pickTool('ellipse');
+  await drag(P(280, 180), P(440, 290));
+  check('从已插入图切到新画板后恢复插入按钮', await page.$eval('#draw-save', (el) => el.textContent === '插入笔记'));
+  await page.click('#draw-save');
+  await sleep(1000);
+  const newNote = await (await fetch(`http://localhost:${PORT}/api/note?path=${encodeURIComponent('画布.md')}`)).json();
+  check('新画板另存插图，既有图片字节不变', (newNote.content.match(/!\[\[/g) || []).length === 2 && originalImage.equals(fs.readFileSync(imgPath)));
+
+  await page.click('#btn-draw');
+  await sleep(800);
+  await page.click('#draw-drafts .dd-open');
+  await sleep(300);
+  await page.click('#draw-save');
+  await sleep(1000);
+  check('草稿插入成功后移出未插入区', await page.evaluate(() => JSON.parse(localStorage.getItem('tracery.drawDrafts')).length === 1));
+  const library = await (await fetch(`http://localhost:${PORT}/api/drawings`)).json();
+  check('已插入区按真实笔记引用收录三份绘图', library.drawings.length === 3 && library.drawings.every((d) => d.inserted && d.notes.includes('画布.md')));
+
+  // 删除引用后不能继续标成「已插入」，文件仍可从未插入区重新使用。
+  await page.evaluate(async (imagePath) => {
+    const ed = window.__tracery.editor;
+    const content = ed.getContent().split('\n').filter((line) => !line.includes(imagePath)).join('\n');
+    ed.view.dispatch({ changes: { from: 0, to: ed.view.state.doc.length, insert: content } }); await ed.flush();
+  }, embed[1]);
+  const afterUnlink = await (await fetch(`http://localhost:${PORT}/api/drawings`)).json();
+  check('移除笔记引用后绘图自动归入未插入', afterUnlink.drawings.find((d) => d.path === embed[1])?.inserted === false);
+  await fetch(`http://localhost:${PORT}/api/note/create`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: '分类检查.md', content: '# 分类\n\n```md\n![[组图]]\n```\n\n`![[组图]]`\n'.replaceAll('组图', embed[1]) }),
+  });
+  const codeExample = await (await fetch(`http://localhost:${PORT}/api/drawings`)).json();
+  check('代码示例里的图片语法不算已插入', codeExample.drawings.find((d) => d.path === embed[1])?.inserted === false);
+  await fetch(`http://localhost:${PORT}/api/note`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: '分类检查.md', content: `# 分类\n\n![绘图](${encodeURI(embed[1])})\n` }),
+  });
+  const markdownImage = await (await fetch(`http://localhost:${PORT}/api/drawings`)).json();
+  check('Markdown 图片引用同样归入已插入', markdownImage.drawings.find((d) => d.path === embed[1])?.notes.includes('分类检查.md'));
+  await page.click('#btn-draw');
+  await sleep(800);
+  await page.screenshot({ path: path.join(SHOTS, 'draw-library.png') });
+  await page.setViewport({ width: 800, height: 640, deviceScaleFactor: 1 });
+  await sleep(400);
+  check('窄窗口下两侧栏与工具条仍在窗口内，画布可用', await page.evaluate(() => {
+    const props = document.querySelector('.draw-props').getBoundingClientRect();
+    const tools = document.querySelector('.draw-tools').getBoundingClientRect();
+    const cv = document.getElementById('draw-canvas').getBoundingClientRect();
+    return props.right <= innerWidth && tools.right <= props.left && cv.width >= 300 && cv.height > 300;
+  }));
+  await page.click('#draw-cancel');
 
   check('无渲染错误', errors.length === 0, errors.join(' | '));
 

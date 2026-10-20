@@ -87,7 +87,7 @@ const openVaultMenu = async () => {
   await sleep(400);
 };
 const openManage = async () => {
-  await openVaultMenu();
+  if (!await page.$eval('#vault-name', (el) => el.getAttribute('aria-expanded') === 'true')) await openVaultMenu();
   await page.evaluate(() => [...document.querySelectorAll('.context-menu button')]
     .find((b) => b.textContent.includes('管理仓库'))?.click());
   await sleep(500);
@@ -104,6 +104,12 @@ check('点工作区名先弹下拉（不直接跳管理页）',
   menu.open && menu.welcomeStillHidden && menu.items.some((t) => t.includes('管理仓库')), JSON.stringify(menu));
 check('下拉里列出最近仓库（当前仓库有标记）', menu.items.length >= 2 && menu.checked >= 1, menu.items.join(' / '));
 await page.screenshot({ path: path.join(SHOTS, 'ui-vault-menu-dark.png') });
+await page.click('#vault-name');
+check('再次点击仓库名收起下拉菜单', await page.evaluate(() => !document.querySelector('.context-menu')));
+await page.evaluate(() => { const btn = document.getElementById('vault-name'); btn.click(); btn.click(); });
+await sleep(500);
+check('快速双击不会被迟到的响应重新展开菜单', await page.evaluate(() =>
+  !document.querySelector('.context-menu') && document.getElementById('vault-name').getAttribute('aria-expanded') === 'false'));
 await openManage();
 const overlay = await page.evaluate(() => ({
   welcomeOpen: !document.getElementById('welcome').hidden,

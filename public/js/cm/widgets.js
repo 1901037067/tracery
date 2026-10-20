@@ -331,18 +331,45 @@ class CheckboxWidget extends WidgetType {
 /* ================= ③④ 行级装饰收集（Callout / 表格 / 列表复选框） =================
  * 产出 {from,to?,cls,kind,always?}：kind = 'line' | 'mark' | 'hide' | 'replace'。
  * always=true 的项不受「光标行显示原始语法」过滤（如表格边框）。 */
+class CalloutIconWidget extends WidgetType {
+  constructor(type, fallback = '') { super(); this.type = type; this.fallback = fallback; }
+  eq(other) { return other.type === this.type && other.fallback === this.fallback; }
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = 'cm-lp-callout-icon';
+    span.setAttribute('aria-hidden', 'true');
+    const paths = {
+      tip: '<path d="M9 18h6M10 21h4M8.5 14.5a6 6 0 1 1 7 0L15 17H9z"/>',
+      warning: '<path d="M12 3L2 21h20zM12 9v5M12 17v1"/>',
+      danger: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
+      example: '<path d="M5 4h14v16H5zM9 8h6M9 12h6M9 16h4"/>',
+      note: '<path d="M4 16l-1 5 5-1L21 7l-4-4zM14 6l4 4"/>',
+      info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/>',
+    };
+    span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[this.type] || paths.info}</svg>`;
+    if (this.fallback) span.appendChild(document.createTextNode(this.fallback));
+    return span;
+  }
+  ignoreEvent() { return false; }
+}
+
 function walkBlocks(blocks, state, cursor, out) {
   for (const b of blocks) {
     switch (b.type) {
       case 'callout': {
         for (let n = b.line; n <= b.endLine; n++) {
           const line = docLine(state, n);
-          out.push({ from: line.from, cls: `cm-lp-callout cm-lp-callout-${b.calloutType}`, kind: 'line', always: true });
+          const edges = `${n === b.line ? ' cm-lp-callout-first' : ''}${n === b.endLine ? ' cm-lp-callout-last' : ''}${cursor.has(n + 1) ? ' cm-lp-callout-source' : ''}`;
+          out.push({ from: line.from, cls: `cm-lp-callout cm-lp-callout-${b.calloutType}${edges}`, kind: 'line', always: true });
           out.push({ from: line.from, cls: n === b.line ? 'cm-lp-callout-title' : 'cm-lp-callout-body', kind: 'line', always: true });
           if (cursor.has(n + 1)) continue; // 光标行露出原始 `> [!type]`
           // 标题行藏 `> [!type] `（CALLOUT_MARK_RE），正文行只藏 `> `（QUOTE_MARK_RE）
           const q = (n === b.line ? CALLOUT_MARK_RE.exec(line.text) : null) || QUOTE_MARK_RE.exec(line.text);
           if (q) out.push({ from: line.from, to: line.from + q[0].length, kind: 'hide' });
+          if (n === b.line && q) {
+            const fallback = line.text.slice(q[0].length).trim() ? '' : ({ info: '信息', note: '笔记', tip: '提示', warning: '注意', danger: '警告', example: '示例' }[b.calloutType] || b.calloutType);
+            out.push({ from: line.from + q[0].length, kind: 'widget', widget: new CalloutIconWidget(b.calloutType, fallback) });
+          }
         }
         if (b.blocks) walkBlocks(b.blocks, state, cursor, out);
         break;
@@ -561,6 +588,7 @@ export function widgetsPlugin(opts = {}) {
           if (to < lo || d.from > hi) continue;
           if (!d.always && d.kind !== 'line' && cursor.has(state.doc.lineAt(d.from).number)) continue;
           if (d.kind === 'line') spans.push(Decoration.line({ class: d.cls }).range(d.from));
+          else if (d.kind === 'widget') spans.push(Decoration.widget({ widget: d.widget, side: -1 }).range(d.from));
           else if (d.kind === 'mark') spans.push(Decoration.mark({ class: d.cls, attributes: d.attrs }).range(d.from, to));
           else if (d.kind === 'replace') spans.push(Decoration.replace({ widget: d.widget }).range(d.from, to));
           else if (d.from < to) spans.push(Decoration.replace({}).range(d.from, to));
