@@ -2,7 +2,7 @@
 
 > 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
 > **最省事的方式**：把 `docs/AI-START.md` 里的开场白整段复制给新对话的 AI（已经写好必读文档与硬性约定）。
-> 最后更新：2026-10-20（对应代码状态：**v1.4.2 已打包** —— 编辑器只剩 CM6 一套内核，
+> 最后更新：2026-10-20（对应代码状态：**v1.4.2 已发布到 GitHub** —— 编辑器只剩 CM6 一套内核，
 > 块级内核的最后一层遗留（死 DOM / 死 CSS / 测试双分支）已清干净；未解析双链可点击当场创建；
 > 22 个套件单内核全量回归全绿）
 >
@@ -461,8 +461,9 @@ test/*.mjs              九个测试套件（见 §2）
    e2e #11 与 `ui-ux` 的 4 条图片断言已拆掉门控。仍未回收的 3 条门控（features ②③、layout ②、backspace ④）
    与渲染无关，理由写在 7.12「门控清单变化」。
 2. ~~发版 v1.2.1~~ ✅ **已完成（2026-10-19）**；~~v1.3.0~~ ✅ 已发布；~~v1.4.1~~ ✅ 已发布；
-   **v1.4.2 已打包（2026-10-20）**：发布说明 `docs/RELEASE-1.4.2.md`；`npm run dist:dir:nosign` +
-   `npm run release` 出包，打包版 `verify-exe` 需在起包后跑一遍；GitHub 用 `npm run upload:github`，
+   **v1.4.2 已发布到 GitHub（2026-10-20）**：发布说明 `docs/RELEASE-1.4.2.md`；`npm run dist:dir:nosign` +
+   `npm run release` 出包，打包版 `verify-exe` **15/15**；tag `v1.4.2` 已推到 Gitee 与 GitHub 两个远端，
+   GitHub Releases 已带 `Tracery-1.4.2-win32-x64.7z`（71MB，API 上传）；
    **Gitee 发行版仍需在网页传同一个 .7z**（单附件上限 100MB，**别传 zip**）。
    v1.4.1 的发布记录：GitHub Releases 已带 `Tracery-1.4.1-win32-x64.7z`（71MB，API 上传），
    tag `v1.4.1` 已推到 Gitee 与 GitHub 两个远端；打包版 `verify-exe` **14/14**。
