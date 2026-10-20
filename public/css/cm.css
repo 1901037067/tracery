@@ -113,6 +113,9 @@
 }
 .cm-lp-tag:hover { background: color-mix(in srgb, var(--tag) 22%, transparent); }
 .cm-lp-marker { color: var(--text-tertiary); }
+/* 无序列表的圆点：`-`/`*`/`+` 由 decorations.js 换成这个 widget（Obsidian 实时预览同款），
+   有序列表的 `1.` 仍走 .cm-lp-marker（编号要给用户看见）。 */
+.cm-lp-bullet { color: var(--text-secondary); }
 .cm-lp-fence { color: var(--text-tertiary); }
 .cm-lp-hr { border-top: 1px solid var(--hairline); }
 

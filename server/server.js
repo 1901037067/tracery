@@ -316,9 +316,14 @@ class Vault {
 
   /** 解析单篇笔记的链接/标签/标题，写入索引 */
   indexNote(rel, content, mtimeMs) {
+    // 文件首行的 UTF-8 BOM 会把整行解析带歪：逐行正则 `^(#{1,6})\s+` 匹配不上 `\uFEFF#`，
+    // 于是「# 不隐藏、没有标题样式、右栏大纲漏」，搜索/反链/标签索引同样漏（2026-10-20 用户报障）。
+    // 只在**读**的这一个入口剥掉：下游（编辑器、大纲、索引、图谱）拿到的都是干净文本，
+    // 而磁盘上的字节保持原样——用户不改这篇笔记就不会动到文件；一旦保存，文件顺手被规范化。
+    const text = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
     const ext = path.extname(rel).toLowerCase();
     const name = path.basename(rel, ext);
-    this.contentCache.set(rel, content);
+    this.contentCache.set(rel, text);
     const note = this.notes.get(rel) || { name, links: [], tags: new Set(), headings: [], backlinks: new Set() };
     note.name = name;
     note.mtimeMs = mtimeMs ?? note.mtimeMs;
@@ -328,7 +333,7 @@ class Vault {
 
     // [[双链]]：支持 [[目标]] / [[目标|别名]] / [[目标#标题]] / [[目标#标题|别名]]
     // 先剔除代码围栏与行内代码，避免把示例代码里的 [[...]] 当成真链接
-    const codeFree = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]+`/g, '');
+    const codeFree = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]+`/g, '');
     const linkRe = /\[\[([^\]\|#]+)(?:#[^\]\|]*)?(?:\|[^\]]*)?\]\]/g;
     let m;
     while ((m = linkRe.exec(codeFree))) note.links.push(m[1].trim());
@@ -336,7 +341,7 @@ class Vault {
     // #标签（排除代码块内的，简化处理：跳过 ``` 围栏）
     const tagRe = /(^|[\s\(（])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
     let inFence = false;
-    for (const line of content.split('\n')) {
+    for (const line of text.split('\n')) {
       if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
       if (inFence) continue;
       let tm;
@@ -345,7 +350,7 @@ class Vault {
     }
 
     // 标题（大纲）
-    for (const line of content.split('\n')) {
+    for (const line of text.split('\n')) {
       const h = /^(#{1,6})\s+(.*)$/.exec(line);
       if (h) note.headings.push({ level: h[1].length, text: h[2].replace(/[*_`~]/g, '') });
     }

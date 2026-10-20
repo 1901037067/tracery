@@ -545,7 +545,8 @@ export function widgetsPlugin(opts = {}) {
       const state = view.state;
       let blocks;
       try { ({ blocks } = parseCached(state)); } catch (e) { console.error('[widgets] parse 崩溃:', e.message); return Decoration.none; }
-      const cursor = cursorLines(state);
+      // 阅读模式没有「光标行」概念：复选框、隐藏标记一律照常渲染（= 剥离源码后的成品）
+      const cursor = opts.readOnly ? new Set() : cursorLines(state);
       const raw = [];
       const spans = [];
       try {

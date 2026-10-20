@@ -167,19 +167,25 @@ async function main() {
     check('cm 下 Ctrl+Z / Ctrl+Y 撤销且能重做', docUndo !== doc0 && docRedo === doc0,
       `undoChanged=${docUndo !== doc0} redoRestored=${docRedo === doc0}`);
 
-    // 5. 切源码模式 = 关装饰、doc 不变；切回
+    // 5. 模式按钮三态循环：实时预览 → 源码 → 阅读 → 实时预览（2026-10-19 起加了阅读模式）
     const before = await page.evaluate(async (note) => {
       const res = await fetch('/api/note?path=' + encodeURIComponent(note));
       return (await res.json()).content || '';
     }, NOTE);
-    await page.evaluate(() => document.getElementById('btn-mode').click());
+    const countHeadDeco = () => page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lp-h1, .cm-lp-h2, .cm-lp-h3').length);
+    await page.evaluate(() => document.getElementById('btn-mode').click());   // → 源码
     await sleep(600);
-    const src = await page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lp-h1, .cm-lp-h2, .cm-lp-h3').length);
+    const src = await countHeadDeco();
     const modeLabel = await page.evaluate(() => document.getElementById('btn-mode-label')?.textContent || '');
-    await page.evaluate(() => document.getElementById('btn-mode').click());
+    await page.evaluate(() => document.getElementById('btn-mode').click());   // → 阅读
     await sleep(600);
-    const backDeco = await page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lp-h1, .cm-lp-h2, .cm-lp-h3').length);
-    check('源码模式关掉装饰、切回恢复', src === 0 && backDeco >= 2 && modeLabel.includes('源码'), `src=${src} back=${backDeco} label=${modeLabel}`);
+    const readLabel = await page.evaluate(() => document.getElementById('btn-mode-label')?.textContent || '');
+    await page.evaluate(() => document.getElementById('btn-mode').click());   // → 实时预览
+    await sleep(600);
+    const backDeco = await countHeadDeco();
+    check('模式按钮三态循环：源码（关装饰）→ 阅读 → 实时预览（恢复装饰）',
+      src === 0 && modeLabel.includes('源码') && readLabel.includes('阅读') && backDeco >= 2,
+      `src=${src} back=${backDeco} labels=${modeLabel}/${readLabel}`);
     check('切模式不改 doc（内容仍含标记行）', before.includes(MARKER));
 
     // 5c. 行号开关（设置面板 → compartment reconfigure）
@@ -262,6 +268,72 @@ async function main() {
     await sleep(500);
     const taskDoc = await page.evaluate(() => window.__editor.getContent());
     check('cm 下 Enter 续任务列表（- [ ] ）', /- \[ \] 甲任务\n- \[ \] /.test(taskDoc), JSON.stringify(taskDoc));
+
+    // 9. 阅读模式（2026-10-19 新增）：只读 + 全量渲染（剥掉源码标记）+ 任务勾选 + 双链跳转
+    //    模式按钮三态循环：实时预览 → 源码 → 阅读，所以点两次到阅读
+    await page.evaluate(() => document.getElementById('btn-mode').click());
+    await sleep(300);
+    await page.evaluate(() => document.getElementById('btn-mode').click());
+    await sleep(700);
+    const readMode = await page.evaluate(() => {
+      const ed = window.__editor;
+      const taskLine = [...document.querySelectorAll('#editor-live .cm-line')].find((l) => l.textContent.includes('甲任务'));
+      return {
+        mode: ed.mode,
+        label: document.getElementById('btn-mode-label').textContent,
+        editable: document.querySelector('#editor-live .cm-content').getAttribute('contenteditable'),
+        gutter: document.querySelectorAll('#editor-live .cm-lineNumbers .cm-gutterElement').length,
+        taskDash: (taskLine ? taskLine.textContent : '').includes('-'),
+        taskCb: taskLine ? taskLine.querySelectorAll('input.cm-lp-cb').length : 0,
+      };
+    });
+    check('阅读模式：只读 + 无行号 + 剥掉源码标记（任务项只剩复选框）',
+      readMode.mode === 'read' && readMode.label === '阅读' && readMode.editable === 'false'
+      && readMode.gutter === 0 && readMode.taskCb === 1 && !readMode.taskDash,
+      JSON.stringify(readMode));
+
+    const mdBeforeRead = await page.evaluate(() => window.__editor.getContent());
+    await page.evaluate(() => document.getElementById('editor-live').click());
+    await page.keyboard.type('ZZZ');
+    await sleep(300);
+    check('阅读模式敲键盘不改内容', mdBeforeRead === (await page.evaluate(() => window.__editor.getContent())));
+
+    const readToggle = await page.evaluate(async () => {
+      const cb = document.querySelector('#editor-live input.cm-lp-cb');
+      if (!cb) return false;
+      cb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      await new Promise((r) => setTimeout(r, 250));
+      return true;
+    });
+    await sleep(300);
+    check('阅读模式下任务框仍可勾选（改的是 doc，不是光标）',
+      readToggle && /- \[[xX]\] 甲任务/.test(await page.evaluate(() => window.__editor.getContent())),
+      await page.evaluate(() => window.__editor.getContent()));
+
+    // 阅读模式下点双链：既要跳过去，又要**留在阅读模式**（换笔记不把模式弹回实时预览）
+    await page.evaluate(() => {
+      [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('测试笔记'))?.click();
+    });
+    await sleep(1000);
+    const linkBoxRead = await page.evaluate(() => {
+      const span = [...document.querySelectorAll('#editor-live .cm-lp-wikilink')].find((s) => s.textContent.includes('双链与反链'));
+      if (!span) return null;
+      const r = span.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    if (linkBoxRead) { await page.mouse.click(linkBoxRead.x, linkBoxRead.y); await sleep(1000); }
+    const afterReadNav = await page.evaluate(() => ({
+      path: document.getElementById('note-path')?.textContent || '',
+      mode: window.__editor.mode,
+      label: document.getElementById('btn-mode-label').textContent,
+    }));
+    check('阅读模式下点双链跳转且保持阅读模式',
+      !!linkBoxRead && afterReadNav.path.includes('双链与反链') && afterReadNav.mode === 'read',
+      JSON.stringify(afterReadNav));
+
+    // 收尾：切回实时预览，免得影响后面的截图
+    await page.evaluate(() => { window.__editor.setMode('live'); });
+    await sleep(300);
 
     await page.screenshot({ path: path.join(__dirname, 'screenshots', 'p4-cm-app.png') });
 

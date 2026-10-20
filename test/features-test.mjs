@@ -20,6 +20,8 @@ fs.writeFileSync(path.join(VAULT, '功能.md'), [
   '## 小节一', '',
   '```js', 'const x = 42; // 注释', 'function foo(a) { return "hi" + a; }', '```', '',
   '| 列A | 列B |', '| --- | --- |', '| 1 | 2 |', '', '段落', '',
+  // 列表标记渲染（2026-10-19）：无序项要出「·」、任务项要去掉 `-`（只剩复选框）
+  '- 无序甲', '* 无序乙', '', '- [ ] 任务丙', '',
 ].join('\n'), 'utf8');
 fs.writeFileSync(path.join(VAULT, '第二篇.md'), '# 第二篇\n\n内容\n', 'utf8');
 
@@ -72,6 +74,28 @@ check('右栏三个切换按钮', rs.tabs.length === 3 && rs.tabs.join(',').incl
 check('点按钮只显示对应面板',
   rs.out.every((r) => r.tab === r.panels[0]?.replace('panel-', '') && r.panels.length === 1),
   JSON.stringify(rs.out.map((r) => `${r.tab}→${r.panels}`)));
+
+/* ---------- ①b 列表标记渲染（2026-10-19 新增） ----------
+ * 契约：无序列表的 `-`/`*`/`+` 要渲染成圆点「·」（不再露源码），
+ * 任务项要把标记整段去掉（复选框就是它的标记）；有序列表仍显示真实编号。 */
+const listDeco = await page.evaluate(() => {
+  const lines = [...document.querySelectorAll('#editor-live .cm-line')];
+  const pick = (t) => lines.find((l) => l.textContent.includes(t));
+  const a = pick('无序甲');
+  const b = pick('无序乙');
+  const c = pick('任务丙');
+  return {
+    bulletA: a ? a.querySelectorAll('.cm-lp-bullet').length : 0,
+    bulletB: b ? b.querySelectorAll('.cm-lp-bullet').length : 0,
+    dashA: /^[-*+]\s/.test(a ? a.textContent : ''),
+    cbC: c ? c.querySelectorAll('input.cm-lp-cb').length : 0,
+    dashC: (c ? c.textContent : '').includes('-'),
+  };
+});
+check('无序列表标记渲染成圆点（不再露 - / *）',
+  listDeco.bulletA === 1 && listDeco.bulletB === 1 && !listDeco.dashA, JSON.stringify(listDeco));
+check('任务项去掉列表标记（只剩复选框）',
+  listDeco.cbC === 1 && !listDeco.dashC, JSON.stringify(listDeco));
 
 /* ---------- ② 代码块语法高亮 ---------- */
 if (IS_CM) {
@@ -243,6 +267,35 @@ if (hist.length) {
   const back = fs.readFileSync(path.join(VAULT, '图.md'), 'utf8');
   check('可恢复到历史版本', restore && back.includes('# 图片'), JSON.stringify(back.trim().split('\n')[0]));
 }
+
+/* ---------- ⑩ 首行 UTF-8 BOM：标题仍要被识别（2026-10-20 修复） ----------
+ * 契约：带 BOM 的笔记，首行 `# 标题` 要照常隐藏 `#`、带标题样式，右栏大纲也要列出它。
+ * 修法在服务端读入口（vault.indexNote）剥掉首行 BOM，所以编辑器/大纲/索引看到的是同一份干净文本。 */
+fs.writeFileSync(path.join(VAULT, '带BOM.md'), '\uFEFF# 带 BOM 的标题\n\n正文\n#标签BOM\n', 'utf8');
+await page.evaluate(async () => { await fetch('/api/vault/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: window.__tracery.state.vault.root }) }); });
+await sleep(1400);
+await page.evaluate(() => window.__tracery.openNote('带BOM.md', null, { newTab: false }));
+await sleep(1200);
+// 刚打开时光标在第 1 行 —— 光标行按设计会露出源码 `#`，断言前先把光标挪到最后一行
+await page.evaluate(() => {
+  const ed = window.__tracery.editor;
+  ed.view.dispatch({ selection: { anchor: ed.view.state.doc.length } });
+});
+await sleep(400);
+const bom = await page.evaluate(() => {
+  const first = document.querySelector('#editor-live .cm-line');
+  return {
+    lineText: first ? first.textContent : '',
+    hasH1: !!first && first.classList.contains('cm-lp-h1'),
+    hashHidden: !!first && !first.textContent.includes('#'),
+    outline: [...document.querySelectorAll('#outline-list .outline-item')].map((e) => e.textContent),
+    noteTags: [...document.querySelectorAll('#note-tags .tag-item, #note-tags .panel-tag')].map((e) => e.textContent.trim()),
+  };
+});
+check('带 BOM 的笔记：首行标题仍被识别（# 隐藏 + 标题样式）',
+  bom.hasH1 && bom.hashHidden && bom.lineText.includes('带 BOM 的标题'), JSON.stringify(bom));
+check('带 BOM 的笔记：右栏大纲能列出首行标题',
+  bom.outline.some((t) => t.includes('带 BOM 的标题')), JSON.stringify(bom.outline));
 
 check('无渲染错误', errors.length === 0, errors.join(' | '));
 

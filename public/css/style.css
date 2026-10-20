@@ -303,7 +303,11 @@ body.electron .win-controls { align-self: stretch; align-items: stretch; margin-
 .electron-only { display: none !important; }
 body.electron .electron-only { display: inline-flex !important; }
 
-.layout { flex: 1; display: flex; min-height: 0; gap: 0; }
+/* 整个主区（含左侧功能栏、两侧栏、以及编辑区四周的缝隙）统一刷**侧栏底色**：
+   编辑区是一张浮在这层底色之上的纸，左右缝隙不再是更暗的窗口底色（用户 2026-10-19 要求）。
+   底色由 .layout 一家承担，.sidebar 改成透明——否则侧栏上会再叠一层半透明色，
+   颜色比缝隙深一档，「缝隙和侧栏同色」就不成立了。 */
+.layout { flex: 1; display: flex; min-height: 0; gap: 0; background: var(--bg-sidebar); }
 
 /* --- 左侧功能栏 --- */
 .ribbon {
@@ -342,7 +346,8 @@ body.electron .electron-only { display: inline-flex !important; }
   width: 272px;
   display: flex; flex-direction: column;
   min-height: 0; flex-shrink: 0;
-  background: var(--bg-sidebar);
+  /* 背景透明：底色由 .layout 统一下发（见上方注释），避免半透明色叠两层 */
+  background: transparent;
   transition: width var(--dur) var(--ease);
 }
 .sidebar-right { width: 296px; }
@@ -403,9 +408,18 @@ body.electron .electron-only { display: inline-flex !important; }
   font-size: 12px; padding: 3px 9px;
 }
 .mode-btn svg { width: 14px; height: 14px; display: block; }
-.mode-btn .ic-code { display: none; }
+.mode-btn .ic-code, .mode-btn .ic-book { display: none; }
 .mode-btn.is-source .ic-eye { display: none; }
 .mode-btn.is-source .ic-code { display: block; }
+.mode-btn.is-read .ic-eye { display: none; }
+.mode-btn.is-read .ic-book { display: block; }
+
+/* 阅读模式（只读）：藏掉光标与图片拖宽手柄——图片本身仍可点开大图、任务框仍可勾选 */
+#editor-live.is-read .cm-cursor,
+#editor-live.is-read .cm-dropCursor { display: none; }
+#editor-live.is-read .cm-lp-img-grip { display: none; }
+/* 阅读模式不要再画「当前行」的强调底色：没有光标行这回事 */
+#editor-live.is-read .cm-activeLine { background: transparent; }
 /* 顶部 6px：给搜索框等首个控件的 focus 光晕留出空间（overflow 会裁掉 box-shadow） */
 .panel-body { flex: 1; overflow-y: auto; padding: 6px 10px 16px; }
 
@@ -476,6 +490,8 @@ body.electron .electron-only { display: inline-flex !important; }
 .context-menu .mi-txt.it { font-family: var(--font-display); font-style: italic; font-size: 12px; }
 .context-menu .mi-txt.st { text-decoration: line-through; }
 .context-menu .mi-label { flex: 1; white-space: nowrap; }
+/* 「当前项」的对勾（标签页列表菜单用）：靠右、强调色 */
+.context-menu .mi-check { margin-left: auto; color: var(--accent); font-size: 12px; flex-shrink: 0; }
 .context-menu .mi-kbd {
   margin-left: 12px; font-family: var(--font-mono); font-size: 10px;
   color: var(--text-tertiary); letter-spacing: 0.2px;
@@ -1735,13 +1751,34 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
 .tab-close:hover { background: var(--bg-fill-hover); color: var(--text-primary); opacity: 1; }
 .tab-close svg { width: 10px; height: 10px; }
 
+/* 标签条最右侧的下拉按钮（列出已开标签 / 关闭全部 / 收藏全部）：
+   铺满标题栏高度，紧跟在标签条右边；标题栏是拖拽区，必须显式 no-drag */
+.tab-more {
+  flex-shrink: 0; align-self: stretch;
+  width: 32px; margin-right: 4px;
+  display: grid; place-items: center;
+  color: var(--text-secondary);
+  -webkit-app-region: no-drag;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.tab-more:hover { background: var(--bg-fill); color: var(--text-primary); }
+.tab-more svg { width: 15px; height: 15px; display: block; }
+
 /* ============ 可拖拽栏宽 ============ */
+/* 拖拽热区要**压在编辑区纸张的左/右边缘**上（用户 2026-10-19 要求：缝隙刷成侧栏色后，
+   视觉上的边界就是纸张边缘，拖拽点也得跟着挪过去）。
+   做法：热区宽 10px，用不对称的负 margin 把它整体右移/左移，使**热区中心 = 纸张边缘**，
+   同时保持「热区 + 两侧 margin」的净宽不变（仍是 1px），纸张位置与原来逐像素一致。
+     左：净宽 = 6 + 10 + (-15) = 1；热区中心 = 侧栏右缘 + 6 + 5 = +11 = 纸张左缘（原为 +0.5）
+     右：净宽 = -15 + 10 + 6 = 1；热区中心 = 编辑区流位置 - 15 + 5 = -10 = 纸张右缘 */
 .resizer {
-  width: 9px; flex: 0 0 9px;
-  margin: 0 -4px;
+  width: 10px; flex: 0 0 10px;
+  margin: 0;
   position: relative; z-index: 6;
   cursor: col-resize;
 }
+#resizer-left { margin: 0 -15px 0 6px; }
+#resizer-right { margin: 0 6px 0 -15px; }
 .resizer::after {
   content: '';
   position: absolute; top: 50%; left: 50%;

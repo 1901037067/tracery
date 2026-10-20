@@ -21,7 +21,7 @@ import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { history, undo, redo, undoDepth, redoDepth, defaultKeymap, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
-import { createLivePreview, fenceHiding, refreshLivePreview } from './decorations.js';
+import { createLivePreview, createFenceHiding, refreshLivePreview } from './decorations.js';
 import { editingExtensions, editingKeymap } from './editing.js';
 import { widgetExtensions, setEmbedWidth } from './widgets.js';
 
@@ -52,7 +52,7 @@ export class CmEditor {
     this.sourceWrap = opts.sourceWrap || null;
 
     this.path = null;
-    this.mode = 'live';            // live | source（同一份 doc，切扩展集）
+    this.mode = 'live';            // live | source | read（同一份 doc，切扩展集）
     this.md = '';                  // 与 view.state.doc 同步的权威文本
     this.dirty = false;
     this.showLineNumbers = true;
@@ -61,8 +61,10 @@ export class CmEditor {
 
     this._loading = false;         // setState 期间抑制 updateListener 的副作用
     this._liveExt = null;          // 实时预览扩展集（缓存，reconfigure 复用）
-    this.decoComp = new Compartment();     // 实时预览装饰（源码模式关掉）
-    this.lineNumComp = new Compartment();  // 行号开关
+    this._readExt = null;          // 阅读模式扩展集（同上）
+    this.decoComp = new Compartment();     // 实时预览/阅读装饰（源码模式关掉）
+    this.lineNumComp = new Compartment();  // 行号开关（阅读模式强制关）
+    this.editableComp = new Compartment(); // 只读开关（阅读模式 EditorView.editable=false）
 
     this.view = new EditorView({
       parent: this.liveEl,
@@ -84,28 +86,38 @@ export class CmEditor {
 
   /* ---------- 扩展装配 ---------- */
   _extensions() {
+    // 阅读模式的两条硬约束：① 不可编辑（没有光标）② 不显示行号（Obsidian 阅读视图也没有）
+    const read = this.mode === 'read';
     return [
-      this.lineNumComp.of(this.showLineNumbers ? lineNumbers() : []),
+      this.editableComp.of(read ? [EditorView.editable.of(false), EditorState.readOnly.of(true)] : []),
+      this.lineNumComp.of(!read && this.showLineNumbers ? lineNumbers() : []),
       history(),
       Prec.high(keymap.of(editingKeymap)),
       keymap.of([...historyKeymap, ...defaultKeymap]),
       markdown({ base: markdownLanguage, addKeymap: false }),
       syntaxHighlighting(defaultHighlightStyle),
-      this.decoComp.of(this.mode === 'live' ? this._liveExtensions() : []),
+      this.decoComp.of(this._decoExtensions()),
       EditorView.lineWrapping,
       EditorView.updateListener.of((u) => this._onUpdate(u)),
     ];
   }
 
-  _liveExtensions() {
-    if (this._liveExt) return this._liveExt;
-    this._liveExt = [
+  /** 装饰集按模式取：live = 实时预览；read = 全量渲染（无光标行概念）；source = 不挂装饰 */
+  _decoExtensions() {
+    if (this.mode === 'read') return this._readExtensions();
+    return this.mode === 'live' ? this._liveExtensions() : [];
+  }
+
+  /** 实时预览 / 阅读共用的装饰装配（差别只在 readOnly 一个开关，见 decorations.js 的注释） */
+  _previewExtensions(readOnly) {
+    return [
       // 装饰层需要两个业务判定：图片嵌入让位给行内 widget、双链补 unresolved 类
       createLivePreview({
         isImage: this.opts.isImage,
         resolveLink: (target) => this.opts.resolveLink?.(target) || null,
+        readOnly,
       }),
-      fenceHiding,
+      createFenceHiding({ readOnly }),
       ...widgetExtensions({
         resolveImage: (name) => {
           const p = this.opts.resolveFile?.(name);
@@ -125,10 +137,23 @@ export class CmEditor {
         onOpenWikilink: (target) => this.opts.onNavigate?.(this.opts.resolveLink?.(target) || target),
         onHoverWikilink: (target, el) => this.opts.onPreviewWikilink?.(target, el),
         onTagClick: (tag) => this.opts.onTagClick?.(tag),
+        readOnly,
       }),
-      ...editingExtensions({ onAssetFile: (file) => this._onAssetFile(file) }),
+      // 阅读模式不装附件拦截：既然不可编辑，粘贴/拖入文件也不该往正文里插东西
+      ...(readOnly ? [] : editingExtensions({ onAssetFile: (file) => this._onAssetFile(file) })),
     ];
+  }
+
+  _liveExtensions() {
+    if (this._liveExt) return this._liveExt;
+    this._liveExt = this._previewExtensions(false);
     return this._liveExt;
+  }
+
+  _readExtensions() {
+    if (this._readExt) return this._readExt;
+    this._readExt = this._previewExtensions(true);
+    return this._readExt;
   }
 
   _onUpdate(u) {
@@ -191,18 +216,32 @@ export class CmEditor {
   async flush() { this._flushSave(); await new Promise((r) => setTimeout(r, 40)); }
 
   /* ---------- 模式 ---------- */
+  get isRead() { return this.mode === 'read'; }
+
   setMode(mode) {
-    if (mode !== 'live' && mode !== 'source') return;
+    if (mode !== 'live' && mode !== 'source' && mode !== 'read') return;
     if (mode === this.mode) return;
     this._flushSave();
     this.mode = mode;
-    // 源码模式 = 关掉实时预览装饰（doc 不变，同一 view）
-    this.view.dispatch({ effects: this.decoComp.reconfigure(mode === 'live' ? this._liveExtensions() : []) });
+    const read = mode === 'read';
+    // 三种模式 = 同一份 doc 换扩展集（不再有独立 textarea）：
+    //   live/source：装饰开/关；read：装饰换「全量渲染」那套 + 只读 + 收行号
+    this.view.dispatch({
+      effects: [
+        this.decoComp.reconfigure(this._decoExtensions()),
+        this.editableComp.reconfigure(read ? [EditorView.editable.of(false), EditorState.readOnly.of(true)] : []),
+        this.lineNumComp.reconfigure(!read && this.showLineNumbers ? lineNumbers() : []),
+      ],
+    });
     if (this.sourceWrap) this.sourceWrap.hidden = true;   // 不再使用独立 textarea
     this.opts.onModeChange?.(mode);
   }
 
-  toggleMode() { this.setMode(this.mode === 'live' ? 'source' : 'live'); }
+  /** 三态循环：实时预览 → 源码 → 阅读 → 实时预览（按钮与 Ctrl+E 都走这里） */
+  toggleMode() {
+    const order = ['live', 'source', 'read'];
+    this.setMode(order[(order.indexOf(this.mode) + 1) % order.length]);
+  }
 
   focus() { this.view.focus(); }
 
@@ -218,9 +257,13 @@ export class CmEditor {
     this.view.dispatch({ effects: this.lineNumComp.reconfigure(this.showLineNumbers ? lineNumbers() : []) });
   }
 
-  /* ---------- 编辑动作 ---------- */
+  /* ---------- 编辑动作 ----------
+   * 阅读模式没有任何编辑入口：这里的 mutation 方法统一提前返回。
+   * 为什么还要兜一层：编辑器不可编辑（无焦点）时键盘进不来，但右键菜单 / 命令面板 /
+   * 绘图的「插入笔记」仍会调用这些方法——漏一个就会在阅读模式下偷偷改掉笔记。 */
   /** 在光标处插入一段 Markdown（绘图、模板等用）：首尾补空行，与 LiveEditor 同口径 */
   insertSnippet(text) {
+    if (this.isRead) return;
     const view = this.view;
     const pos = view.state.selection.main.head;
     const prev = pos > 0 ? view.state.doc.sliceString(pos - 1, pos) : '';
@@ -231,6 +274,7 @@ export class CmEditor {
 
   /** 在光标处插入纯文本（替换选区） */
   insertText(text) {
+    if (this.isRead) return;
     const r = this.view.state.selection.main;
     this.view.dispatch({
       changes: { from: r.from, to: r.to, insert: text },
@@ -241,6 +285,7 @@ export class CmEditor {
 
   /** 用标记包裹选区（无选区时插入成对标记，光标居中） */
   wrapSelection(open, close) {
+    if (this.isRead) return;
     const view = this.view;
     const r = view.state.selection.main;
     const text = view.state.sliceDoc(r.from, r.to);
@@ -261,6 +306,7 @@ export class CmEditor {
 
   /** 当前行替换成指定前缀（'## ' / '- ' / '> ' / '' = 正文），保留缩进 */
   setLinePrefix(prefix) {
+    if (this.isRead) return;
     const view = this.view;
     const line = view.state.doc.lineAt(view.state.selection.main.head);
     const indent = (/^\s*/.exec(line.text))[0];
@@ -280,6 +326,7 @@ export class CmEditor {
 
   /* ---------- 图片 ---------- */
   setImageWidth(fig, width) {
+    if (this.isRead) return false;
     const pos = Number(fig?.dataset?.from);
     if (!Number.isFinite(pos)) return false;
     return setEmbedWidth(this.view, pos, width);
@@ -289,6 +336,7 @@ export class CmEditor {
    *  优先按 widget 记的 `data-from` 精确删（行内嵌入前后还有文字，不能按名字删第一个）；
    *  老路径（块级遗留的 .embed-image / 没有 from）退回「按名字找第一个 ![[..]]」。 */
   removeImageAt(el) {
+    if (this.isRead) return false;
     const fig = el?.closest?.('.cm-lp-img') || el?.closest?.('.embed-image');
     if (!fig) return false;
     const pos = Number(fig.dataset?.from);
@@ -324,8 +372,8 @@ export class CmEditor {
   /* ---------- 撤销/重做 -------- */
   canUndo() { return undoDepth(this.view.state) > 0; }
   canRedo() { return redoDepth(this.view.state) > 0; }
-  undo() { undo(this.view); }
-  redo() { redo(this.view); }
+  undo() { if (this.isRead) return; undo(this.view); }
+  redo() { if (this.isRead) return; redo(this.view); }
 
   /* ---------- 导航 ---------- */
   scrollToHeading(headingText) {

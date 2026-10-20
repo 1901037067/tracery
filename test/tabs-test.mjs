@@ -240,6 +240,69 @@ async function main() {
   check('有历史时撤销按钮可用', !clearUndoDisabled);
   await page.evaluate(() => document.getElementById('draw-cancel').click());
 
+  /* ---------- 标签条最右侧的下拉菜单（2026-10-19 新增） ----------
+   * 三项能力：列出已开标签页（当前项带 ✓）/ 关闭所有标签页 / 收藏所有标签页（= 全部加星标） */
+  const more = await page.evaluate(() => {
+    const btn = document.getElementById('btn-tab-more');
+    const bar = document.querySelector('.titlebar').getBoundingClientRect();
+    const list = document.getElementById('tablist').getBoundingClientRect();
+    const b = btn.getBoundingClientRect();
+    return {
+      exists: !!btn,
+      fullHeight: Math.abs(b.height - bar.height) <= 2,
+      rightOfTabs: b.left >= list.right - 60,
+      tabs: document.querySelectorAll('#tablist .tab').length,
+    };
+  });
+  check('标签条最右侧有下拉按钮（铺满标题栏、位于标签右边）',
+    more.exists && more.fullHeight && more.rightOfTabs && more.tabs >= 2, JSON.stringify(more));
+
+  await page.evaluate(() => document.getElementById('btn-tab-more').click());
+  await sleep(350);
+  const tabMenu = await page.evaluate(() => {
+    const m = document.querySelector('.context-menu');
+    if (!m) return null;
+    return [...m.querySelectorAll('button')].map((b) => ({
+      label: b.querySelector('.mi-label')?.textContent || '',
+      checked: !!b.querySelector('.mi-check'),
+      disabled: b.disabled,
+    }));
+  });
+  check('下拉里列出已开标签页（当前项带勾）+ 关闭所有标签页 + 收藏所有标签页',
+    !!tabMenu && tabMenu.filter((r) => r.checked).length === 1
+    && tabMenu.some((r) => r.label === '关闭所有标签页')
+    && tabMenu.some((r) => r.label.startsWith('收藏所有标签页')),
+    JSON.stringify(tabMenu));
+
+  // 收藏所有标签页 → 每个标签都进「星标」
+  await page.evaluate(() => {
+    [...document.querySelectorAll('.context-menu button')].find((b) => b.textContent.includes('收藏所有标签页'))?.click();
+  });
+  await sleep(600);
+  const pinnedAll = await page.evaluate(() => ({
+    stored: JSON.parse(localStorage.getItem('tracery.pinned') || '[]').length,
+    section: document.querySelectorAll('#file-tree .pinned-section .pinned-item').length,
+    tabs: document.querySelectorAll('#tablist .tab').length,
+  }));
+  check('「收藏所有标签页」把打开的每个标签都加进星标',
+    pinnedAll.tabs >= 2 && pinnedAll.stored === pinnedAll.tabs && pinnedAll.section === pinnedAll.tabs,
+    JSON.stringify(pinnedAll));
+
+  // 关闭所有标签页 → 标签条清空（放最后做，它会把标签都关掉）
+  await page.evaluate(() => document.getElementById('btn-tab-more').click());
+  await sleep(300);
+  await page.evaluate(() => {
+    [...document.querySelectorAll('.context-menu button')].find((b) => b.textContent === '关闭所有标签页')?.click();
+  });
+  await sleep(900);
+  const closedAll = await page.evaluate(() => ({
+    hidden: document.getElementById('tablist').hidden,
+    tabs: document.querySelectorAll('#tablist .tab').length,
+    path: document.getElementById('note-path').textContent,
+  }));
+  check('「关闭所有标签页」清空标签条且当前笔记置空',
+    closedAll.hidden && closedAll.tabs === 0 && closedAll.path === '', JSON.stringify(closedAll));
+
   check('无渲染错误', errors.length === 0, errors.join(' | '));
 
   await browser.close();

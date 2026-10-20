@@ -587,9 +587,9 @@ async function probeDecorations() {
   const inlineOk = !!para && paraText === '普通段落 粗体、斜体、删除线、高亮、代码、双链 #标签';
   const clsOk = !!para && ['cm-lp-bold', 'cm-lp-em', 'cm-lp-del', 'cm-lp-mark', 'cm-lp-code', 'cm-lp-wikilink', 'cm-lp-tag']
     .every((c) => para.querySelector('.' + c));
-  // ③ 列表标记常显（muted）
+  // ③ 列表标记渲染成圆点（2026-10-19 起：无序项的 `-` 换成 `•`，不再露源码横线）
   const li = lineByText('列表项');
-  const liOk = !!li && li.textContent === '- 列表项' && !!li.querySelector('.cm-lp-marker');
+  const liOk = !!li && li.textContent === '• 列表项' && !!li.querySelector('.cm-lp-bullet');
   // ④ 引用：> 藏掉
   const q = lineByText('引用行');
   const qOk = !!q && q.textContent === '引用行';

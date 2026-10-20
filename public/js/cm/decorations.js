@@ -183,11 +183,43 @@ function collectBlockDecos(blocks, state, cursor, out, opts = {}) {
   }
 }
 
-/** 列表项：标记 muted（Obsidian 里列表标记常显）+ 逐行行内 span + 递归子项。
+/** 无序列表的圆点标记（Obsidian 在实时预览里把 `-`/`*`/`+` 渲染成 `•`，而不是露出源码的横线）。
+ *  光标行仍要露源码——build 里的「光标行规则」会跳过这条 replace，两层逻辑正好互补。 */
+class BulletWidget extends WidgetType {
+  toDOM() {
+    const s = document.createElement('span');
+    s.className = 'cm-lp-bullet';
+    s.textContent = '•';
+    return s;
+  }
+  eq() { return true; }
+}
+
+/** 列表「标记段」的形状：缩进 + 标记字符 + 空格 (+ 可选的任务方括号与空格)。
+ *  只认无序标记（`-*+`）——有序列表的 `1.` 要让用户看见真实编号，继续走 muted mark。 */
+const LIST_MARKER_RE = /^([ \t]*)([-*+])([ \t]+)(?:\[[ xX]\][ \t]*)?$/;
+
+/** 列表项：标记 muted（有序列表）+ 逐行行内 span + 递归子项。
+ *  无序项把标记字符换成圆点、任务项把整个标记段去掉（复选框就是它的标记）——
+ *  「说话式」的说明见上面 BulletWidget 的注释。
  *  续言行的 base 按「源码行行首 + 该行缩进」算——scanList 把续言缩进剥掉过，
  *  但 doc 里原行还在，逐行对着 doc 扫才挂得上。 */
 function collectItemDecos(item, state, out, opts = {}) {
-  out.push({ from: item.lineStart, to: item.contentStart, cls: 'cm-lp-marker', kind: 'mark' });
+  const line = item.lineStart != null ? state.doc.lineAt(Math.max(0, Math.min(item.lineStart, state.doc.length))) : null;
+  const raw = line ? state.doc.sliceString(item.lineStart, Math.min(item.contentStart, line.to)) : '';
+  const m = LIST_MARKER_RE.exec(raw);
+  if (line && m) {
+    const from = item.lineStart + m[1].length;          // 跳过缩进（嵌套层级要保住）
+    if (item.task != null) {
+      // 任务项：标记 + 空格整段去掉；`[ ]` 紧接着被 widgets.js 换成复选框
+      out.push({ from, to: from + m[2].length + m[3].length, cls: '', kind: 'hide' });
+    } else {
+      // 普通无序项：只换掉标记字符，后面的空格留着当间隔（`• 文本`）
+      out.push({ from, to: from + m[2].length, kind: 'replace', widget: new BulletWidget() });
+    }
+  } else {
+    out.push({ from: item.lineStart, to: item.contentStart, cls: 'cm-lp-marker', kind: 'mark' });
+  }
   const lines = item.text.split('\n');
   for (let k = 0; k < lines.length; k++) {
     if (!lines[k]) continue;
@@ -213,6 +245,9 @@ function collectItemDecos(item, state, out, opts = {}) {
 export const refreshLivePreview = Annotation.define();
 
 export function createLivePreview(opts = {}) {
+  // 阅读模式：没有「光标行」这回事——所有标记一律隐藏、widget 一律显示（= 剥离源码后的成品）。
+  // 不再另写一套装饰，只是把光标集换成空集。
+  const cursorOf = opts.readOnly ? () => new Set() : cursorLines;
   return ViewPlugin.fromClass(class {
     constructor(view) {
       this.decorations = this.build(view);
@@ -226,7 +261,7 @@ export function createLivePreview(opts = {}) {
     build(view) {
       const state = view.state;
       const { blocks } = parseCached(state);
-      const cursor = cursorLines(state);
+      const cursor = cursorOf(state);
       const raw = [];
       try {
         collectBlockDecos(blocks, state, cursor, raw, opts);
@@ -244,6 +279,8 @@ export function createLivePreview(opts = {}) {
           if (d.kind !== 'line' && cursor.has(state.doc.lineAt(d.from).number)) continue;
           if (d.kind === 'line') spans.push(Decoration.line({ class: d.cls }).range(d.from));
           else if (d.kind === 'mark') spans.push(Decoration.mark({ class: d.cls }).range(d.from, to));
+          // 带 widget 的替换（列表圆点）：把源码标记换成渲染后的样子
+          else if (d.widget && d.from < to) spans.push(Decoration.replace({ widget: d.widget }).range(d.from, to));
           else if (d.from < to) spans.push(Decoration.replace({}).range(d.from, to));
         }
         return Decoration.set(spans, true);
@@ -274,18 +311,26 @@ class ZeroWidget extends WidgetType {
 }
 
 const fenceCache = { key: null, set: null };
-export const fenceHiding = StateField.define({
-  create(state) { return buildFenceDecos(state); },
-  update(value, tr) {
-    if (!tr.docChanged && !tr.selectionSet) return value;
-    return buildFenceDecos(tr.state);
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
 
-function buildFenceDecos(state) {
-  const cursor = cursorLines(state);
-  const key = state.doc.toString() + '|' + [...cursor].join(',');
+/** 围栏/表格分隔行是否要「整行收起」——实时预览按光标判断（光标进代码块要露围栏），
+ *  阅读模式没有光标概念，永远收起。做成工厂是为了让阅读模式拿一份独立实例（各自缓存）。 */
+export function createFenceHiding({ readOnly = false } = {}) {
+  return StateField.define({
+    create(state) { return buildFenceDecos(state, readOnly); },
+    update(value, tr) {
+      if (!tr.docChanged && !tr.selectionSet) return value;
+      return buildFenceDecos(tr.state, readOnly);
+    },
+    provide: (f) => EditorView.decorations.from(f),
+  });
+}
+
+/** 无参实例：探针页与实时预览沿用（行为与加工厂前逐字一致） */
+export const fenceHiding = createFenceHiding();
+
+function buildFenceDecos(state, readOnly = false) {
+  const cursor = readOnly ? new Set() : cursorLines(state);
+  const key = (readOnly ? 'ro|' : 'rw|') + state.doc.toString() + '|' + [...cursor].join(',');
   if (fenceCache.key === key) return fenceCache.set;
   fenceCache.key = key;
   const { blocks } = parseCached(state);

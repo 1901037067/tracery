@@ -252,6 +252,8 @@ const ICON = {
   selectAll: S('<rect x="2.6" y="2.6" width="10.8" height="10.8" rx="1.4" stroke-dasharray="2.6 2"/><path d="M6.2 6.6l4 1.6-1.6.8-.8 1.6z"/>'),
   undo: S('<path d="M6 4.6L3.2 7.4 6 10.2"/><path d="M3.2 7.4h6.1a3.1 3.1 0 0 1 0 6.2H7.1"/>'),
   redo: S('<path d="M10 4.6l2.8 2.8L10 10.2"/><path d="M12.8 7.4H6.7a3.1 3.1 0 0 0 0 6.2h2.2"/>'),
+  close: S('<path d="M4 4l8 8M12 4l-8 8"/>'),
+  book: S('<path d="M2.6 4.2A1.4 1.4 0 0 1 4 2.8h9.4v9.4H4.6A1.4 1.4 0 0 0 3.2 13.6z"/><path d="M2.6 12.2V4.2"/><path d="M13.4 12.2H4.6"/><path d="M6.2 5.6h4.6M6.2 7.8h3.2"/>'),
 };
 
 function iconForFile(name) {
@@ -512,6 +514,7 @@ function showMenu(x, y, items) {
     if (it.title) btn.title = it.title;
     btn.innerHTML = `<span class="mi-icon${it.iconOn ? ' on' : ''}">${it.icon || ''}</span>`
       + `<span class="mi-label">${it.label}</span>`
+      + (it.checked ? '<span class="mi-check">✓</span>' : '')
       + (it.kbd ? `<span class="mi-kbd">${it.kbd}</span>` : '');
     btn.onclick = (e) => { e.stopPropagation(); closeCtxMenu(); it.action?.(); };
     ctxMenu.appendChild(btn);
@@ -990,37 +993,40 @@ async function pasteFromClipboard() {
 function showTextMenu(e) {
   // 所有动作都先还原右键时的选区（点菜单会把选区清掉）
   const item = (ic, label, fn) => ({ icon: ic, label, action: withSelection(fn) });
+  // 阅读模式是只读的：改内容的那批项直接置灰（否则点了没反应，用户以为菜单坏了）
+  const ro = editor.isRead;
+  const editItem = (ic, label, fn) => ({ icon: ic, label, disabled: ro, action: withSelection(fn) });
   const canUndo = editor.canUndo();
   const canRedo = editor.canRedo();
   showMenu(e.clientX, e.clientY, [
-    { icon: ICON.undo, label: '撤销', kbd: 'Ctrl Z', disabled: !canUndo, action: withSelection(() => editor.undo()) },
-    { icon: ICON.redo, label: '重做', kbd: 'Ctrl ⇧ Z', disabled: !canRedo, action: withSelection(() => editor.redo()) },
+    { icon: ICON.undo, label: '撤销', kbd: 'Ctrl Z', disabled: ro || !canUndo, action: withSelection(() => editor.undo()) },
+    { icon: ICON.redo, label: '重做', kbd: 'Ctrl ⇧ Z', disabled: ro || !canRedo, action: withSelection(() => editor.redo()) },
     '-',
-    item(ICON.link, '新增链接', () => editor.wrapSelection('[[', ']]')),
-    item(ICON.globe, '新增外部链接', () => editor.wrapSelection('[', '](https://)')),
+    editItem(ICON.link, '新增链接', () => editor.wrapSelection('[[', ']]')),
+    editItem(ICON.globe, '新增外部链接', () => editor.wrapSelection('[', '](https://)')),
     '-',
-    item(T('B'), '加粗', () => editor.wrapSelection('**', '**')),
-    item(T('I', 'it'), '斜体', () => editor.wrapSelection('*', '*')),
-    item(T('S', 'st'), '删除线', () => editor.wrapSelection('~~', '~~')),
-    item(ICON.pencil, '高亮', () => editor.wrapSelection('==', '==')),
-    item(ICON.code, '行内代码', () => editor.wrapSelection('`', '`')),
+    editItem(T('B'), '加粗', () => editor.wrapSelection('**', '**')),
+    editItem(T('I', 'it'), '斜体', () => editor.wrapSelection('*', '*')),
+    editItem(T('S', 'st'), '删除线', () => editor.wrapSelection('~~', '~~')),
+    editItem(ICON.pencil, '高亮', () => editor.wrapSelection('==', '==')),
+    editItem(ICON.code, '行内代码', () => editor.wrapSelection('`', '`')),
     '-',
-    item(T('H1'), '标题 1', () => editor.setLinePrefix('# ')),
-    item(T('H2'), '标题 2', () => editor.setLinePrefix('## ')),
-    item(T('H3'), '标题 3', () => editor.setLinePrefix('### ')),
-    item(T('¶'), '正文', () => editor.setLinePrefix('')),
-    item(ICON.list, '无序列表', () => editor.setLinePrefix('- ')),
-    item(ICON.task, '任务', () => editor.setLinePrefix('- [ ] ')),
-    item(ICON.quote, '引用', () => editor.setLinePrefix('> ')),
+    editItem(T('H1'), '标题 1', () => editor.setLinePrefix('# ')),
+    editItem(T('H2'), '标题 2', () => editor.setLinePrefix('## ')),
+    editItem(T('H3'), '标题 3', () => editor.setLinePrefix('### ')),
+    editItem(T('¶'), '正文', () => editor.setLinePrefix('')),
+    editItem(ICON.list, '无序列表', () => editor.setLinePrefix('- ')),
+    editItem(ICON.task, '任务', () => editor.setLinePrefix('- [ ] ')),
+    editItem(ICON.quote, '引用', () => editor.setLinePrefix('> ')),
     '-',
-    item(ICON.table, '插入表格', () => editor.insertSnippet('| 列 1 | 列 2 |\n| --- | --- |\n|  |  |')),
-    item(ICON.codeBlock, '插入代码块', () => editor.insertSnippet('```\n\n```')),
-    item(ICON.rule, '插入分割线', () => editor.insertSnippet('---')),
+    editItem(ICON.table, '插入表格', () => editor.insertSnippet('| 列 1 | 列 2 |\n| --- | --- |\n|  |  |')),
+    editItem(ICON.codeBlock, '插入代码块', () => editor.insertSnippet('```\n\n```')),
+    editItem(ICON.rule, '插入分割线', () => editor.insertSnippet('---')),
     '-',
-    item(ICON.scissors, '剪切', () => document.execCommand('cut')),
+    { ...item(ICON.scissors, '剪切', () => document.execCommand('cut')), disabled: ro },
     item(ICON.copy, '复制', () => document.execCommand('copy')),
-    item(ICON.clipboard, '粘贴', pasteFromClipboard),
-    item(ICON.clipboardText, '以纯文本形式粘贴', pasteFromClipboard),
+    { ...item(ICON.clipboard, '粘贴', pasteFromClipboard), disabled: ro },
+    { ...item(ICON.clipboardText, '以纯文本形式粘贴', pasteFromClipboard), disabled: ro },
     item(ICON.selectAll, '全选', () => editor.selectAll()),
   ]);
 }
@@ -1090,7 +1096,7 @@ function showImageMenu(e, target) {
     ...(/[.](png|jpe?g|webp|gif)$/i.test(resolved || '')
       ? [{ icon: ICON.pencil, label: '编辑绘图', action: () => editDrawing(resolved) }, '-']
       : []),
-    { icon: ICON.scissors, label: '移除图片', action: () => editor.removeImageAt(img) },
+    { icon: ICON.scissors, label: '移除图片', disabled: editor.isRead, action: () => editor.removeImageAt(img) },
     { icon: ICON.trash, label: '删除图片文件', danger: true, action: () => deleteAssetFile(resolved) },
   ]);
 }
@@ -1326,6 +1332,69 @@ function renderTabs() {
   updateTabOverflow();
 }
 
+/** 标签条最右侧的下拉菜单（2026-10-19 用户需求）：
+ *  ① 列出当前打开了哪些标签页（当前那个带 ✓，点一项即切过去）；② 关闭所有标签页；③ 收藏所有标签页。 */
+function showTabMenu(btn) {
+  const r = btn.getBoundingClientRect();
+  const items = [];
+  if (state.tabs.length) {
+    state.tabs.forEach((p, i) => {
+      items.push({
+        icon: ICON.doc,
+        label: basename(p),
+        title: p,                       // 悬停看完整路径（菜单里塞路径会太宽，见 §5-52）
+        checked: i === state.activeTab,
+        action: () => activateTab(i),
+      });
+    });
+  } else {
+    items.push({ label: '当前没有打开的标签页', icon: ICON.doc, disabled: true });
+  }
+  items.push('-');
+  items.push({
+    label: '关闭所有标签页',
+    icon: ICON.close,
+    disabled: !state.tabs.length,
+    action: () => closeAllTabs(),
+  });
+  items.push({
+    label: state.tabs.length ? `收藏所有标签页（${state.tabs.length}）` : '收藏所有标签页',
+    icon: ICON.star,
+    disabled: !state.tabs.length,
+    action: () => pinAllTabs(),
+  });
+  showMenu(r.left, r.bottom + 6, items);
+}
+
+/** 关闭全部标签页（与逐一点 × 同口径：先 flush 再清空） */
+async function closeAllTabs() {
+  if (!state.tabs.length) return;
+  await editor.flush();
+  state.tabs = [];
+  state.activeTab = -1;
+  state.currentPath = null;
+  localStorage.removeItem('tracery.lastNote');
+  editor.load('', '');
+  $('note-path').textContent = '';
+  refreshRightPanels(null);
+  renderTree();
+  renderTabs();
+  saveTabsState();
+  toast('已关闭全部标签页');
+}
+
+/** 把当前打开的所有标签页都加进「星标」（文件树顶部星标区），已加过的跳过 */
+function pinAllTabs() {
+  if (!state.tabs.length) { toast('当前没有打开的标签页'); return; }
+  let added = 0;
+  for (const p of state.tabs) {
+    if (!state.pinned.has(p)) { state.pinned.add(p); added += 1; }
+  }
+  localStorage.setItem('tracery.pinned', JSON.stringify([...state.pinned]));
+  renderTree();
+  toast(added ? `已收藏 ${added} 个标签页` : '这些标签页都已经收藏过了');
+}
+
 /** 标签溢出时给可滚的一侧加渐隐（配合 CSS 的 mask），提示那边还有标签 */
 function updateTabOverflow() {
   const list = $('tablist');
@@ -1344,7 +1413,9 @@ async function loadTab(path, heading) {
     const { content } = await Api.note(path);
     state.currentPath = path;
     $('note-path').textContent = path;
-    editor.load(path, content);
+    // 阅读模式要跨笔记保持：在阅读视图里点双链跳到别的笔记，仍应停在阅读模式
+    // （live / source 保持老行为：换笔记回到实时预览）
+    editor.load(path, content, { keepMode: editor.isRead });
     renderTree(); // 高亮
     pushRecent(path);
     refreshRightPanels(content);
@@ -1707,7 +1778,7 @@ function renderPalette(q) {
     { icon: '↶', name: '撤销（Ctrl+Z）', sub: '命令', action: () => editor.undo() },
     { icon: '↷', name: '重做（Ctrl+Shift+Z）', sub: '命令', action: () => editor.redo() },
     { icon: '🎨', name: '切换主题皮肤（Apple 风 / Obsidian 风）', sub: '外观', action: cycleThemeSkin },
-    { icon: '👁', name: '切换实时预览 / 源码模式', sub: '命令', action: () => editor.toggleMode() },
+    { icon: '👁', name: '切换编辑模式（实时预览 / 源码 / 阅读）', sub: '命令', action: () => editor.toggleMode() },
     { icon: '🕸️', name: '打开图谱视图', sub: '命令', action: () => switchPanel('graph') },
     { icon: '🔍', name: '搜索笔记内容', sub: '命令', action: () => { switchPanel('search'); $('search-input').focus(); } },
     { icon: '📤', name: '导出为 HTML', sub: '命令', action: () => exportHtml() },
@@ -1851,8 +1922,11 @@ editor = new CmEditor({
   },
   onModeChange: (mode) => {
     const label = $('btn-mode-label');
-    if (label) label.textContent = mode === 'live' ? '实时预览' : '源码';
+    if (label) label.textContent = mode === 'live' ? '实时预览' : mode === 'source' ? '源码' : '阅读';
     $('btn-mode').classList.toggle('is-source', mode === 'source');
+    $('btn-mode').classList.toggle('is-read', mode === 'read');
+    // 阅读模式：藏光标 / 图片拖宽手柄（见 style.css 的 #editor-live.is-read 规则）
+    $('editor-live').classList.toggle('is-read', mode === 'read');
   },
 });
 
@@ -2044,6 +2118,8 @@ function initGraph() {
 /** 打开绘图面板：画完的 PNG 会插入到当前笔记光标处 */
 function openDrawPanel() {
   if (!state.currentPath) { toast('先打开一篇笔记，绘图会插入到光标处'); return; }
+  // 阅读模式是只读的，插不进去：先切回实时预览，避免「画完点了插入却什么也没发生」
+  if (editor.isRead) editor.setMode('live');
   openDraw({
     getNotePath: () => state.currentPath,   // 「跟随笔记」模式时决定绘图落点
     onInserted: async (path) => {
@@ -2187,6 +2263,8 @@ function bindGlobalEvents() {
   $('btn-theme').onclick = toggleTheme;
   $('btn-toggle-left').onclick = () => $('sidebar').classList.toggle('collapsed');
   $('btn-toggle-right').onclick = () => $('sidebar-right').classList.toggle('collapsed');
+  // 标签条最右侧的下拉：标签页列表 / 关闭全部 / 收藏全部
+  $('btn-tab-more').onclick = (e) => { e.stopPropagation(); showTabMenu(e.currentTarget); };
   // 折叠状态要看得出来：右栏被折叠时（大纲「消失」了）按钮必须亮起提示，
   // 否则用户会以为面板出 bug 了
   const syncSidebarToggles = () => {

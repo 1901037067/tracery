@@ -162,6 +162,27 @@ check('活动标签：垫纸色 + 底部强调线（标签条本身无缝）',
   header.tabActiveBg === 'sheet' && header.tabAccentLine,
   `bg=${header.tabActiveBg} accent=${header.tabAccentLine}`);
 
+/* ---------- 2b. 缝隙配色 + 拖拽分隔条压在纸张边缘（2026-10-19 用户要求） ---------- */
+const shell = await page.evaluate(() => {
+  const paper = document.getElementById('editor-area').getBoundingClientRect();
+  const l = document.getElementById('resizer-left').getBoundingClientRect();
+  const r = document.getElementById('resizer-right').getBoundingClientRect();
+  const rd = (v) => Math.round(v * 10) / 10;
+  return {
+    layoutBg: getComputedStyle(document.querySelector('.layout')).backgroundColor.replace(/\s+/g, ''),
+    sidebarVar: getComputedStyle(document.documentElement).getPropertyValue('--bg-sidebar').trim().replace(/\s+/g, ''),
+    leftCenter: rd(l.left + l.width / 2),
+    rightCenter: rd(r.left + r.width / 2),
+    paperLeft: rd(paper.left),
+    paperRight: rd(paper.right),
+  };
+});
+check('编辑区四周缝隙刷成侧栏底色（编辑区像浮在侧栏色页面上）',
+  shell.layoutBg === shell.sidebarVar, JSON.stringify(shell));
+check('拖拽分隔条压在纸张左/右边缘（±2px，与视觉边界重合）',
+  Math.abs(shell.leftCenter - shell.paperLeft) <= 2 && Math.abs(shell.rightCenter - shell.paperRight) <= 2,
+  JSON.stringify(shell));
+
 /* ================= 3. 图片查看 / 行号 / 折叠图标 ================= */
 
 // ① 文件树点图片 → 灯箱查看（以前会尝试当笔记打开，报「笔记不存在」）

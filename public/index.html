@@ -82,6 +82,12 @@
         </button>
       </div>
       <div class="tablist" id="tablist" hidden></div>
+      <!-- 标签条最右侧的「标签页列表」下拉（列出已开标签 / 关闭全部 / 收藏全部） -->
+      <button id="btn-tab-more" class="tab-more" title="标签页列表" aria-label="标签页列表">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 6.4L8 10.4l4-4"/>
+        </svg>
+      </button>
       <div class="titlebar-right">
         <button id="btn-toggle-right" class="icon-btn" title="折叠右侧栏 (Ctrl+Shift+\)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
@@ -247,12 +253,15 @@
           <!-- 当前笔记路径的状态镜像：界面不再显示路径行（Tab 已显示文件名），
                测试与调试通过它读取当前笔记；不渲染任何可见内容 -->
           <span id="note-path" hidden aria-hidden="true"></span>
-          <button class="mini-btn mode-btn" id="btn-mode" title="切换实时预览 / 源码模式 (Ctrl+E)">
+          <button class="mini-btn mode-btn" id="btn-mode" title="切换 实时预览 / 源码 / 阅读 三种模式 (Ctrl+E)">
             <svg class="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
               <path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>
             </svg>
             <svg class="ic-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>
+            </svg>
+            <svg class="ic-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 4.4A1.8 1.8 0 0 1 5.8 2.6H19v14.2H6.4A1.8 1.8 0 0 0 4.6 18.6z"/><path d="M4 17.2V4.4"/><path d="M19 16.8H6.4"/><path d="M9 6.6h6.4M9 9.6h4.6"/>
             </svg>
             <span id="btn-mode-label">实时预览</span>
           </button>

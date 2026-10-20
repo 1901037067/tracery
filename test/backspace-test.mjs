@@ -147,8 +147,11 @@ await sleep(500);
 check(IS_CM ? 'Ctrl+Y 重做（cm：Mod-Shift-z 会被 Shift 大写坑掉）' : 'Ctrl+Shift+Z 重做',
   (await md()) === '我做的这个系统是中文法律问答 RAG 链路。\n123123123\n', JSON.stringify(await md()));
 
-/* ---------- ②b 源码模式一致性（用户当初就是靠这个发现模型没变的） ---------- */
-await page.keyboard.down('Control'); await page.keyboard.press('e'); await page.keyboard.up('Control');
+/* ---------- ②b 源码模式一致性（用户当初就是靠这个发现模型没变的） ----------
+ * 契约更新（2026-10-19）：模式按钮/ Ctrl+E 从「两态切换」改成「三态循环」
+ * （实时预览 → 源码 → 阅读），按两次 Ctrl+E 会落到**阅读模式**而不是回到实时预览；
+ * 所以这里改成显式 setMode，避免依赖按键次数（也别把后面的用例带进只读模式）。 */
+await page.evaluate(() => window.__tracery.editor.setMode('source'));
 await sleep(500);
 // 块级源码模式是独立的 #editor-source textarea；cm 源码模式仍是同一个 view（文档不变）
 const srcVal = await page.evaluate(() => {
@@ -156,8 +159,10 @@ const srcVal = await page.evaluate(() => {
   return ed.view ? ed.getContent() : document.querySelector('#editor-source').value;
 });
 check('源码模式与实时预览一致（都进了模型）', srcVal === (await md()), JSON.stringify(srcVal));
-await page.keyboard.down('Control'); await page.keyboard.press('e'); await page.keyboard.up('Control');
+await page.evaluate(() => window.__tracery.editor.setMode('live'));
 await sleep(500);
+check('模式已切回实时预览（后面用例要在可编辑状态跑）',
+  (await page.evaluate(() => window.__tracery.editor.mode)) === 'live');
 
 /* ---------- ③ 普通行合并（无标记前缀） ---------- */
 await openNote('# 标题\n\n甲\n乙\n');
