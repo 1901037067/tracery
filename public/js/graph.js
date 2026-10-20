@@ -210,14 +210,18 @@ export class ForceGraph {
 
   _bind() {
     let panning = false, lastX = 0, lastY = 0;
+    let startX = 0, startY = 0, moved = false;
 
     this.canvas.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
       const n = this._nodeAt(e);
       if (n) { this.dragNode = n; this._reheat(); }
       else { panning = true; }
       lastX = e.clientX; lastY = e.clientY;
+      startX = e.clientX; startY = e.clientY; moved = false;
     });
     window.addEventListener('mousemove', (e) => {
+      if ((this.dragNode || panning) && Math.hypot(e.clientX - startX, e.clientY - startY) > 5) moved = true;
       if (this.dragNode) {
         const { x, y } = this._toWorld(e);
         this.dragNode.x = x; this.dragNode.y = y;
@@ -236,11 +240,13 @@ export class ForceGraph {
         }
       }
     });
-    window.addEventListener('mouseup', () => {
+    window.addEventListener('mouseup', (e) => {
+      if (e.button !== 0) return;
       if (this.dragNode) {
         const clicked = this.dragNode;
         this.dragNode = null;
-        this.opts.onNodeClick?.(clicked.id);
+        // 大图谱里拖节点用于整理布局，只有原地单击才应离开图谱打开笔记。
+        if (!moved) this.opts.onNodeClick?.(clicked.id);
       }
       panning = false;
     });

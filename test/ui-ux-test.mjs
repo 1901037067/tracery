@@ -159,26 +159,84 @@ async function main() {
   check('Esc 关闭灯箱', await page.evaluate(() => document.querySelector('.lightbox').hidden));
 
   /* ---------- 4. 图谱全屏 ---------- */
-  await page.evaluate(() => document.querySelector('.ribbon-btn[data-panel="graph"]').click());
-  await sleep(1200);
-  const beforeW = await page.evaluate(() => Math.round(document.getElementById('graph-canvas').getBoundingClientRect().width));
-  await page.evaluate(() => document.getElementById('btn-graph-full').click());
-  await sleep(900);
+  await page.click('.ribbon-btn[data-panel="graph"]');
+  await sleep(1600);
   const focused = await page.evaluate(() => ({
     focus: document.body.classList.contains('graph-focus'),
     canvasW: Math.round(document.getElementById('graph-canvas').getBoundingClientRect().width),
     editorHidden: getComputedStyle(document.querySelector('.editor-area')).display === 'none',
+    rightHidden: getComputedStyle(document.getElementById('sidebar-right')).display === 'none',
+    availableW: document.querySelector('.layout').clientWidth - document.querySelector('.ribbon').offsetWidth,
   }));
-  check('图谱全屏后画布明显变宽', focused.focus && focused.canvasW > beforeW * 2.5, `${beforeW} → ${focused.canvasW}`);
-  check('全屏时隐藏编辑区', focused.editorHidden);
+  // 新入口直接全屏，旧的「先小图再点放大」断言按新设计改写。
+  check('点击图谱直接铺满工作区', focused.focus && focused.canvasW >= focused.availableW - 24, JSON.stringify(focused));
+  check('全屏时隐藏编辑区和右栏', focused.editorHidden && focused.rightHidden);
   await page.screenshot({ path: path.join(SHOTS, 'ux-graph-full.png') });
+
+  // 从真实画布绘制坐标取得节点落点，验证鼠标操作而非直接调用回调。
+  const nodePoint = () => page.evaluate(() => {
+    const canvas = document.getElementById('graph-canvas');
+    const ctx = canvas.getContext('2d');
+    const original = ctx.arc;
+    const points = [];
+    ctx.arc = function(x, y, ...rest) {
+      const p = this.getTransform().transformPoint(new DOMPoint(x, y));
+      points.push({ x: p.x / devicePixelRatio, y: p.y / devicePixelRatio });
+      return original.call(this, x, y, ...rest);
+    };
+    document.getElementById('btn-graph-fit').click();
+    ctx.arc = original;
+    const rect = canvas.getBoundingClientRect();
+    return { x: rect.left + points[0].x, y: rect.top + points[0].y, path: window.__tracery.state.graph.nodes[0].id };
+  });
+  const point = await nodePoint();
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.mouse.move(point.x + 80, point.y + 40, { steps: 10 });
+  await page.mouse.up();
+  check('拖动节点松手保持图谱打开', await page.evaluate(() => document.body.classList.contains('graph-focus')));
+  await sleep(1600);
+  const clickPoint = await nodePoint();
+  await page.mouse.click(clickPoint.x, clickPoint.y);
+  await sleep(600);
+  check('单击节点返回编辑区并打开对应笔记', await page.evaluate((path) =>
+    !document.body.classList.contains('graph-focus') && document.getElementById('note-path').textContent === path, clickPoint.path));
+
+  await page.click('.ribbon-btn[data-panel="search"]');
+  await page.click('.ribbon-btn[data-panel="graph"]');
   await page.keyboard.press('Escape');
-  await sleep(700);
+  await sleep(400);
   const exited = await page.evaluate(() => ({
     focus: document.body.classList.contains('graph-focus'),
-    canvasW: Math.round(document.getElementById('graph-canvas').getBoundingClientRect().width),
+    searchActive: document.getElementById('panel-search').classList.contains('active'),
+    editorVisible: getComputedStyle(document.getElementById('editor-area')).display !== 'none',
   }));
-  check('Esc 退出图谱全屏', !exited.focus && exited.canvasW < beforeW * 1.6, JSON.stringify(exited));
+  check('Esc 关闭图谱并恢复先前的搜索面板', !exited.focus && exited.searchActive && exited.editorVisible, JSON.stringify(exited));
+
+  await page.click('#btn-toggle-left');
+  await sleep(300);
+  await page.click('.ribbon-btn[data-panel="graph"]');
+  await sleep(1000);
+  check('左栏折叠时也能打开大图谱', await page.$eval('#graph-canvas', (el) => el.getBoundingClientRect().width > 1200));
+  await page.click('#btn-graph-full');
+  await sleep(300);
+  check('关闭按钮恢复原来的左栏折叠状态', await page.$eval('#sidebar', (el) => el.getBoundingClientRect().width === 0));
+  await page.click('#btn-toggle-left');
+
+  await page.click('.ribbon-btn[data-panel="graph"]');
+  await page.click('#tablist .tab.active');
+  check('点击当前笔记标签也能返回编辑区', await page.evaluate(() => !document.body.classList.contains('graph-focus')));
+
+  await page.keyboard.down('Control');
+  await page.keyboard.press('p');
+  await page.keyboard.up('Control');
+  await page.type('#palette-input', '打开图谱视图');
+  await sleep(300);
+  await page.keyboard.press('Enter');
+  await sleep(1000);
+  check('命令面板同样直接打开大图谱', await page.evaluate(() => document.body.classList.contains('graph-focus')));
+  await page.click('.ribbon-btn[data-panel="files"]');
+  check('切换文件面板退出图谱', await page.evaluate(() => !document.body.classList.contains('graph-focus')));
 
   check('无渲染错误', errors.length === 0, errors.join(' | '));
 

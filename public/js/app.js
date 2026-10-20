@@ -1431,6 +1431,7 @@ async function loadTab(path, heading) {
 
 async function activateTab(i, heading) {
   if (i < 0 || i >= state.tabs.length) return;
+  if (document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
   const path = state.tabs[i];
   if (state.activeTab === i && state.currentPath === path) {
     if (heading) editor.scrollToHeading(heading);
@@ -1655,7 +1656,16 @@ function escapeText(s) {
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /* ================= 面板切换 ================= */
+let graphReturnPanel = 'files';
+let graphFitTimers = [];
 function switchPanel(name) {
+  const wasGraph = document.body.classList.contains('graph-focus');
+  if (name === 'graph' && !wasGraph) {
+    graphReturnPanel = document.querySelector('.ribbon-btn[data-panel].active')?.dataset.panel || 'files';
+  }
+  document.body.classList.toggle('graph-focus', name === 'graph');
+  for (const timer of graphFitTimers) clearTimeout(timer);
+  graphFitTimers = [];
   for (const btn of document.querySelectorAll('.ribbon-btn[data-panel]')) {
     btn.classList.toggle('active', btn.dataset.panel === name);
   }
@@ -1664,11 +1674,17 @@ function switchPanel(name) {
   for (const panel of document.querySelectorAll('#sidebar .panel')) {
     panel.classList.toggle('active', panel.id === `panel-${name}`);
   }
-  // 切到别的面板就退出图谱全屏
-  if (name !== 'graph' && document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
-  if (name === 'graph' && graphView && state.graph) {
-    graphView.opts.activePath = state.currentPath;
-    graphView.setData(state.graph);
+  if (name === 'graph') {
+    // 入口统一进入大画布；保留侧栏原有折叠状态，退出时直接还原。
+    if (!graphView) initGraph();
+    else if (state.graph) {
+      graphView.opts.activePath = state.currentPath;
+      graphView.setData(state.graph);
+    }
+    graphFitTimers = [
+      setTimeout(() => graphView?.fit({ reheat: true }), 240),
+      setTimeout(() => graphView?.fit(), 900),
+    ];
   }
   if (name === 'search') {
     setTimeout(() => $('search-input').focus(), 30);
@@ -1686,24 +1702,10 @@ function switchRightPanel(name) {
   localStorage.setItem('tracery.rsTab', name);
 }
 
-/** 图谱全屏：把左侧面板撑满窗口（保留功能区图标栏），专注看图 */
+/** 退出后回到打开图谱前的面板，不再退成左侧栏中的小图谱。 */
 function toggleGraphFocus(force) {
   const on = typeof force === 'boolean' ? force : !document.body.classList.contains('graph-focus');
-  document.body.classList.toggle('graph-focus', on);
-  const btn = $('btn-graph-full');
-  if (btn) {
-    btn.classList.toggle('active', on);
-    btn.title = on ? '退出全屏 (Esc)' : '全屏看图谱';
-  }
-  if (on) {
-    switchPanel('graph');
-    // 等布局稳定后让图谱适配新尺寸（力导向还要跑一会儿，二次适配兜底）
-    setTimeout(() => graphView?.fit({ reheat: true }), 240);
-    setTimeout(() => graphView?.fit(), 900);
-  } else {
-    setTimeout(() => graphView?.fit({ reheat: true }), 240);
-    setTimeout(() => graphView?.fit(), 900);
-  }
+  switchPanel(on ? 'graph' : graphReturnPanel);
 }
 
 /* ================= 搜索 ================= */
@@ -1961,7 +1963,10 @@ let graphView = null;
 function initGraph() {
   graphView = new ForceGraph($('graph-canvas'), {
     activePath: state.currentPath,
-    onNodeClick: (path) => openNote(path),
+    onNodeClick: (path) => {
+      toggleGraphFocus(false);
+      openNote(path);
+    },
   });
   if (state.graph) graphView.setData(state.graph);
 }
@@ -2267,11 +2272,6 @@ function bindGlobalEvents() {
     if (pop) pop.hidden = true;
   }, true);
 
-  // 初始化图谱（面板首次显示时）
-  const observer = new MutationObserver(() => {
-    if ($('panel-graph').classList.contains('active') && !graphView) initGraph();
-  });
-  observer.observe($('panel-graph'), { attributes: true, attributeFilter: ['class'] });
 }
 
 /* ================= WebSocket 同步 ================= */

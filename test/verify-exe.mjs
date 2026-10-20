@@ -109,6 +109,15 @@ await new Promise((r) => setTimeout(r, 500));
 const hasSyncPane = await page.evaluate(() => !!document.querySelector('.settings-nav button[data-pane="sync"]'));
 await page.keyboard.press('Escape');
 check('打包版：设置里有同步页', hasSyncPane);
+await page.click('.ribbon-btn[data-panel="graph"]');
+await new Promise((r) => setTimeout(r, 1200));
+const fullGraph = await page.evaluate(() => ({
+  focus: document.body.classList.contains('graph-focus'),
+  width: document.getElementById('graph-canvas').getBoundingClientRect().width,
+  available: document.querySelector('.layout').clientWidth - document.querySelector('.ribbon').offsetWidth,
+}));
+check('打包版：图谱入口直接铺满工作区', fullGraph.focus && fullGraph.width >= fullGraph.available - 24, JSON.stringify(fullGraph));
+await page.keyboard.press('Escape');
 check('打包版：渲染进程无 JS 错误', errors.length === 0, errors.join('; '));
 await browser.disconnect();
 

@@ -181,9 +181,7 @@ check('拖拽分隔条压在纸张左/右边缘（±2px，与视觉边界重合�
   Math.abs(shell.leftCenter - shell.paperLeft) <= 2 && Math.abs(shell.rightCenter - shell.paperRight) <= 2,
   JSON.stringify(shell));
 
-/* ---------- 2c. 沉浸式无缝拼接：顶栏与左侧栏连成一整块（2026-10-20 用户要求） ----------
- * 判断口径：顶栏不能有底边线，且顶栏与 .layout（含左侧栏）底色必须同一值——
- * 两者都成立时，「顶栏 + 侧栏」在视觉上才是一整块区域（少一条线就够了）。 */
+/* ---------- 2c. 同底色 + 图标栏右缘与标签栏下缘的连续圆弧边界 ---------- */
 const seamless = await page.evaluate(() => {
   const tb = document.querySelector('.titlebar');
   const ly = document.querySelector('.layout');
@@ -201,6 +199,31 @@ check('顶栏与左侧栏无缝拼接（顶栏无底边线 + 与侧栏底色一�
   && seamless.titlebarBg === seamless.layoutBg
   && seamless.ribbonBg === 'rgba(0,0,0,0)' && seamless.sidebarBg === 'rgba(0,0,0,0)',
   JSON.stringify(seamless));
+
+for (const theme of ['light', 'dark']) {
+  const boundary = await page.evaluate((theme) => {
+    document.documentElement.dataset.theme = theme;
+    const layout = document.querySelector('.layout');
+    const line = getComputedStyle(layout, '::after');
+    const rect = layout.getBoundingClientRect();
+    const ribbon = document.querySelector('.ribbon').getBoundingClientRect();
+    const titlebar = document.querySelector('.titlebar').getBoundingClientRect();
+    return {
+      left: rect.left + parseFloat(line.left), ribbonRight: ribbon.right,
+      top: rect.top + parseFloat(line.top), tabBottom: titlebar.bottom,
+      right: line.right, bottom: line.bottom,
+      topWidth: line.borderTopWidth, leftWidth: line.borderLeftWidth,
+      radius: parseFloat(line.borderTopLeftRadius), pointerEvents: line.pointerEvents,
+      color: line.borderTopColor,
+    };
+  }, theme);
+  check(`${theme} 主题：分割线对齐图标栏右缘和标签栏下缘，圆弧相连且不拦鼠标`,
+    Math.abs(boundary.left - boundary.ribbonRight) < 1 && Math.abs(boundary.top - boundary.tabBottom) < 1
+    && boundary.topWidth === '1px' && boundary.leftWidth === '1px' && boundary.radius >= 12
+    && boundary.right === '0px' && boundary.bottom === '0px' && boundary.pointerEvents === 'none'
+    && boundary.color !== 'rgba(0, 0, 0, 0)', JSON.stringify(boundary));
+}
+await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
 
 /* ================= 3. 图片查看 / 行号 / 折叠图标 ================= */
 

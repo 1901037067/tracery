@@ -215,9 +215,7 @@ input, textarea { font-family: inherit; color: inherit; }
   background: var(--bg-sidebar);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  /* 故意不画底边线（2026-10-20 用户要求「沉浸式无缝拼接」）：顶栏与下方整个 .layout
-     用的是同一个 --bg-sidebar 底色，少这一条线之后「顶栏 + 左侧栏」看上去是一整块区域。
-     侧栏面板内部的分隔线（如文件树里的星标区分隔）不受影响，它们仍在面板内部。 */
+  /* 工作区边界由 .layout 的连续圆弧描边承担，避免顶栏底边横穿最左侧图标栏。 */
   -webkit-app-region: drag;
   user-select: none;
   flex-shrink: 0;
@@ -308,11 +306,25 @@ body.electron .electron-only { display: inline-flex !important; }
    编辑区是一张浮在这层底色之上的纸，左右缝隙不再是更暗的窗口底色（用户 2026-10-19 要求）。
    底色由 .layout 一家承担，.sidebar 改成透明——否则侧栏上会再叠一层半透明色，
    颜色比缝隙深一档，「缝隙和侧栏同色」就不成立了。 */
-.layout { flex: 1; display: flex; min-height: 0; gap: 0; background: var(--bg-sidebar); }
+.layout {
+  --ribbon-width: 52px;
+  position: relative;
+  flex: 1; display: flex; min-height: 0; gap: 0; background: var(--bg-sidebar);
+}
+/* 一条连续边界同时对齐图标栏右缘与标签栏下缘；独立描边不挤动纸张或拖拽热区。 */
+.layout::after {
+  content: '';
+  position: absolute; inset: 0 0 0 var(--ribbon-width);
+  border-top: 1px solid var(--hairline-strong);
+  border-left: 1px solid var(--hairline-strong);
+  border-top-left-radius: 18px;
+  pointer-events: none;
+  z-index: 10;
+}
 
 /* --- 左侧功能栏 --- */
 .ribbon {
-  width: 52px;
+  width: var(--ribbon-width);
   display: flex; flex-direction: column; align-items: center;
   padding: 10px 0; gap: 4px;
   flex-shrink: 0;
@@ -1281,18 +1293,17 @@ body.electron .electron-only { display: inline-flex !important; }
 
 
 /* ============ 图谱全屏 ============ */
-body.graph-focus .sidebar {
-  flex: 1; width: auto; min-width: 0;
-  margin: 10px 10px 10px 0;
+body.graph-focus #sidebar {
+  flex: 1; width: auto !important; min-width: 0;
+  margin: 8px 10px 0 10px;
   background: var(--bg-sheet);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
   box-shadow: var(--shadow-sheet);
   overflow: hidden;
 }
 body.graph-focus .editor-area,
 body.graph-focus #sidebar-right { display: none !important; }
-#btn-graph-full.active { background: var(--accent-soft); color: var(--accent); }
-body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
+body.graph-focus #panel-graph .panel-header { border-bottom: 1px solid var(--hairline); padding: 12px 16px; }
 
 /* ============ 应用内对话框 ============ */
 .dialog-backdrop {
@@ -1742,7 +1753,6 @@ body.graph-focus .panel-header { border-bottom: 1px solid var(--hairline); }
 #sidebar.collapsed + #resizer-left { display: none; }
 #resizer-right:has(+ .sidebar.collapsed) { display: none; }
 body.graph-focus .resizer { display: none; }
-body.graph-focus .sidebar { width: auto !important; }
 body.resizing { cursor: col-resize; }
 body.resizing * { transition: none !important; user-select: none !important; }
 
