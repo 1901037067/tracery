@@ -41,6 +41,7 @@
     "test:asset": "node test/asset-test.mjs",
     "test:tabs": "node test/tabs-test.mjs",
     "test:pwa": "node test/pwa-mobile-test.mjs",
+    "test:performance": "node test/performance-test.mjs",
     "build:pwa-icons": "node scripts/build-pwa-icons.mjs",
     "test:cmlab": "node test/cmlab-test.mjs",
     "test:engine": "node test/engine-test.mjs",

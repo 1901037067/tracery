@@ -28,6 +28,8 @@ check('打包版：通过 API 切换仓库', res.ok);
 const graph = await (await fetch(`${BASE}/api/graph`)).json();
 check('打包版：链接索引工作', graph.nodes.length === 10 && graph.links.length >= 28,
   `${graph.nodes.length} 篇 / ${graph.links.length} 条链接`);
+const diskIndex = JSON.parse(fs.readFileSync(path.join(TEST_VAULT, '.tracery/index.json'), 'utf8'));
+check('打包版：生成可复用的仓库索引缓存', diskIndex.version === 1 && diskIndex.root === path.resolve(TEST_VAULT) && diskIndex.notes.length === graph.nodes.length);
 
 const tags = await (await fetch(`${BASE}/api/tags`)).json();
 check('打包版：标签索引工作', tags.tags.length >= 20, `${tags.tags.length} 个标签`);

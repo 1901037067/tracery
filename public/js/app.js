@@ -19,6 +19,7 @@ import { openDraw } from './draw.js';
 import { initMobile, isCompact, toggleMobilePanel, closeMobilePanels } from './mobile.js';
 import { initPwa } from './pwa.js';
 import { rememberDraft, clearSavedDraft, recoverDraft } from './recovery.js';
+import { VirtualTree, flattenTree } from './virtual-tree.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -49,6 +50,8 @@ function lsGet(key) {
 const state = {
   vault: null,
   tree: null,
+  files: new Map(),
+  fileLookup: new Map(),
   currentPath: null,
   tabs: [],                 // 打开的笔记（标签页）
   activeTab: -1,
@@ -69,7 +72,7 @@ let editor = null;
 /* ================= 启动 ================= */
 async function boot() {
   // 调试/测试钩子
-  window.__tracery = { editor, state, Api, openNote, switchPanel, switchRightPanel, exportHtml, exportPdf, togglePin, openTrash };
+  window.__tracery = { editor, state, Api, openNote, switchPanel, switchRightPanel, exportHtml, exportPdf, togglePin, openTrash, revealInTree };
   const st = await Api.state();
   state.settings = st.settings || null;
   initSettings(st.settings || {});
@@ -270,19 +273,33 @@ function iconForFile(name) {
 /* ================= 数据刷新 ================= */
 async function refreshTree() {
   state.tree = await Api.tree();
-  renderTree();
+  state.files = new Map();
+  state.fileLookup = new Map();
+  const walk = (node) => { for (const f of node.files || []) state.files.set(f.path, f); for (const d of node.dirs || []) walk(d); };
+  walk(state.tree);
+  for (const f of state.files.values()) {
+    const parts = f.path.toLowerCase().split('/');
+    for (let i = 0; i < parts.length; i++) {
+      const suffix = parts.slice(i).join('/');
+      if (!state.fileLookup.has(suffix)) state.fileLookup.set(suffix, f.path);
+    }
+  }
+  state.nameIndex = new Map();
+  for (const f of state.files.values()) if (/\.(md|markdown|txt)$/i.test(f.name)) state.nameIndex.set(f.name.replace(/\.(md|markdown|txt)$/i, '').toLowerCase(), f.path);
+  renderTree(true);
   // 文件树变了 → 装饰里的 `![[图片]]`/`![](路径)` 可能从「找不到」变「找得到」（或反之）。
   // CM 的装饰只在 doc/视口/选区变化时重建，索引变化必须显式通知（块级内核没这方法，忽略）。
   editor?.refreshDecorations?.();
 }
 
 const refreshGraph = debounce(async () => {
+  // 双链名称索引来自文件清单；隐藏图谱不传输全仓节点，也不在后台重启力导向计算。
+  if (!document.body.classList.contains('graph-focus')) { state.graph = null; return; }
   const g = await Api.graph();
   state.graph = g;
-  state.nameIndex = new Map(g.nodes.map((n) => [n.name.toLowerCase(), n.id]));
   // 双链的「解析得到 / 解析不到」直接取决于这份索引 → 通知装饰重算 unresolved 类
   editor?.refreshDecorations?.();
-  if (graphView) {
+  if (graphView && document.body.classList.contains('graph-focus')) {
     graphView.opts.activePath = state.currentPath;
     graphView.setData(g);
   }
@@ -328,22 +345,7 @@ function resolveVaultFile(name) {
   if (!state.tree || !name) return null;
   const want = name.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
   const leaf = want.split('/').pop();
-  let byPath = null;
-  let byName = null;
-  const walk = (node) => {
-    for (const f of node.files || []) {
-      const p = f.path.replace(/\\/g, '/');
-      const lower = p.toLowerCase();
-      if (lower === want || lower.endsWith('/' + want)) {
-        if (!byPath) byPath = f.path;
-      } else if (!byName && f.name.toLowerCase() === leaf) {
-        byName = f.path;
-      }
-    }
-    for (const d of node.dirs || []) walk(d);
-  };
-  walk(state.tree);
-  return byPath || byName;
+  return state.fileLookup.get(want) || state.fileLookup.get(leaf) || null;
 }
 
 /* ================= 文件树 ================= */
@@ -363,8 +365,23 @@ function updateCollapseTreeIcon() {
   btn.title = allCollapsed ? '展开全部文件夹' : '折叠全部文件夹';
 }
 
-function renderTree() {
+let virtualTree = null;
+let renderedTree = null;
+function renderTree(rebuild = false) {
   const box = $('file-tree');
+  if (state.tree && state.files.size > 400) {
+    if (!virtualTree) virtualTree = new VirtualTree(box, (row) => {
+      if (row.kind === 'dir') return renderDirItem(row.node, row.rel);
+      if (row.kind === 'heading') { const el = document.createElement('div'); el.className = 'pinned-head'; el.textContent = '星标'; return el; }
+      const el = renderFile(row.file);
+      if (row.kind === 'pinned') el.classList.add('pinned-item');
+      return el;
+    });
+    if (rebuild || renderedTree !== state.tree) virtualTree.setRows(flattenTree(state.tree, state.collapsed, state.pinned));
+    virtualTree.select(state.currentPath); renderedTree = state.tree; updateCollapseTreeIcon(); return;
+  }
+  if (virtualTree) { virtualTree.destroy(); virtualTree = null; }
+  renderedTree = null;
   box.innerHTML = '';
   if (!state.tree) return;
   if (!state.tree.files.length && !state.tree.dirs.length) {
@@ -412,7 +429,7 @@ function togglePin(relPath) {
   if (state.pinned.has(relPath)) state.pinned.delete(relPath);
   else state.pinned.add(relPath);
   localStorage.setItem('tracery.pinned', JSON.stringify([...state.pinned]));
-  renderTree();
+  renderTree(true);
   toast(state.pinned.has(relPath) ? '已加星标' : '已取消星标');
 }
 
@@ -423,6 +440,21 @@ function pushRecent(relPath) {
   localStorage.setItem('tracery.recent', JSON.stringify(state.recent));
 }
 
+function renderDirItem(d, rel) {
+  const item = document.createElement('div');
+  item.className = 'tree-item'; item.dataset.dir = rel;
+  const collapsed = state.collapsed.has(d.name);
+  item.innerHTML = `<span class="tw${collapsed ? '' : ' open'}">${ICON.chevron}</span><span class="icon">${collapsed ? ICON.folder : ICON.folderOpen}</span>`;
+  const label = document.createElement('span'); label.className = 'label'; label.textContent = d.name; item.appendChild(label);
+  item.onclick = (e) => {
+    e.stopPropagation();
+    if (state.collapsed.has(d.name)) state.collapsed.delete(d.name); else state.collapsed.add(d.name);
+    localStorage.setItem('tracery.collapsed', JSON.stringify([...state.collapsed])); renderTree(true);
+  };
+  item.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showDirMenu(e, rel); };
+  return item;
+}
+
 function renderTreeNode(node, depth, isRoot = false) {
   const frag = document.createDocumentFragment();
   // parentRel：树节点只带 basename（服务端 tree() 是按层级拼出来的），
@@ -430,28 +462,7 @@ function renderTreeNode(node, depth, isRoot = false) {
   const renderDir = (d, parentRel = '') => {
     const rel = parentRel ? `${parentRel}/${d.name}` : d.name;
     const wrap = document.createElement('div');
-    const item = document.createElement('div');
-    item.className = 'tree-item';
-    // 折叠状态历史上的 key 是 basename（同名不同层目录会互相影响，属既有行为，本次不动）
-    const collapsed = state.collapsed.has(d.name);
-    const tw = document.createElement('span');
-    tw.className = 'tw' + (collapsed ? '' : ' open');
-    tw.innerHTML = ICON.chevron;
-    const icon = document.createElement('span');
-    icon.className = 'icon';
-    icon.innerHTML = collapsed ? ICON.folder : ICON.folderOpen;
-    const label = document.createElement('span');
-    label.className = 'label';
-    label.textContent = d.name;
-    item.append(tw, icon, label);
-    item.onclick = (e) => {
-      e.stopPropagation();
-      if (state.collapsed.has(d.name)) state.collapsed.delete(d.name);
-      else state.collapsed.add(d.name);
-      localStorage.setItem('tracery.collapsed', JSON.stringify([...state.collapsed]));
-      renderTree();
-    };
-    item.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showDirMenu(e, rel); };
+    const item = renderDirItem(d, rel);
     wrap.appendChild(item);
     if (!state.collapsed.has(d.name)) {
       const children = document.createElement('div');
@@ -575,7 +586,7 @@ async function duplicateFile(f) {
   try {
     const { content } = await Api.note(f.path);
     const base = f.path.replace(/\.md$/i, '');
-    const exists = (p) => !!document.querySelector(`#file-tree .tree-item[data-path="${CSS.escape(p)}"]`);
+    const exists = (p) => state.files.has(p);
     let target = `${base} 副本.md`;
     let n = 1;
     while (exists(target)) { n += 1; target = `${base} 副本 ${n}.md`; }
@@ -1071,8 +1082,9 @@ function revealInTree(rel) {
   if (parts.length) {
     for (const name of parts) state.collapsed.delete(name);
     localStorage.setItem('tracery.collapsed', JSON.stringify([...state.collapsed]));
-    renderTree();
+    renderTree(true);
   }
+  virtualTree?.reveal(rel);
   const el = document.querySelector(`#file-tree .tree-item[data-path="${CSS.escape(rel)}"]`);
   if (!el) { toast('文件树里没找到这个文件'); return; }
   el.scrollIntoView({ block: 'center' });
@@ -1215,15 +1227,7 @@ async function createFolderIn(dir) {
 function tabsKey() { return `tracery.tabs.${state.vault?.root || 'default'}`; }
 
 function hasNotePath(p) {
-  if (!state.tree) return false;
-  let found = false;
-  const walk = (n) => {
-    if (found) return;
-    for (const f of n.files || []) if (f.path === p) { found = true; return; }
-    for (const d of n.dirs || []) walk(d);
-  };
-  walk(state.tree);
-  return found;
+  return state.files.has(p);
 }
 
 function saveTabsState() {
@@ -1713,6 +1717,7 @@ function switchPanel(name, { mobileOpen = true } = {}) {
     graphReturnPanel = document.querySelector('.ribbon-btn[data-panel].active')?.dataset.panel || 'files';
   }
   document.body.classList.toggle('graph-focus', name === 'graph');
+  if (name !== 'graph') graphView?.pause();
   for (const timer of graphFitTimers) clearTimeout(timer);
   graphFitTimers = [];
   for (const btn of document.querySelectorAll('.ribbon-btn[data-panel]')) {
@@ -1726,7 +1731,8 @@ function switchPanel(name, { mobileOpen = true } = {}) {
   if (name === 'graph') {
     // 入口统一进入大画布；保留侧栏原有折叠状态，退出时直接还原。
     if (!graphView) initGraph();
-    else if (state.graph) {
+    refreshGraph();
+    if (state.graph) {
       graphView.opts.activePath = state.currentPath;
       graphView.setData(state.graph);
     }
@@ -2256,7 +2262,7 @@ function bindGlobalEvents() {
     if (state.collapsed.size < all.size) state.collapsed = all;
     else state.collapsed = new Set();
     localStorage.setItem('tracery.collapsed', JSON.stringify([...state.collapsed]));
-    renderTree();
+    renderTree(true);
   };  $('btn-graph-reheat').onclick = () => graphView?._reheat();
   $('btn-graph-zoom-in').onclick = () => graphView?.zoomIn();
   $('btn-graph-zoom-out').onclick = () => graphView?.zoomOut();
@@ -2347,7 +2353,7 @@ function onWsMessage(msg) {
   if (msg.type === 'fs-change') {
     const paths = msg.paths || [];
     const affectsCurrent = state.currentPath && paths.some((p) => p === state.currentPath || p === '*' || p === state.currentPath + '.md');
-    refreshTree().then(() => pruneTabs());
+    if (msg.treeChanged !== false) refreshTree().then(() => pruneTabs());
     refreshGraph();
     refreshTags();
     if (affectsCurrent && !editor.dirty) {

@@ -231,6 +231,19 @@ async function main() {
   check('被删除的文件进了回收站（不直接销毁）', inTrash);
 
   // 7. 状态与断开
+  await api(API_A, '/api/sync/options', { method: 'POST', body: { autoSync: true, interval: 3600 } });
+  // 前面的下载 / 合并会开启 2.5 秒防回环窗口；本例验证正常本地保存的监听去重。
+  await sleep(2700);
+  const automaticContent = '# 笔记甲\n\nAPI 保存后应自动上传，不手动点同步。\n';
+  await api(API_A, '/api/note', { method: 'PUT', body: { path: '笔记甲.md', content: automaticContent } });
+  const expectedSha = crypto.createHash('sha256').update(automaticContent).digest('hex');
+  let autoUploaded = false;
+  for (let i = 0; i < 40; i++) {
+    const manifest = await (await fetch(`${server}/api/manifest`, { headers: { Authorization: `Bearer ${readToken(VAULT_A)}` } })).json();
+    if (manifest.files?.['笔记甲.md']?.sha === expectedSha) { autoUploaded = true; break; }
+    await sleep(250);
+  }
+  check('API 保存被索引去重后仍触发自动同步', autoUploaded);
   const st = await api(API_A, '/api/sync/status');
   check('状态接口返回连接信息', st.configured === true && !!st.lastSyncAt, `server=${st.serverUrl}`);
   const offline = await api(API_A, '/api/sync/disconnect', { method: 'POST', body: {} });

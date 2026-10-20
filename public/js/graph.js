@@ -59,6 +59,8 @@ export class ForceGraph {
     if (!this.raf) this._tick();
   }
 
+  pause() { cancelAnimationFrame(this.raf); this.raf = null; }
+
   zoomIn() { this.scale = Math.min(4, this.scale * 1.25); this._draw(); }
   zoomOut() { this.scale = Math.max(0.2, this.scale / 1.25); this._draw(); }
 
