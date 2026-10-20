@@ -17,6 +17,7 @@
 import { Api, toast } from './api.js';
 import { askText, askConfirm } from './dialog.js';
 import { getSettings, resolveAssetDir } from './settings.js';
+import { enableTouchControls } from './mobile.js';
 
 /* ================= 常量 ================= */
 const STROKE_COLORS = ['#1d1d1f', '#e03131', '#2f9e44', '#1971c2', '#f08c00', '#7048e8', '#c2255c', '#868e96'];
@@ -1142,6 +1143,7 @@ function ensure() {
         <button id="draw-save" class="btn-primary">插入笔记</button>
       </div>
     </header>
+    <div class="draw-mobile-switches"><button id="draw-toggle-library" aria-expanded="false">图片库</button><button id="draw-toggle-props" aria-expanded="false">颜色与样式</button></div>
     <div class="draw-stage">
       <canvas id="draw-canvas"></canvas>
       <div class="draw-tools">
@@ -1209,15 +1211,31 @@ function ensure() {
   // 侧栏与工具条参与正常布局，让画布始终只占中间可绘制的区域。
   const workspace = document.createElement('div');
   workspace.className = 'draw-workspace';
+  const panelBackdrop = document.createElement('button');
+  panelBackdrop.className = 'draw-panel-backdrop'; panelBackdrop.hidden = true;
+  panelBackdrop.setAttribute('aria-label', '关闭绘图侧栏');
+  const setDrawPanel = (panel) => {
+    overlay.classList.toggle('draw-show-library', panel === 'library');
+    overlay.classList.toggle('draw-show-props', panel === 'props');
+    panelBackdrop.hidden = !panel;
+    overlay.querySelector('#draw-toggle-library').setAttribute('aria-expanded', String(panel === 'library'));
+    overlay.querySelector('#draw-toggle-props').setAttribute('aria-expanded', String(panel === 'props'));
+  };
+  panelBackdrop.onclick = () => setDrawPanel(null);
+  overlay.querySelector('#draw-toggle-library').onclick = () => setDrawPanel(overlay.classList.contains('draw-show-library') ? null : 'library');
+  overlay.querySelector('#draw-toggle-props').onclick = () => setDrawPanel(overlay.classList.contains('draw-show-props') ? null : 'props');
+  overlay._closePanels = () => setDrawPanel(null);
   const center = document.createElement('div');
   center.className = 'draw-center';
   const stageNode = overlay.querySelector('.draw-stage');
   const toolsNode = overlay.querySelector('.draw-tools');
   const hintNode = overlay.querySelector('.draw-hint');
   workspace.append(overlay.querySelector('.draw-drafts'), center, overlay.querySelector('.draw-props'));
+  workspace.appendChild(panelBackdrop);
   center.append(toolsNode, stageNode, hintNode);
   overlay.appendChild(workspace);
   document.body.appendChild(overlay);
+  enableTouchControls(overlay);
 
   canvas = overlay.querySelector('#draw-canvas');
   ctx = canvas.getContext('2d');
@@ -1677,6 +1695,7 @@ export function openDraw(options = {}) {
   style = defaultStyle();
   view = { x: 0, y: 0, zoom: 1 };
   overlay.hidden = false;
+  overlay._closePanels();
   savedDrawings = [];
   libraryError = '';
   toggleDrafts();

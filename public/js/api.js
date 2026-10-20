@@ -2,11 +2,16 @@
 const BASE = location.origin;
 
 async function api(path, opts = {}) {
-  const res = await fetch(BASE + path, {
+  let res;
+  try { res = await fetch(BASE + path, {
     method: opts.method || 'GET',
     headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
+  }); } catch (error) {
+    window.dispatchEvent(new CustomEvent('tracery:connection', { detail: { connected: false } }));
+    throw error;
+  }
+  window.dispatchEvent(new CustomEvent('tracery:connection', { detail: { connected: true } }));
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -57,10 +62,14 @@ export const Api = {
 export function connectWs(onMessage) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => window.dispatchEvent(new CustomEvent('tracery:connection', { detail: { connected: true } }));
   ws.onmessage = (ev) => {
     try { onMessage(JSON.parse(ev.data)); } catch { /* ignore */ }
   };
-  ws.onclose = () => setTimeout(() => connectWs(onMessage), 2000);
+  ws.onclose = () => {
+    window.dispatchEvent(new CustomEvent('tracery:connection', { detail: { connected: false } }));
+    setTimeout(() => connectWs(onMessage), 2000);
+  };
   return ws;
 }
 

@@ -205,16 +205,28 @@ export class CmEditor {
 
   getContent() { return this.md; }
 
-  _doSave() {
-    if (!this.path || !this.dirty) return;
-    this.opts.onSave?.(this.path, this.md);
-    this.dirty = false;
-    this.opts.onDirtyChange?.(false);
+  async _doSave() {
+    if (this._saving) {
+      const ok = await this._saving;
+      return ok && this.dirty ? this._doSave() : ok;
+    }
+    if (!this.path || !this.dirty) return true;
+    const path = this.path, content = this.md;
+    // 只有服务端确认后才能清掉 dirty；保存期间又输入的文字属于下一次保存。
+    this._saving = Promise.resolve().then(() => this.opts.onSave?.(path, content)).then((result) => {
+      const ok = result !== false;
+      if (ok && this.path === path && this.md === content) {
+        this.dirty = false;
+        this.opts.onDirtyChange?.(false);
+      }
+      return ok;
+    }).catch(() => false).finally(() => { this._saving = null; });
+    return this._saving;
   }
 
   _flushSave() { if (this.dirty) this._doSave(); }
 
-  async flush() { this._flushSave(); await new Promise((r) => setTimeout(r, 40)); }
+  async flush() { return await this._doSave(); }
 
   /* ---------- 模式 ---------- */
   get isRead() { return this.mode === 'read'; }

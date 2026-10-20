@@ -409,11 +409,11 @@ async function main() {
   await page.screenshot({ path: path.join(SHOTS, 'draw-library.png') });
   await page.setViewport({ width: 800, height: 640, deviceScaleFactor: 1 });
   await sleep(400);
-  check('窄窗口下两侧栏与工具条仍在窗口内，画布可用', await page.evaluate(() => {
-    const props = document.querySelector('.draw-props').getBoundingClientRect();
+  // ≤900px 改成触屏抽屉，旧的「两边属性栏始终可见」口径随移动设计改写。
+  check('窄窗口下画布铺开、侧栏默认收起、工具条可横向滚动', await page.evaluate(() => {
     const tools = document.querySelector('.draw-tools').getBoundingClientRect();
     const cv = document.getElementById('draw-canvas').getBoundingClientRect();
-    return props.right <= innerWidth && tools.right <= props.left && cv.width >= 300 && cv.height > 300;
+    return getComputedStyle(document.querySelector('.draw-props')).display === 'none' && tools.right <= innerWidth && cv.width >= 760 && cv.height > 300;
   }));
   await page.click('#draw-cancel');
 

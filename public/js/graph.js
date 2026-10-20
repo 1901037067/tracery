@@ -212,15 +212,17 @@ export class ForceGraph {
     let panning = false, lastX = 0, lastY = 0;
     let startX = 0, startY = 0, moved = false;
 
-    this.canvas.addEventListener('mousedown', (e) => {
+    this.canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
+      if (!e.isPrimary) return;
+      this.canvas.setPointerCapture(e.pointerId);
       const n = this._nodeAt(e);
       if (n) { this.dragNode = n; this._reheat(); }
       else { panning = true; }
       lastX = e.clientX; lastY = e.clientY;
       startX = e.clientX; startY = e.clientY; moved = false;
     });
-    window.addEventListener('mousemove', (e) => {
+    this.canvas.addEventListener('pointermove', (e) => {
       if ((this.dragNode || panning) && Math.hypot(e.clientX - startX, e.clientY - startY) > 5) moved = true;
       if (this.dragNode) {
         const { x, y } = this._toWorld(e);
@@ -240,7 +242,7 @@ export class ForceGraph {
         }
       }
     });
-    window.addEventListener('mouseup', (e) => {
+    this.canvas.addEventListener('pointerup', (e) => {
       if (e.button !== 0) return;
       if (this.dragNode) {
         const clicked = this.dragNode;
@@ -250,6 +252,7 @@ export class ForceGraph {
       }
       panning = false;
     });
+    this.canvas.addEventListener('pointercancel', () => { this.dragNode = null; panning = false; });
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.12 : 0.89;

@@ -103,6 +103,8 @@ check('打包版：笔记内容渲染（标题/双链/任务/Callout）—— �
 check('打包版：大纲面板', ui.outlineItems >= 1, `${ui.outlineItems} 项 | ${ui.outlineHtml} | note=${ui.notePath} md=${JSON.stringify(ui.mdHead)}`);
 check('打包版：自定义标题栏 + 窗口控件', ui.winControls && ui.electronAPI);
 check('打包版：主题按钮只显示一个图标', ui.themeIcons === 1, `可见图标数=${ui.themeIcons}`);
+check('打包版：安装入口隐藏且不注册浏览器缓存 worker', await page.evaluate(async () =>
+  document.getElementById('btn-pwa-install').hidden && (await navigator.serviceWorker.getRegistrations()).length === 0));
 // 设置面板是懒加载的，先打开再查
 await page.evaluate(() => document.getElementById('btn-settings').click());
 await new Promise((r) => setTimeout(r, 500));

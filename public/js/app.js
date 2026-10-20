@@ -16,6 +16,9 @@ import { renderMarkdown } from './markdown.js';
 import { openLightbox } from './lightbox.js';
 import { openPdfViewer } from './pdf-viewer.js';
 import { openDraw } from './draw.js';
+import { initMobile, isCompact, toggleMobilePanel, closeMobilePanels } from './mobile.js';
+import { initPwa } from './pwa.js';
+import { rememberDraft, clearSavedDraft, recoverDraft } from './recovery.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -113,6 +116,7 @@ function closeWelcome() {
 
 /** 打开仓库选择浮层（标题栏仓库名 / 文件夹按钮 / 命令面板） */
 function openVaultPicker() {
+  if (isCompact()) closeMobilePanels();
   $('vault-path').value = state.vault?.root || '';
   Api.state()
     .then((s) => showWelcome(s.recentVaults || []))
@@ -1445,11 +1449,13 @@ function updateTabOverflow() {
 async function loadTab(path, heading) {
   try {
     const { content } = await Api.note(path);
+    const recovered = await recoverDraft(state.vault?.root, path, content);
     state.currentPath = path;
     $('note-path').textContent = path;
     // 阅读模式要跨笔记保持：在阅读视图里点双链跳到别的笔记，仍应停在阅读模式
     // （live / source 保持老行为：换笔记回到实时预览）
     editor.load(path, content, { keepMode: editor.isRead });
+    if (recovered !== null) editor.view.dispatch({ changes: { from: 0, to: editor.view.state.doc.length, insert: recovered } });
     renderTree(); // 高亮
     pushRecent(path);
     refreshRightPanels(content);
@@ -1465,6 +1471,7 @@ async function loadTab(path, heading) {
 
 async function activateTab(i, heading) {
   if (i < 0 || i >= state.tabs.length) return;
+  if (isCompact()) closeMobilePanels();
   if (document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
   const path = state.tabs[i];
   if (state.activeTab === i && state.currentPath === path) {
@@ -1561,6 +1568,7 @@ async function createMissingNote(raw, newTab = false) {
  */
 async function openNote(path, heading, opts = {}) {
   if (!path) return;
+  if (isCompact()) closeMobilePanels();
   const existing = state.tabs.indexOf(path);
   if (existing >= 0) { await activateTab(existing, heading); return; }
   if (state.currentPath === path) {
@@ -1602,7 +1610,10 @@ function refreshRightPanels(content) {
       const item = document.createElement('span');
       item.className = `outline-item lv${Math.min(4, h.level)}`;
       item.textContent = h.text;
-      item.onclick = () => editor.scrollToHeading(h.text);
+      item.tabIndex = 0;
+      item.setAttribute('role', 'button');
+      item.onclick = () => { editor.scrollToHeading(h.text); if (isCompact()) closeMobilePanels(); };
+      item.onkeydown = (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); item.click(); } };
       outline.appendChild(item);
     }
   }
@@ -1692,7 +1703,11 @@ function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 /* ================= 面板切换 ================= */
 let graphReturnPanel = 'files';
 let graphFitTimers = [];
-function switchPanel(name) {
+function switchPanel(name, { mobileOpen = true } = {}) {
+  if (isCompact()) {
+    if (name === 'graph') closeMobilePanels();
+    else if (mobileOpen && !document.body.classList.contains('mobile-left-open')) toggleMobilePanel('left');
+  }
   const wasGraph = document.body.classList.contains('graph-focus');
   if (name === 'graph' && !wasGraph) {
     graphReturnPanel = document.querySelector('.ribbon-btn[data-panel].active')?.dataset.panel || 'files';
@@ -1739,7 +1754,7 @@ function switchRightPanel(name) {
 /** 退出后回到打开图谱前的面板，不再退成左侧栏中的小图谱。 */
 function toggleGraphFocus(force) {
   const on = typeof force === 'boolean' ? force : !document.body.classList.contains('graph-focus');
-  switchPanel(on ? 'graph' : graphReturnPanel);
+  switchPanel(on ? 'graph' : graphReturnPanel, { mobileOpen: false });
 }
 
 /* ================= 搜索 ================= */
@@ -1811,6 +1826,7 @@ const paletteItems = [];
 let paletteIndex = 0;
 
 function openPalette() {
+  if (isCompact()) closeMobilePanels();
   $('palette').hidden = false;
   $('palette-input').value = '';
   renderPalette('');
@@ -1840,8 +1856,8 @@ function renderPalette(q) {
     { icon: '🏷️', name: '查看所有标签', sub: '命令', action: () => switchPanel('tags') },
     { icon: '📂', name: '切换 / 管理仓库…', sub: '命令', action: openVaultPicker },
     { icon: '✏️', name: '新建绘图并插入笔记', sub: '命令', action: openDrawPanel },
-    { icon: '☰', name: '折叠 / 展开左侧栏', sub: '命令', action: () => $('sidebar').classList.toggle('collapsed') },
-    { icon: '▤', name: '折叠 / 展开右侧栏', sub: '命令', action: () => $('sidebar-right').classList.toggle('collapsed') },
+    { icon: '☰', name: '折叠 / 展开左侧栏', sub: '命令', action: () => toggleSidebar('left') },
+    { icon: '▤', name: '折叠 / 展开右侧栏', sub: '命令', action: () => toggleSidebar('right') },
   ];
   for (const c of commands) {
     if (!q || fuzzyMatch(q, c.name) >= 0) paletteItems.push(c);
@@ -1952,17 +1968,20 @@ editor = new CmEditor({
   },
   onTagClick: (tag) => { switchPanel('search'); $('search-input').value = `#${tag}`; runSearch(`#${tag}`); },
   onSave: async (path, content) => {
+    const root = state.vault?.root;
     try {
       await Api.saveNote(path, content);
-      $('status-saved').textContent = `已保存 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
+      clearSavedDraft(root, path, content);
       refreshGraph(); refreshTags();
       refreshBacklinks();
-    } catch (e) { toast(`保存失败：${e.message}`); }
+      return true;
+    } catch (e) { toast(`保存失败，内容已保留在此设备：${e.message}`); return false; }
   },
   onDirtyChange: (dirty) => {
-    $('status-saved').textContent = dirty ? '未保存…' : '';
+    $('status-saved').textContent = dirty ? '未保存…' : `已保存 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
   },
   onChange: (content) => {
+    if (editor?.dirty) rememberDraft(state.vault?.root, editor.path, content);
     const words = countWords(content);
     $('status-words').textContent = `${words} 词`;
     refreshRightPanelsThrottled(content);
@@ -2029,6 +2048,7 @@ async function openDrawPanel() {
   // 阅读模式是只读的，插不进去：先切回实时预览，避免「画完点了插入却什么也没发生」
   if (editor.isRead) editor.setMode('live');
   await editor.flush();
+  if (isCompact()) closeMobilePanels();
   openDraw(drawingOptions());
 }
 
@@ -2158,8 +2178,8 @@ function bindGlobalEvents() {
 
   // 标题栏
   $('btn-theme').onclick = toggleTheme;
-  $('btn-toggle-left').onclick = () => $('sidebar').classList.toggle('collapsed');
-  $('btn-toggle-right').onclick = () => $('sidebar-right').classList.toggle('collapsed');
+  $('btn-toggle-left').onclick = () => toggleSidebar('left');
+  $('btn-toggle-right').onclick = () => toggleSidebar('right');
   // 标签条最右侧的下拉：标签页列表 / 关闭全部 / 收藏全部
   $('btn-tab-more').onclick = (e) => { e.stopPropagation(); showTabMenu(e.currentTarget); };
   // 折叠状态要看得出来：右栏被折叠时（大纲「消失」了）按钮必须亮起提示，
@@ -2247,7 +2267,7 @@ function bindGlobalEvents() {
   // 绘图
   $('btn-draw').onclick = () => openDrawPanel();
   $('btn-mode').onclick = () => editor.toggleMode();
-  $('btn-settings').onclick = () => openSettings();
+  $('btn-settings').onclick = () => { if (isCompact()) closeMobilePanels(); openSettings(); };
 
   // 搜索
   $('search-input').addEventListener('input', (e) => runSearch(e.target.value));
@@ -2306,8 +2326,8 @@ function bindGlobalEvents() {
       const n = state.tabs.length;
       if (n > 1) activateTab((state.activeTab + (e.shiftKey ? -1 : 1) + n) % n);
     }
-    else if (mod && e.key === '\\') { e.preventDefault(); $('sidebar').classList.toggle('collapsed'); }
-    else if (mod && e.shiftKey && e.key === '|') { e.preventDefault(); $('sidebar-right').classList.toggle('collapsed'); }
+    else if (mod && e.key === '\\') { e.preventDefault(); toggleSidebar('left'); }
+    else if (mod && e.shiftKey && e.key === '|') { e.preventDefault(); toggleSidebar('right'); }
     else if (e.key === 'Escape' && settingsIsOpen()) { e.preventDefault(); closeSettings(); }
     else if (e.key === 'Escape' && !$('palette').hidden) closePalette();
     else if (e.key === 'Escape' && !$('welcome').hidden) closeWelcome();
@@ -2365,4 +2385,16 @@ function onWsMessage(msg) {
   }
 }
 
-boot();
+function toggleSidebar(side) {
+  if (isCompact()) {
+    if (side === 'left' && document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
+    toggleMobilePanel(side);
+  } else $(side === 'left' ? 'sidebar' : 'sidebar-right').classList.toggle('collapsed');
+}
+initMobile();
+initPwa({ beforeReload: async () => { await editor.flush(); return !editor.dirty; } });
+window.addEventListener('beforeunload', (event) => {
+  if (!editor.dirty) return;
+  event.preventDefault(); event.returnValue = '';
+});
+boot().catch(() => { $('app').hidden = true; $('boot-error').hidden = false; });

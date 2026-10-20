@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { SyncEngine, vaultConfigDir } from './sync.js';
 import { createLanShare } from './lan.js';
+import { buildWorker } from './pwa.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -590,6 +591,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
   '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.pdf': 'application/pdf',
   '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
@@ -597,7 +599,7 @@ const MIME = {
 
 function sendJson(res, code, obj) {
   const body = JSON.stringify(obj);
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(body);
 }
 
@@ -619,6 +621,11 @@ const server = http.createServer(async (req, res) => {
   const p = u.pathname;
 
   try {
+    if (p === '/sw.js') {
+      const source = buildWorker(PUBLIC_DIR);
+      res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' });
+      return res.end(source);
+    }
     // ---- API ----
     if (p === '/api/state') {
       return sendJson(res, 200, {
@@ -724,7 +731,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, ...hit });
     }
 
-    if (!vault) return sendJson(res, 409, { error: '尚未打开仓库' });
+    if (!vault && p.startsWith('/api/')) return sendJson(res, 409, { error: '尚未打开仓库' });
 
     if (p === '/api/tree') return sendJson(res, 200, vault.tree());
     if (p === '/api/drawings') return sendJson(res, 200, vault.drawings());

@@ -2,11 +2,17 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="theme-color" content="#f6f6f8" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Tracery" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   <title>Tracery — 仓库型 Markdown 笔记</title>
   <link rel="stylesheet" href="/themes/apple.css" id="theme-css" />
   <link rel="stylesheet" href="/css/style.css" />
   <link rel="stylesheet" href="/css/cm.css" />
+  <link rel="stylesheet" href="/css/mobile.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📔</text></svg>" />
   <!-- IMPORTMAP:BEGIN (由 scripts/build-cmvendor.mjs 生成，勿手改) -->
 <script type="importmap">
@@ -89,6 +95,9 @@
         </svg>
       </button>
       <div class="titlebar-right">
+        <button id="btn-pwa-install" class="icon-btn" title="安装到设备" aria-label="安装到设备" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 16v5h16v-5"/></svg>
+        </button>
         <button id="btn-toggle-right" class="icon-btn" title="折叠右侧栏 (Ctrl+Shift+\)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
             <rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M14.5 5v14"/>
@@ -108,8 +117,11 @@
         </span>
       </div>
     </header>
+    <div id="connection-banner" class="connection-banner" role="status" hidden><span>连接中断，未保存的文字保留在此设备。</span><button id="btn-retry-connection">重试</button></div>
+    <div id="pwa-update" class="connection-banner" role="status" hidden><span>新版已准备好</span><button id="btn-pwa-update">保存并更新</button></div>
 
     <div class="layout">
+      <button id="mobile-backdrop" class="mobile-backdrop" aria-label="关闭侧栏" hidden></button>
       <!-- 左侧功能区图标栏 -->
       <nav class="ribbon">
         <button class="ribbon-btn active" data-panel="files" title="文件">
@@ -297,6 +309,7 @@
   <div id="link-preview" class="link-preview" hidden></div>
 
   <div id="toast" class="toast" hidden></div>
+  <div id="boot-error" class="welcome" hidden><div class="welcome-card"><h1>暂时无法连接仓库</h1><p>请确认网络与仓库服务已开启，再重新连接。</p><button class="btn-primary" onclick="location.reload()">重新连接</button></div></div>
 
   <script type="module" src="/js/app.js"></script>
 </body>
