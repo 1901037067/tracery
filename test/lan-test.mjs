@@ -52,7 +52,7 @@ async function main() {
 
   const procs = [];
   const start = (label, args, env) => {
-    const p = spawn(process.execPath, args, { cwd: ROOT, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const p = spawn(process.execPath, args, { cwd: ROOT, env: { ...process.env, TRACERY_DISABLE_MDNS: '1', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     p.stderr.on('data', (d) => process.stderr.write(`[${label}:err] ${d}`));
     procs.push(p);
     return p;
@@ -71,6 +71,7 @@ async function main() {
   const code = startRes.lan?.code;
   check('A 开启局域网共享并生成 6 位通行码', startRes.ok && /^\d{6}$/.test(String(code)), `code=${code}`);
   check('A 的同步引擎已指向内嵌服务端', startRes.sync?.configured === true);
+  check('mDNS 不可用时仍可开启 UDP 兼容发现', !startRes.lan.mdns.available && startRes.lan.legacyAvailable);
 
   // 2. 错误的码找不到
   const wrong = String(code) === '000000' ? '111111' : '000000';

@@ -67,12 +67,13 @@ export function startSyncServer(opts = {}) {
     defaultData = path.join(os.homedir(), '.evnote-sync');
   }
   const args = {
-    port: Number(opts.port) || 9600,
+    port: opts.port === 0 ? 0 : Number(opts.port) || 9600,
     host: opts.host || '0.0.0.0',
     data: opts.data || defaultData,
     name: opts.name || os.hostname(),
     pairCode: opts.pairCode || null,
     quiet: !!opts.quiet,
+    showPairCode: opts.showPairCode !== false,
   };
   const DATA = path.resolve(args.data);
   const SERVER_NAME = args.name;
@@ -448,7 +449,7 @@ const server = http.createServer(async (req, res) => {
 h1{font-size:22px}code{background:#f2f2f4;padding:2px 6px;border-radius:5px}p{color:#6b6b70}</style>
 <h1>Tracery 同步服务端</h1>
 <p>服务名：<b>${identity.name}</b> · 仓库版本：<b>v${manifest.version}</b> · 文件数：<b>${Object.keys(manifest.files).length}</b></p>
-<p>配对码：<code>${identity.pairCode}</code>（在客户端「设置 → 同步」里填写）</p>
+${args.showPairCode ? `<p>配对码：<code>${identity.pairCode}</code>（在客户端「设置 → 同步」里填写）</p>` : '<p>请向主机使用者获取通行码，在 Tracery 中完成配对。</p>'}
 <p>已配对设备：${Object.values(identity.tokens).map((t) => t.device).join('、') || '暂无'}</p>`;
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(html);

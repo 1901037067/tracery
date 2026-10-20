@@ -11,13 +11,15 @@ let mount = null;
 let mode = null;          // 'form' | 'connected'
 let busy = false;
 let lanCode = null;   // 本机作为主机时生成的 6 位通行码
+let lanInfo = null;
 
 /* ---------------- 对外 ---------------- */
 export async function initSyncPane() {
   mount = document.getElementById('sync-body');
   if (!mount) return;
   try {
-    status = await Api.syncStatus();
+    [status, lanInfo] = await Promise.all([Api.syncStatus(), Api.lanStatus()]);
+    lanCode = lanInfo.running ? lanInfo.code : null;
   } catch {
     status = { configured: false };
   }
@@ -116,6 +118,12 @@ function formHtml() {
         <span id="lan-code" class="lan-code" hidden></span>
         <span id="lan-code-hint" class="lan-sub" hidden>其他设备在下面输入这串数字</span>
       </div>
+      <div class="lan-nearby">
+        <div class="lan-nearby-head"><span>附近的共享设备</span><button id="lan-refresh" class="btn-ghost">刷新</button></div>
+        <div id="lan-peers" class="lan-peers"></div>
+        <p id="lan-discovery-status" class="lan-sub" role="status">正在查找…</p>
+      </div>
+      <div id="lan-selection" class="lan-selection" hidden><span id="lan-selection-text"></span><button id="lan-clear-selection" class="btn-ghost">取消选择</button></div>
       <div class="lan-join">
         <input id="lan-code-input" class="lan-input" type="text" maxlength="6" inputmode="numeric"
                placeholder="输入对方 6 位通行码" autocomplete="off" />
@@ -158,6 +166,7 @@ function connectedHtml() {
       本机共享中 · 通行码 <b class="lan-code">${escapeHtml(lanCode)}</b> · 其他设备连上后即可互相同步
       <button id="lan-stop" class="btn-ghost">停止共享</button>
     </div>` : ''}
+    ${hosting && lanInfo ? `<div class="lan-sub lan-host-address">${lanInfo.mdns?.available ? '附近设备可发现本机' : 'mDNS 暂不可用，可输码查找或手填地址'}<br>手动地址：${(lanInfo.urls || []).map(escapeHtml).join(' · ') || '暂无局域网地址'}</div>` : ''}
     <div class="set-row">
       <div class="set-label"><span>状态</span><small id="sync-state-text">${escapeHtml(stateText(s))}</small></div>
       <div class="set-control"><span class="sync-meta" id="sync-meta">${escapeHtml(metaText(s))}</span></div>
@@ -277,6 +286,38 @@ function bindForm() {
     lanErr.textContent = msg;
     lanErr.hidden = false;
   };
+  let selected = null;
+  const choose = (device) => {
+    selected = device;
+    mount.querySelector('#lan-selection').hidden = !device;
+    mount.querySelector('#lan-selection-text').textContent = device ? `连接到 ${device.name} · ${device.vault}` : '';
+    mount.querySelector('#lan-find').textContent = device ? '连接所选设备' : '查找并连接';
+    const input = mount.querySelector('#lan-code-input');
+    input.placeholder = device ? '输入这台主机的 6 位通行码' : '输入对方 6 位通行码';
+    input.focus();
+  };
+  mount.querySelector('#lan-clear-selection').onclick = () => choose(null);
+  const refreshNearby = async () => {
+    const button = mount.querySelector('#lan-refresh'), list = mount.querySelector('#lan-peers'), hint = mount.querySelector('#lan-discovery-status');
+    button.disabled = true; hint.textContent = '正在查找附近开启共享的设备…';
+    try {
+      const result = await Api.lanDevices();
+      if (!list.isConnected) return;
+      list.replaceChildren();
+      const devices = result.devices.filter((d) => !d.isSelf);
+      for (const device of devices) {
+        const row = document.createElement('button'); row.className = 'lan-peer'; row.dataset.id = device.id;
+        const title = document.createElement('span'); title.className = 'lan-peer-name'; title.textContent = device.name;
+        const detail = document.createElement('span'); detail.className = 'lan-sub'; detail.textContent = `${device.vault || '共享仓库'} · ${device.ip}:${device.port}`;
+        row.append(title, detail); row.onclick = () => choose(device); list.appendChild(row);
+      }
+      hint.textContent = result.discovery.error || (devices.length ? `发现 ${devices.length} 台设备。选择后输入主机通行码。` : '未找到设备。请确认对方开启共享，也可在下方输入通行码查找。');
+      if (selected && !devices.some((d) => d.id === selected.id)) { choose(null); hint.textContent = '刚才选择的设备已离线，请重新选择或输码查找。'; }
+    } catch (e) { if (hint.isConnected) hint.textContent = `查找失败：${e.message}。仍可使用通行码或手动地址。`; }
+    finally { button.disabled = false; }
+  };
+  mount.querySelector('#lan-refresh').onclick = refreshNearby;
+  refreshNearby();
 
   mount.querySelector('#lan-start').onclick = async () => {
     const btn = mount.querySelector('#lan-start');
@@ -287,6 +328,7 @@ function bindForm() {
     lanErr.hidden = true;
     try {
       const r = await Api.lanStart();
+      lanInfo = r.lan;
       lanCode = r.lan.code;
       onSyncStatus(r.sync, { force: true });
       toast(`本机共享已开启，通行码 ${r.lan.code}`);
@@ -311,8 +353,8 @@ function bindForm() {
     btn.textContent = '查找中…';
     lanErr.hidden = true;
     try {
-      const hit = await Api.lanFind(code);
-      const pr = await Api.syncPair({ serverUrl: hit.url, code });
+      const hit = selected || await Api.lanFind(code);
+      const pr = await Api.syncPair({ serverUrl: hit.url, code, deviceName: mount.querySelector('#sync-device')?.value || guessDevice(), password: mount.querySelector('#sync-pass')?.value || '' });
       onSyncStatus(pr.status || pr);
       toast(`已连接 ${hit.name}`);
     } catch (e) {
@@ -398,6 +440,7 @@ function bindConnected() {
     try {
       const res = await Api.syncDisconnect();
       lanCode = null;
+      lanInfo = null;
       onSyncStatus(res.status || { configured: false });
       toast('已断开同步');
     } catch { toast('断开失败'); }
@@ -425,6 +468,7 @@ function bindConnected() {
     try {
       const res = await Api.lanStop();
       lanCode = null;
+      lanInfo = null;
       onSyncStatus(res.sync || { configured: false }, { force: true });
       toast('已停止本机共享');
     } catch (e) {

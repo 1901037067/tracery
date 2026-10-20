@@ -53,8 +53,10 @@ export const Api = {
   syncOptions: (patch) => api('/api/sync/options', { method: 'POST', body: patch }),
   syncDisconnect: () => api('/api/sync/disconnect', { method: 'POST', body: {} }),
   lanStart: () => api('/api/sync/lan/start', { method: 'POST', body: {} }),
+  lanStatus: () => api('/api/sync/lan/status'),
   lanStop: () => api('/api/sync/lan/stop', { method: 'POST', body: {} }),
   lanFind: (code) => api('/api/sync/lan/find', { method: 'POST', body: { code } }),
+  lanDevices: () => api('/api/sync/lan/devices'),
   fileUrl: (path) => `${BASE}/api/file?path=${encodeURIComponent(path)}`,
 };
 

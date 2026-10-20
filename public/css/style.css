@@ -1805,6 +1805,16 @@ body.resizing * { transition: none !important; user-select: none !important; }
 .lan-banner .btn-ghost { margin-left: auto; padding: 5px 12px; font-size: 12px; border-radius: 7px; color: var(--text-secondary); }
 .lan-banner .btn-ghost:hover { background: var(--bg-fill); color: var(--text-primary); }
 .lan-join { display: flex; gap: 8px; align-items: center; }
+.lan-nearby { margin: 12px 0; padding: 10px 0; border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+.lan-nearby-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; }
+.lan-nearby-head button { padding: 7px 12px; }
+.lan-peers { display: grid; gap: 6px; max-height: 220px; overflow: auto; margin-top: 6px; }
+.lan-peer { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 10px 12px; border-radius: var(--r-sm); background: var(--bg-fill); min-height: 52px; }
+.lan-peer:hover, .lan-peer:focus-visible { background: var(--accent-soft); }
+.lan-peer-name { font-size: 13px; font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
+.lan-selection { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 8px; color: var(--accent); }
+.lan-selection button { flex-shrink: 0; padding: 7px; }
+.lan-host-address { margin: -8px 0 16px; overflow-wrap: anywhere; line-height: 1.7; }
 .lan-input {
   flex: 1; min-width: 0;
   padding: 9px 13px;

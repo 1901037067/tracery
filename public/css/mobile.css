@@ -94,4 +94,7 @@
   .draw-hint { font-size: 10px; padding: 6px; }
   .toast { max-width: calc(100vw - 24px); white-space: normal; text-align: center; bottom: max(18px, env(safe-area-inset-bottom)); }
   .connection-banner { font-size: 11px; }
+  .lan-join { flex-wrap: wrap; }
+  .lan-join .lan-input { width: 100%; flex: 1 1 150px; min-width: 0; }
+  .lan-nearby-head button, .lan-selection button { min-height: 40px; }
 }

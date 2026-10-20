@@ -358,6 +358,7 @@ const server = http.createServer(async (req, res) => {
       if (!vaultPath || !fs.existsSync(vaultPath) || !fs.statSync(vaultPath).isDirectory()) {
         return sendJson(res, 400, { error: '目录不存在或不是文件夹' });
       }
+      if (vault?.root !== path.resolve(vaultPath)) await lanShare.stop();
       vault = new Vault(path.resolve(vaultPath));
       await vault.open();
       config.currentVault = vault.root;
@@ -415,11 +416,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/sync/disconnect' && req.method === 'POST') {
+      if (lanShare.status().running) { const result = await lanShare.stop(); return sendJson(res, 200, { ok: true, status: result.sync }); }
       return sendJson(res, 200, { ok: true, status: await syncEngine.disconnect() });
     }
 
     // ---- 局域网直连（六位通行码，无需独立服务端） ----
     if (p === '/api/sync/lan/status') return sendJson(res, 200, lanShare.status());
+    if (p === '/api/sync/lan/devices' && req.method === 'GET') return sendJson(res, 200, await lanShare.discover());
 
     if (p === '/api/sync/lan/start' && req.method === 'POST') {
       try {

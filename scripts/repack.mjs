@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { runtimeDependencies } from './runtime-deps.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const OUT = path.join(ROOT, 'dist', 'win-unpacked');
@@ -26,15 +27,11 @@ for (const item of ['electron', 'server', 'public', 'demo-vault', 'sync-server']
 }
 fs.copyFileSync(path.join(ROOT, 'package.json'), path.join(STAGE, 'package.json'));
 // 运行时依赖（ws、node-diff3…）必须一起进去，否则 asar 里 import 会失败
-const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 fs.mkdirSync(path.join(STAGE, 'node_modules'), { recursive: true });
-for (const dep of Object.keys(pkg.dependencies || {})) {
-  const src = path.join(ROOT, 'node_modules', dep);
-  if (fs.existsSync(src)) {
-    fs.cpSync(src, path.join(STAGE, 'node_modules', dep), { recursive: true });
-  } else {
-    console.warn(`⚠️  缺少依赖目录：${dep}`);
-  }
+for (const src of runtimeDependencies(ROOT)) {
+  const dest = path.join(STAGE, path.relative(ROOT, src));
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.cpSync(src, dest, { recursive: true });
 }
 fs.mkdirSync(path.join(STAGE, 'build'), { recursive: true });
 fs.copyFileSync(path.join(ROOT, 'build', 'icon.png'), path.join(STAGE, 'build', 'icon.png'));
