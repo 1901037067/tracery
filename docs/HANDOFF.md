@@ -2,8 +2,8 @@
 
 > 用途：开新对话时，把这份文档贴/引用给 AI，配合 `README.md`、`docs/SYNC.md`、`docs/ROADMAP.md` 即可无缝继续。
 > **最省事的方式**：把 `docs/AI-START.md` 里的开场白整段复制给新对话的 AI（已经写好必读文档与硬性约定）。
-> 最后更新：2026-10-19 21:00（对应代码状态：**v1.4.0** —— 编辑器只剩 CM6 一套内核；
-> 测试套件单内核全量回归全绿；打包链路打通（`dist:dir:nosign`）；打包版验证 14/14）
+> 最后更新：2026-10-20（对应代码状态：**v1.4.1 已打包并发布** —— 编辑器只剩 CM6 一套内核；
+> 22 个套件单内核全量回归全绿；打包版 `verify-exe` 14/14；GitHub Release 已带 `.7z`）
 >
 > **2026-10-19 晚追加（第二轮，四条需求）**：标签条最右侧的**标签页下拉**（列出已开标签 / 关闭全部 /
 > 收藏全部，§5-59）、编辑区**四周缝隙刷成侧栏色 + 拖拽热区压在纸张边缘**（§5-60）、
@@ -436,9 +436,11 @@ test/*.mjs              九个测试套件（见 §2）
 1. ~~cm 侧 3 处渲染缺口~~ ✅ **已完成（7.12）**：行内 `![[图片]]`/`![](路径)` 出图、双链 `unresolved` 类；
    e2e #11 与 `ui-ux` 的 4 条图片断言已拆掉门控。仍未回收的 3 条门控（features ②③、layout ②、backspace ④）
    与渲染无关，理由写在 7.12「门控清单变化」。
-2. ~~发版 v1.2.1~~ ✅ **已完成（2026-10-19）**；**v1.3.0 已打包并发布**（zip + 7z，verify-exe 14/14）：
-   GitHub Releases 已带 `Tracery-1.3.0-win32-x64.7z`（71MB，API 上传，见 `npm run upload:github`）；
-   Gitee 发行版仍需在网页传同一个 7z（单附件上限 100MB，**别传 zip**）。v1.2.1 的说明保留在这里：`package.json` → 1.2.1，发布说明 `docs/RELEASE-1.2.1.md`，
+2. ~~发版 v1.2.1~~ ✅ **已完成（2026-10-19）**；~~v1.3.0~~ ✅ 已发布；
+   **v1.4.1 已打包并发布（2026-10-20）**：GitHub Releases 已带 `Tracery-1.4.1-win32-x64.7z`（71MB，API 上传，
+   见 `npm run upload:github`）；**Gitee 发行版仍需在网页传同一个 7z**（单附件上限 100MB，**别传 zip**）。
+   tag `v1.4.1` 已推到 Gitee 与 GitHub 两个远端；打包版 `verify-exe` **14/14**。
+   发布说明 `docs/RELEASE-1.4.1.md`。v1.2.1 的说明保留在这里：`package.json` → 1.2.1，发布说明 `docs/RELEASE-1.2.1.md`，
    `npm run dist:dir:nosign` + `npm run release` 出包，打包版 `verify-exe` **14/14**；
    还剩「zip 上传到 Gitee Releases」这一步（需要在网页上手动传，见 §2 末尾）。
    **踩坑**：打包时若 `dist/win-unpacked` 里还有旧包在跑，electron-builder 会报
