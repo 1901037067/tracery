@@ -52,8 +52,7 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ' — ' + detail : ''}`);
 };
 
-const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
-await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
 await sleep(1000);
 
 // 在页面里装载引擎，并挂一个 round-trip 辅助函数

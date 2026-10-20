@@ -454,7 +454,6 @@ function renderBlock(b, ctx) {
   switch (b.type) {
     case 'blank': {
       const p = document.createElement('p');
-      p.className = 'md-blank';
       p.dataset.mdBlank = '1';
       p.appendChild(document.createElement('br'));
       tagEl(p, b, ctx.tagOffsets);

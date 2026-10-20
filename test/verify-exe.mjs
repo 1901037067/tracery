@@ -52,49 +52,36 @@ await page.evaluate(() => {
 });
 await new Promise((r) => setTimeout(r, 900));
 
-// 打包版默认内核 = cm（settings.editorEngine 默认 cm）。cm 的实时预览装饰是「视口作用域」的，
+// 编辑器只有 CM6 一套内核。CM6 的实时预览装饰是「视口作用域」的，
 // 视口外不建 DOM → 「全文找 N 个 X」必须先分段滚动再累加（与 test/e2e.mjs 同一套口径）。
-// 按「编辑区里有没有 .cm-editor」自动选口径，万一包换成 block 默认也不会失灵。
 const isCm = await page.evaluate(() => !!document.querySelector('#editor-live .cm-editor'));
-let content;
-if (isCm) {
-  content = { headings: 0, wikilinks: 0, tasks: 0, callouts: 0 };
-  for (const f of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
-    await page.evaluate((frac) => {
-      const s = document.querySelector('#editor-live .cm-scroller');
-      if (s) s.scrollTop = Math.max(0, (s.scrollHeight - s.clientHeight) * frac);
-    }, f);
-    await new Promise((r) => setTimeout(r, 300));
-    const c = await page.evaluate(() => {
-      const live = document.getElementById('editor-live');
-      return {
-        headings: live.querySelectorAll('.cm-lp-h1, .cm-lp-h2, .cm-lp-h3').length,
-        wikilinks: live.querySelectorAll('.cm-lp-wikilink').length,
-        tasks: live.querySelectorAll('input.cm-lp-cb').length,
-        callouts: live.querySelectorAll('.cm-lp-callout').length,
-      };
-    });
-    content.headings += c.headings;
-    content.wikilinks += c.wikilinks;
-    content.tasks += c.tasks;
-    content.callouts += c.callouts;
-  }
-  await page.evaluate(() => {
+check('打包版：编辑区挂载 CodeMirror 6', isCm);
+const content = { headings: 0, wikilinks: 0, tasks: 0, callouts: 0 };
+for (const f of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
+  await page.evaluate((frac) => {
     const s = document.querySelector('#editor-live .cm-scroller');
-    if (s) s.scrollTop = 0;
-  });
+    if (s) s.scrollTop = Math.max(0, (s.scrollHeight - s.clientHeight) * frac);
+  }, f);
   await new Promise((r) => setTimeout(r, 300));
-} else {
-  content = await page.evaluate(() => {
+  const c = await page.evaluate(() => {
     const live = document.getElementById('editor-live');
     return {
-      headings: live.querySelectorAll('h1, h2, h3').length,
-      wikilinks: live.querySelectorAll('a.wikilink').length,
-      tasks: live.querySelectorAll('li.task-list-item input[type=checkbox]').length,
-      callouts: live.querySelectorAll('.callout').length,
+      headings: live.querySelectorAll('.cm-lp-h1, .cm-lp-h2, .cm-lp-h3').length,
+      wikilinks: live.querySelectorAll('.cm-lp-wikilink').length,
+      tasks: live.querySelectorAll('input.cm-lp-cb').length,
+      callouts: live.querySelectorAll('.cm-lp-callout').length,
     };
   });
+  content.headings += c.headings;
+  content.wikilinks += c.wikilinks;
+  content.tasks += c.tasks;
+  content.callouts += c.callouts;
 }
+await page.evaluate(() => {
+  const s = document.querySelector('#editor-live .cm-scroller');
+  if (s) s.scrollTop = 0;
+});
+await new Promise((r) => setTimeout(r, 300));
 
 const ui = await page.evaluate(() => ({
   welcomeHidden: document.getElementById('welcome').hidden,
@@ -110,7 +97,7 @@ const ui = await page.evaluate(() => ({
 }));
 check('打包版：主界面显示（欢迎页已隐藏）', ui.appVisible && ui.welcomeHidden);
 check('打包版：文件树渲染', ui.treeItems >= 10, `${ui.treeItems} 项`);
-check(`打包版：笔记内容渲染（标题/双链/任务/Callout）—— ${isCm ? 'cm：分段滚动累加' : 'block'}`,
+check('打包版：笔记内容渲染（标题/双链/任务/Callout）—— 分段滚动累加',
   content.headings >= 1 && content.wikilinks >= 1 && content.tasks >= 1 && content.callouts >= 1,
   JSON.stringify({ h: content.headings, wl: content.wikilinks, t: content.tasks, c: content.callouts }));
 check('打包版：大纲面板', ui.outlineItems >= 1, `${ui.outlineItems} 项 | ${ui.outlineHtml} | note=${ui.notePath} md=${JSON.stringify(ui.mdHead)}`);

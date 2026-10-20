@@ -55,8 +55,7 @@ async function main() {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
-  await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
+  await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
   await sleep(1400);
 
   const clickTree = (name) => page.evaluate((n) => {

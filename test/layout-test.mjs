@@ -46,9 +46,7 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ' — ' + detail : ''}`);
 }
 
-const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
-const IS_CM = true;   // 恒为 true：块级内核已删除
-await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 
 /* ---------- 1. 侧栏折叠（含「拖拽过栏宽」这个回归场景） ---------- */
@@ -183,6 +181,27 @@ check('拖拽分隔条压在纸张左/右边缘（±2px，与视觉边界重合�
   Math.abs(shell.leftCenter - shell.paperLeft) <= 2 && Math.abs(shell.rightCenter - shell.paperRight) <= 2,
   JSON.stringify(shell));
 
+/* ---------- 2c. 沉浸式无缝拼接：顶栏与左侧栏连成一整块（2026-10-20 用户要求） ----------
+ * 判断口径：顶栏不能有底边线，且顶栏与 .layout（含左侧栏）底色必须同一值——
+ * 两者都成立时，「顶栏 + 侧栏」在视觉上才是一整块区域（少一条线就够了）。 */
+const seamless = await page.evaluate(() => {
+  const tb = document.querySelector('.titlebar');
+  const ly = document.querySelector('.layout');
+  const norm = (s) => (s || '').replace(/\s+/g, '');
+  return {
+    titlebarBorderBottom: getComputedStyle(tb).borderBottomWidth,
+    titlebarBg: norm(getComputedStyle(tb).backgroundColor),
+    layoutBg: norm(getComputedStyle(ly).backgroundColor),
+    ribbonBg: norm(getComputedStyle(document.querySelector('.ribbon')).backgroundColor),
+    sidebarBg: norm(getComputedStyle(document.getElementById('sidebar')).backgroundColor),
+  };
+});
+check('顶栏与左侧栏无缝拼接（顶栏无底边线 + 与侧栏底色一致）',
+  seamless.titlebarBorderBottom === '0px'
+  && seamless.titlebarBg === seamless.layoutBg
+  && seamless.ribbonBg === 'rgba(0,0,0,0)' && seamless.sidebarBg === 'rgba(0,0,0,0)',
+  JSON.stringify(seamless));
+
 /* ================= 3. 图片查看 / 行号 / 折叠图标 ================= */
 
 // ① 文件树点图片 → 灯箱查看（以前会尝试当笔记打开，报「笔记不存在」）
@@ -196,26 +215,7 @@ check('文件树点图片 → 灯箱打开', imgView.open && decodeURIComponent(
 await page.keyboard.press('Escape');
 await sleep(400);
 
-// ② 源码模式行号（实时预览模式不显示）
-if (IS_CM) {
-  // cm 的源码模式是「同一个 view 关掉装饰」，没有独立的 #source-wrap / textarea / 行号槽
-  // （行号一直由 lineNumbers compartment 提供）→ 该条按引擎门控（见 7.9-C）
-  console.log('  ⏭ 跳过「源码模式独立行号槽」：cm 源码模式共用同一视图，无 #source-wrap');
-} else {
-  const srcMode = await page.evaluate(async () => {
-    document.getElementById('btn-mode').click();   // 切源码
-    await new Promise((r) => setTimeout(r, 500));
-    const gutter = document.getElementById('source-gutter');
-    const wrap = document.getElementById('source-wrap');
-    const src = document.getElementById('editor-source');
-    const sourceState = { wrapVisible: !wrap.hidden, count: gutter.childElementCount, lines: src.value.split('\n').length };
-    document.getElementById('btn-mode').click();   // 切回实时
-    await new Promise((r) => setTimeout(r, 400));
-    return { ...sourceState, liveHidden: wrap.hidden };
-  });
-  check('源码模式显示行号且数量=文本行数', srcMode.wrapVisible && srcMode.count === srcMode.lines, `gutter=${srcMode.count} lines=${srcMode.lines}`);
-  check('实时预览模式不显示行号', srcMode.liveHidden);
-}
+// ② 源码模式行号：源码模式共用同一视图，行号一直由 lineNumbers compartment 提供。
 
 // ③ 折叠/展开全部图标随状态变化
 const iconState = await page.evaluate(async () => {

@@ -48,8 +48,7 @@ const check = (name, ok, detail = '') => {
 };
 const fileExists = (p) => fs.existsSync(path.join(VAULT, p));
 
-const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
-await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 await page.evaluate(async (vp) => {
   await fetch('/api/vault/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: vp }) });

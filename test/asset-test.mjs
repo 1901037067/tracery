@@ -79,12 +79,12 @@ async function setAttachment(patch) {
 }
 
 /** 在页面里派发粘贴事件（图片走 /icon.png 取真字节）。
- *  注意目标元素：块级的 paste 监听挂在 #editor-live，cm 的挂在 CM 的 .cm-content
+ *  注意目标元素：paste 监听挂在 CM 的 .cm-content
  *  （事件只向祖先冒泡，挂错元素处理器收不到）。 */
 async function pasteImage(name = 'image.png') {
-  // cm 的 paste 处理器挂在 CM 的 .cm-content 上，且要编辑器处于聚焦态才走真实粘贴链路
+  // paste 处理器挂在 CM 的 .cm-content 上，且要编辑器处于聚焦态才走真实粘贴链路
   //（等价于用户先点进编辑区再 Ctrl+V）——源事件派发前先点一下内容区聚焦。
-  if (IS_CM) { try { await page.click('#editor-live .cm-content'); await sleep(150); } catch { /* 忽略 */ } }
+  try { await page.click('#editor-live .cm-content'); await sleep(150); } catch { /* 忽略 */ }
   const dbg = await page.evaluate(async (n) => {
     const blob = await (await fetch('/icon.png')).blob();
     const dt = new DataTransfer();
@@ -116,9 +116,7 @@ async function dropFile(b64, name, type) {
 const noteAbs = path.join(VAULT, NOTE);
 const noteHas = (re) => { try { return new RegExp(re).test(fs.readFileSync(noteAbs, 'utf8')); } catch { return false; } };
 
-const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
-const IS_CM = true;   // 恒为 true：块级内核已删除
-await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 await openNoteInTestVault();
 

@@ -28,8 +28,7 @@ const browser = await puppeteer.launch({
   args: ['--no-sandbox'],
 });
 const page = await browser.newPage();
-const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
-await page.goto(BASE + `/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
+await page.goto(BASE, { waitUntil: 'networkidle0' });
 await sleep(700);
 
 // 欢迎页（临时切换显示，不改配置）

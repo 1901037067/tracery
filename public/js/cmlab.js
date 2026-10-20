@@ -12,7 +12,7 @@
  *   6. 行内编辑（P2）：Enter 续列表/任务列表、Tab 缩进、Ctrl+B/I/S/K、
  *      粘贴/拖入附件在 domEventHandlers 里拦掉
  *   7. 块级 widget（P3）：图片嵌入 + 拖宽、复选框、Callout 行装饰、表格边框、双链/标签事件
- *   8. 引擎适配器（P4）：CmEditor 对 LiveEditor 方法契约的端到端验证（#cm2 + 注入桩）+ ![[笔记]] 卡片
+ *   8. 引擎适配器（P4）：CmEditor 对外方法契约的端到端验证（#cm2 + 注入桩）+ ![[笔记]] 卡片
  *
  * 结果同时渲染到页面表格并暴露在 window.__probe.results。
  */
@@ -923,7 +923,7 @@ async function probeWidgets() {
 }
 
 /* ================= 探针 8：CM 引擎适配器（P4） =================
- * 用 CmEditor（cm/engine.js）跑一遍 LiveEditor 第 5.2 节的方法契约 + P4 的 ![[笔记]] 嵌入卡片。
+ * 用 CmEditor（cm/engine.js）跑一遍对外方法契约 + P4 的 ![[笔记]] 嵌入卡片。
  * 全部依赖走注入桩（无服务端、无 app.js），第二个挂载点 #cm2；不影响主探针视图与 IME 探针。 */
 
 const ENGINE_FIXTURE = [

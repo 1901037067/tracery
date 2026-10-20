@@ -170,10 +170,19 @@ function collectBlockDecos(blocks, state, cursor, out, opts = {}) {
       case 'table': {
         // 分隔行（header 下面那一行）由 fenceHiding StateField 做块级收起——
         // 内联替换只删文字不塌行高，块替换必须挂 StateField（P0 结论）。
-        // 这里只给表头/数据行挂行装饰；完整表格（边框/对齐/单元格编辑）是 P3。
+        // 行装饰：表头/数据行的底色；网格（藏 `|` + 单元格 padding）由 widgets.js 负责。
         out.push({ from: docLine(state, b.header.line).from, cls: 'cm-lp-tr cm-lp-tr-head', kind: 'line' });
         for (const r of b.rows) {
           out.push({ from: docLine(state, r.line).from, cls: 'cm-lp-tr', kind: 'line' });
+        }
+        // **单元格里的行内语法也要渲染**（2026-10-20 用户报障：格子里的 `[[双链]]`、`` `代码` ``、
+        // `**粗**`、`#标签` 全是源码样式，双链点不动）。此前表格只挂了行装饰，没人扫格子内部。
+        // AST 的 contentStart 指向「未 trim 的片段起点」，真实文本起点要跳过前导空白才对齐。
+        for (const cell of [...b.header.cells, ...b.rows.flatMap((r) => r.cells)]) {
+          if (!cell.text) continue;
+          const raw = state.doc.sliceString(cell.contentStart, Math.min(cell.lineEnd, state.doc.length));
+          const lead = raw.length - raw.trimStart().length;
+          scanInline(cell.text, cell.contentStart + lead, out, opts);
         }
         break;
       }

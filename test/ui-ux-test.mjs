@@ -42,7 +42,7 @@ async function main() {
     '带目录 ![[z_图片/测试图.png]]', '',
     '带尺寸 ![[测试图.png|200]]', '',
     'md 图片 ![](z_图片/测试图.png)', '',
-    // 整行嵌入：cm 的图片 widget 只认「整行就是一个 ![[..]]」（块级两处都渲染）
+    // 整行嵌入：图片 widget 只认「整行就是一个 ![[..]]」
     '![[z_图片/测试图.png]]', '',
   ].join('\n'), 'utf8');
   fs.writeFileSync(path.join(VAULT, '甲.md'), '# 甲\n\n[[乙]] [[图]]\n', 'utf8');
@@ -67,9 +67,7 @@ async function main() {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
-  const IS_CM = true;   // 恒为 true：块级内核已删除
-  await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
+  await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
   await sleep(1200);
 
   /* ---------- 1. 布局 ---------- */
@@ -119,9 +117,8 @@ async function main() {
   });
   await sleep(1500);
   const imgs = await page.evaluate(() => {
-    // 两个内核现在都走 `.embed-image`：
-    //   block = figure.embed-image（整行）或 img.md-image（行内 `![](路径)`）；
-    //   cm    = widget（整行 figure / 行内 span，都带 dataset.target，口径与块级一致）。
+    // cm 的图片统一走 `.embed-image`：整行是 figure，行内是 span，
+    // 都带 dataset.target。
     const fig = [...document.querySelectorAll('#editor-live .embed-image')];
     const mdImgs = [...document.querySelectorAll('#editor-live img.md-image')];
     return {

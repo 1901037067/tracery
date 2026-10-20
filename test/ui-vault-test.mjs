@@ -43,9 +43,7 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ' — ' + detail : ''}`);
 }
 
-const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
-const IS_CM = true;   // 恒为 true：块级内核已删除
-await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 
 // 1. 主题图标：暗色只显示月亮
@@ -122,14 +120,11 @@ await page.screenshot({ path: path.join(SHOTS, 'ui-vault-switcher-dark.png') });
 // 4. Esc 关闭浮层
 await page.keyboard.press('Escape');
 await sleep(400);
-const afterEsc = await page.evaluate((isCm) => ({
+const afterEsc = await page.evaluate(() => ({
   welcomeOpen: !document.getElementById('welcome').hidden,
   appVisible: !document.getElementById('app').hidden,
-  // cm 的编辑区里是 .cm-editor（不是渲染后的 h1/h2/p）
-  editorVisible: isCm
-    ? !!document.querySelector('#editor-live .cm-editor .cm-content')
-    : !!document.querySelector('#editor-live h1, #editor-live h2, #editor-live p'),
-}), IS_CM);
+  editorVisible: !!document.querySelector('#editor-live .cm-editor .cm-content'),
+}));
 check('Esc 可退出浮层并回到编辑器', !afterEsc.welcomeOpen && afterEsc.appVisible && afterEsc.editorVisible, JSON.stringify(afterEsc));
 
 // 5. 关闭按钮（切换仓库入口统一收敛到左上角工作区名称）

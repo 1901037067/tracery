@@ -9,7 +9,7 @@ import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ENGINE, IS_CM, engineUrl, setCaretOnLineContaining } from './_engine-helpers.mjs';
+import { setCaretOnLineContaining } from './_engine-helpers.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const PORT = 9596;
@@ -67,8 +67,7 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ' — ' + detail : ''}`);
 };
 
-await page.goto(engineUrl(`http://localhost:${PORT}`), { waitUntil: 'networkidle0' });   // 内核由 TRACERY_TEST_ENGINE 决定（默认 block）
-console.log(`[menu] 内核：${ENGINE}`);
+await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 await page.evaluate(async (vp) => {
   await fetch('/api/vault/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: vp }) });
@@ -78,7 +77,7 @@ await page.evaluate(() => document.querySelector('[data-path="菜单测试.md"]'
 await sleep(900);
 
 const NOTE = path.join(VAULT, '菜单测试.md');
-// 实时预览模式下 #editor-source 不同步，直接读磁盘（顺带验证真的落盘）
+// 实时预览模式下编辑器内容不同步到 DOM，直接读磁盘（顺带验证真的落盘）
 const mdOf = async () => { await sleep(1400); return fs.readFileSync(NOTE, 'utf8'); };
 // 菜单项现在是「图标 + 标签 + 快捷键提示」三段，取标签那一段
 const menuItems = () => page.evaluate(() => [...document.querySelectorAll('.context-menu button')]
@@ -105,9 +104,9 @@ const rightClickOn = async (selector) => {
   await page.mouse.click(box.x, box.y, { button: 'right' });
   await sleep(400);
 };
-/** 在「含指定文字的行」上右键（块级 p / cm .cm-line） */
+/** 在「含指定文字的行」上右键（cm .cm-line） */
 const rightClickTextLine = async (text) => {
-  const sel = IS_CM ? '#editor-live .cm-line' : '#editor-live p:not(.md-blank)';
+  const sel = '#editor-live .cm-line';
   const box = await page.evaluate(({ s, t }) => {
     const el = [...document.querySelectorAll(s)].find((x) => x.textContent.includes(t));
     if (!el) return null;
@@ -120,8 +119,6 @@ const rightClickTextLine = async (text) => {
 };
 
 /* ---------- ① 文本右键菜单 ---------- */
-// 注意选 :not(.md-blank)：空行现在是真实的一行高度，也能点/能右键，
-// 用裸 p 会先命中标题下面那条空行
 // cm：右键不会移动 CM 的光标（只在 state 里），「标题 1」按光标所在行执行 → 先把光标放好
 await setCaretOnLineContaining(page, '第一行文字');
 await rightClickTextLine('第一行文字');
@@ -137,39 +134,25 @@ check('「标题 1」把当前行转成标题', md.includes('# 第一行文字')
 
 // 加粗：先选中文字，再在选区中心右键（选区内的右键必须保住选区）
 let selCenter;
-if (IS_CM) {
-  // cm：在 view.state 里按偏移设选区（h1 行的「第一行文字」前 3 个字），
-  // 右键不动 CM 选区 → 菜单的「加粗」读的仍是这个选区
-  selCenter = await page.evaluate(() => {
-    const ed = window.__editor;
-    const doc = ed.view.state.doc;
-    for (let n = 1; n <= doc.lines; n++) {
-      const line = doc.line(n);
-      const i = line.text.indexOf('第一行文字');
-      if (i >= 0) {
-        const from = line.from + i;
-        ed.view.dispatch({ selection: { anchor: from, head: from + 3 } });
-        ed.view.focus();
-        // 用 CM 的字符坐标算点击点（落在选区内，右键才不会收拢选区）
-        const c = ed.view.coordsAtPos(from + 1);
-        return { x: (c.left + c.right) / 2 || c.left + 6, y: (c.top + c.bottom) / 2 };
-      }
+// 在 view.state 里按偏移设选区（h1 行的「第一行文字」前 3 个字），
+// 右键不动 CM 选区 → 菜单的「加粗」读的仍是这个选区
+selCenter = await page.evaluate(() => {
+  const ed = window.__editor;
+  const doc = ed.view.state.doc;
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n);
+    const i = line.text.indexOf('第一行文字');
+    if (i >= 0) {
+      const from = line.from + i;
+      ed.view.dispatch({ selection: { anchor: from, head: from + 3 } });
+      ed.view.focus();
+      // 用 CM 的字符坐标算点击点（落在选区内，右键才不会收拢选区）
+      const c = ed.view.coordsAtPos(from + 1);
+      return { x: (c.left + c.right) / 2 || c.left + 6, y: (c.top + c.bottom) / 2 };
     }
-    return null;
-  });
-} else {
-  selCenter = await page.evaluate(() => {
-    const p = document.querySelector('#editor-live h1:last-of-type');
-    const tn = document.createTreeWalker(p, NodeFilter.SHOW_TEXT).nextNode();
-    const r = document.createRange();
-    r.setStart(tn, 0);
-    r.setEnd(tn, Math.min(3, tn.textContent.length));
-    const s = getSelection();
-    s.removeAllRanges(); s.addRange(r);
-    const rect = r.getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-  });
-}
+  }
+  return null;
+});
 if (!selCenter) throw new Error('找不到用于加粗的选区位置');
 await page.mouse.click(selCenter.x, selCenter.y, { button: 'right' });
 await sleep(400);
@@ -178,10 +161,10 @@ md = await mdOf();
 check('「加粗」给选中文字加 ** **', md.includes('**第一行**') || md.includes('**第一行文字**'), JSON.stringify(md.split('\n').slice(0, 4)));
 
 /* ---------- ② 图片右键菜单 ---------- */
-// cm 下 `![[..]]` 由**块级** widget 渲染成 <figure class="cm-lp-img">；行内/`![](路径)`
+// cm 下 `![[..]]` 由图片 widget 渲染成 <figure class="cm-lp-img">；行内/`![](路径)`
 // 是 <span class="cm-lp-img cm-lp-img-inline">。这里要测的是 `![[..]]` 这一张，
 // 所以必须选 figure（否则会点中前面那张 `![小图](...)`，删错对象）。
-await rightClickOn(IS_CM ? '#editor-live figure.cm-lp-img img' : '#editor-live img');
+await rightClickOn('#editor-live figure.cm-lp-img img');
 const imgItems = await menuItems();
 check('图片右键 → 图片菜单',
   ['复制图片', '查看大图', '复制路径', '移除图片', '删除图片文件'].every((l) => imgItems.includes(l)),
@@ -190,7 +173,7 @@ check('图片右键 → 图片菜单',
 const beforeImg = await mdOf();
 await clickMenuItem('移除图片');
 const afterImg = await mdOf();
-const imgMark = IS_CM ? '![[附件/pic.png|120]]' : '![小图](附件/pic.png)';
+const imgMark = '![[附件/pic.png|120]]';
 check('「移除图片」从正文删掉图片标记',
   beforeImg.includes(imgMark) && !afterImg.includes(imgMark),
   JSON.stringify(afterImg.split('\n').filter(Boolean)));

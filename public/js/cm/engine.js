@@ -1,17 +1,15 @@
 /**
  * public/js/cm/engine.js — CM6 版编辑器引擎（P4 适配器）
  * ------------------------------------------------------------------
- * 目标（EDITOR-MIGRATION.md 第 5 节契约）：**保留 `LiveEditor` 的名字/构造参数/全部方法**，
- * 内部实现从「块级 contenteditable 整篇重建」换成「CM6 行级 + 装饰」。
- * 本文件是**独立适配器**：不 import `editor.js` / `api.js` / `settings.js`，
+ * 本文件是**独立适配器**：不 import `api.js` / `settings.js`，
  * 所有业务依赖（附件落盘、图片 URL、笔记嵌入解析、链接跳转）都由构造参数注入——
- * 这样它可以在 cmlab 探针页里端到端验证，且**接线时 `editor.js` 只需换实现、app.js 不用改逻辑**。
+ * 这样它可以在 cmlab 探针页里端到端验证。
  *
- * 与块级模型的差异（P4 接线时要留意的 DOM 契约，见文档 5.3）：
- *   - `#editor-live` 只作为 CM 挂载点；源码模式不再有独立 textarea，而是**同一份 doc 切换扩展集**
- *     （关掉实时预览装饰 = 源码视图），行号走 compartment。
- *   - 撤销/重做交给 CM `history()`（带选区/滚动还原），不再自建快照栈。
- *   - `dirty` 仍是字段（app.js 直接读 `editor.dirty`），语义不变。
+ * DOM 契约（见 docs/EDITOR-MIGRATION.md 第 5 节）：
+ *   - `#editor-live` 作为 CM 挂载点；三种模式共用**同一份 doc，只切换扩展集**
+ *     （live 挂装饰 / source 不挂 / read 全量渲染 + 只读），行号走 compartment。
+ *   - 撤销/重做交给 CM `history()`（带选区/滚动还原），不自建快照栈。
+ *   - `dirty` 是字段（app.js 直接读 `editor.dirty`），语义不变。
  *
  * P0–P3 的模块在这里装配：`cm/decorations.js`（P1 装饰）+ `cm/editing.js`（P2 keymap/粘贴拦截）
  * + `cm/widgets.js`（P3 块级 widget + 笔记嵌入卡片）。
@@ -35,8 +33,8 @@ const LINE_MARKUP_RE = /^(\s*)(#{1,6}\s+|[-*+]\s+(?:\[[ x]\]\s+)?|>\s?|\d+\.\s+)
 
 export class CmEditor {
   /**
-   * @param opts 与 LiveEditor 一致，另加 CM 需要的注入点：
-   *   liveEl（CM 挂载点）, [sourceEl/gutterEl/sourceWrap 仅保留字段],
+   * @param opts CM 需要的注入点：
+   *   liveEl（CM 挂载点）,
    *   resolveLink(t), resolveFile(name), fileUrl(path),
    *   loadNote(name)->md|Promise,        // ![[笔记]] 嵌入解析
    *   saveAsset(file)->{ok,path},        // 附件落盘（缺省则只回调 onAssetUnhandled）
@@ -47,9 +45,6 @@ export class CmEditor {
   constructor(opts = {}) {
     this.opts = opts;
     this.liveEl = opts.liveEl;
-    this.sourceEl = opts.sourceEl || null;
-    this.gutterEl = opts.gutterEl || null;
-    this.sourceWrap = opts.sourceWrap || null;
 
     this.path = null;
     this.mode = 'live';            // live | source | read（同一份 doc，切扩展集）
@@ -71,7 +66,7 @@ export class CmEditor {
       state: EditorState.create({ doc: '', extensions: this._extensions() }),
     });
 
-    // 右键落在「已有选区」内时保住选区（块级内核同款诉求）：
+    // 右键落在「已有选区」内时保住选区：
     // 浏览器默认的 mousedown 会把 contenteditable 的插入点挪到点击处，CM 的 observer
     // 随即把 state 选区收拢成光标 → 右键菜单里的「加粗/斜体」等 wrapSelection 全部落空。
     // 这里在右键且点中选区内时阻止默认，让 CM 的选区原样留给菜单动作。
@@ -134,7 +129,13 @@ export class CmEditor {
         isAsset: this.opts.isAsset,
         loadNote: this.opts.loadNote,
         onImageClick: this.opts.onImageClick,
-        onOpenWikilink: (target) => this.opts.onNavigate?.(this.opts.resolveLink?.(target) || target),
+        // 双链点击：解析得到就跳过去；解析不到（这篇笔记还不存在）→ 交给 onCreateWikilink
+        // 走「问一句就当场创建」那条路（demo-vault/双链与反链.md 承诺的行为，反链面板同口径）。
+        onOpenWikilink: (target) => {
+          const resolved = this.opts.resolveLink?.(target) || null;
+          if (resolved) this.opts.onNavigate?.(resolved);
+          else this.opts.onCreateWikilink?.(target);
+        },
         onHoverWikilink: (target, el) => this.opts.onPreviewWikilink?.(target, el),
         onTagClick: (tag) => this.opts.onTagClick?.(tag),
         readOnly,
@@ -180,7 +181,7 @@ export class CmEditor {
     }
   }
 
-  /* ---------- 契约方法（与 LiveEditor 5.2 一一对应） ---------- */
+  /* ---------- 对外方法（app.js 与测试都按这套调用） ---------- */
 
   setAutosave(ms) {
     this.autosaveMs = Math.max(0, Number(ms) || 0);
@@ -195,7 +196,7 @@ export class CmEditor {
     this.md = content;
     this.dirty = false;
     if (!keepMode) this.mode = 'live';
-    // 换文件 = 全新 state（撤销栈按笔记隔离，与 LiveEditor 一致）
+    // 换文件 = 全新 state（撤销栈按笔记隔离）
     this.view.setState(EditorState.create({ doc: content, extensions: this._extensions() }));
     this._loading = false;
     this.opts.onDirtyChange?.(false);
@@ -224,7 +225,7 @@ export class CmEditor {
     this._flushSave();
     this.mode = mode;
     const read = mode === 'read';
-    // 三种模式 = 同一份 doc 换扩展集（不再有独立 textarea）：
+    // 三种模式 = 同一份 doc 换扩展集：
     //   live/source：装饰开/关；read：装饰换「全量渲染」那套 + 只读 + 收行号
     this.view.dispatch({
       effects: [
@@ -233,7 +234,6 @@ export class CmEditor {
         this.lineNumComp.reconfigure(!read && this.showLineNumbers ? lineNumbers() : []),
       ],
     });
-    if (this.sourceWrap) this.sourceWrap.hidden = true;   // 不再使用独立 textarea
     this.opts.onModeChange?.(mode);
   }
 
@@ -261,7 +261,7 @@ export class CmEditor {
    * 阅读模式没有任何编辑入口：这里的 mutation 方法统一提前返回。
    * 为什么还要兜一层：编辑器不可编辑（无焦点）时键盘进不来，但右键菜单 / 命令面板 /
    * 绘图的「插入笔记」仍会调用这些方法——漏一个就会在阅读模式下偷偷改掉笔记。 */
-  /** 在光标处插入一段 Markdown（绘图、模板等用）：首尾补空行，与 LiveEditor 同口径 */
+  /** 在光标处插入一段 Markdown（绘图、模板等用）：首尾补空行 */
   insertSnippet(text) {
     if (this.isRead) return;
     const view = this.view;
@@ -394,5 +394,4 @@ export class CmEditor {
   }
 }
 
-/** 默认导出：类名不同，但方法契约与 LiveEditor 一致，接线时按需改名/包装 */
 export default CmEditor;

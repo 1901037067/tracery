@@ -50,8 +50,7 @@ input, textarea { font-family: inherit; color: inherit; }
 ::-webkit-scrollbar-track { background: transparent; }
 /* 阅读/编辑区的滚动条：轨道上下内收，thumb 不顶到纸的圆角
    （否则滚到顶部时，滚动条会和容器的圆角边框交叉，看着很别扭） */
-.editor::-webkit-scrollbar-track,
-.editor-source::-webkit-scrollbar-track { margin: 14px 0; }
+.editor::-webkit-scrollbar-track { margin: 14px 0; }
 
 /* ============ 欢迎页（浮层，可关闭） ============ */
 .welcome {
@@ -216,7 +215,9 @@ input, textarea { font-family: inherit; color: inherit; }
   background: var(--bg-sidebar);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-bottom: 1px solid var(--hairline);
+  /* 故意不画底边线（2026-10-20 用户要求「沉浸式无缝拼接」）：顶栏与下方整个 .layout
+     用的是同一个 --bg-sidebar 底色，少这一条线之后「顶栏 + 左侧栏」看上去是一整块区域。
+     侧栏面板内部的分隔线（如文件树里的星标区分隔）不受影响，它们仍在面板内部。 */
   -webkit-app-region: drag;
   user-select: none;
   flex-shrink: 0;
@@ -500,16 +501,6 @@ body.electron .electron-only { display: inline-flex !important; }
 .context-menu button:disabled { opacity: 0.42; }
 .context-menu button:disabled:hover { background: none; }
 
-/* 实时预览行号槽（覆盖层，跟着滚动同步位移） */
-.live-gutter {
-  position: absolute; top: 10px; bottom: 10px; left: 0; width: 42px;
-  overflow: hidden; pointer-events: none; user-select: none;
-  font-family: var(--font-mono); font-size: 10.5px;
-  color: var(--text-tertiary); text-align: right;
-}
-.live-gutter .lg-inner { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
-.live-gutter .ln { position: absolute; right: 8px; height: 14px; line-height: 14px; }
-
 /* ============ 回收站 ============ */
 .trash-viewer {
   position: fixed; inset: 0; z-index: 340;
@@ -694,30 +685,6 @@ body.electron .electron-only { display: inline-flex !important; }
 }
 .editor > * { max-width: var(--editor-width, 720px); margin-left: auto; margin-right: auto; }
 
-/* ============ 源码模式（行号槽 + 等宽编辑区，实时预览模式不显示） ============ */
-.source-wrap { position: absolute; inset: 0; margin: 10px 0 10px 0; display: flex; min-width: 0; }
-.source-gutter {
-  flex-shrink: 0; width: 46px;
-  overflow: hidden;
-  /* 与 .editor-source 严格同参：字号/行高/上padding 一致，行号才对齐得齐 */
-  padding: 22px 12px 40vh 16px;
-  font-family: var(--font-mono);
-  font-size: 13.5px; line-height: 1.8;
-  color: var(--text-tertiary);
-  text-align: right;
-  user-select: none;
-  border-right: 1px solid var(--hairline);
-}
-.editor-source {
-  flex: 1; min-width: 0;
-  overflow: auto; outline: none;
-  padding: 22px 40px 40vh;
-  border: none; resize: none;
-  background: transparent;
-  font-family: var(--font-mono);
-  font-size: 13.5px; line-height: 1.8;
-}
-
 /* ============ Markdown 渲染 ============ */
 /* 代码高亮配色（浅色主题） */
 :root {
@@ -765,22 +732,6 @@ body.electron .electron-only { display: inline-flex !important; }
   border-bottom: 1.5px solid var(--text-tertiary);
 }
 .embed-image:hover .img-grip { opacity: 1; }
-/* 段落分隔符占位段 = 源码里的那一行空行，在预览里也占一行的高度。
-   为什么不能再做成「零高 + 点中时临时撑开」：那样一点击下面的内容整体跳一下，
-   而且这一行根本点不到，光标只能靠猜。给它恒定的行高之后，空行成了真实的
-   点击/输入目标，布局不动、源码行号和预览位置也对得上。
-   序列化时空的会被跳过，文件不会被动（见 serializeBlocks）。 */
-#editor-live .md-blank {
-  margin: 0 !important;
-  padding: 0;
-  min-height: 1.78em;
-  line-height: 1.78;
-  overflow: visible;
-}
-/* 空行自己已经占了一整行：相邻块的上下外边距让位，
-   否则间距会变成「外边距 + 一整行」，比原来松一大截 */
-#editor-live > *:has(+ .md-blank) { margin-bottom: 0 !important; }
-#editor-live .md-blank + * { margin-top: 0 !important; }
 
 .markdown-body { word-break: break-word; }
 .markdown-body > *:first-child { margin-top: 0; }

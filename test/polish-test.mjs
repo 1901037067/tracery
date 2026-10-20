@@ -11,7 +11,7 @@ import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ENGINE, IS_CM, engineUrl, caretAtEndOfText, gutterNumbers, gutterVisible } from './_engine-helpers.mjs';
+import { caretAtEndOfText, gutterNumbers, gutterVisible } from './_engine-helpers.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const PORT = 9608;
@@ -44,8 +44,7 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ' — ' + detail : ''}`);
 };
 
-await page.goto(engineUrl(`http://localhost:${PORT}`), { waitUntil: 'networkidle0' });   // 内核由 TRACERY_TEST_ENGINE 决定（默认 block）
-console.log(`[polish] 内核：${ENGINE}`);
+await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 
 // 欢迎页文案（首启动没有 vault，欢迎页可见）
@@ -74,7 +73,7 @@ async function openNote(content) {
   return abs;
 }
 const md = () => page.evaluate(() => window.__tracery.editor.getContent());
-/** 光标落到最后一个非空行的行尾（两内核同一语义；块级走 DOM Range，cm 走 view.dispatch） */
+/** 光标落到最后一个非空行的行尾（cm：view.dispatch） */
 async function caretEnd() { await caretAtEndOfText(page); }
 
 /* ---------- ① 打字 → Ctrl+Z 撤销 ---------- */
@@ -89,16 +88,10 @@ check('Ctrl+Z 撤销这次输入', !(await md()).includes('abc'), JSON.stringify
 await sleep(1400);
 check('撤销结果已落盘', !fs.readFileSync(abs, 'utf8').includes('abc'), JSON.stringify(fs.readFileSync(abs, 'utf8')));
 
-/* ---------- ② 重做（cm 只能 Ctrl+Y；块级 Ctrl+Shift+Z 亦可） ---------- */
-if (IS_CM) {
-  await page.keyboard.down('Control'); await page.keyboard.press('KeyY'); await page.keyboard.up('Control');
-} else {
-  await page.keyboard.down('Control'); await page.keyboard.down('Shift');
-  await page.keyboard.press('z');
-  await page.keyboard.up('Shift'); await page.keyboard.up('Control');
-}
+/* ---------- ② 重做（cm：Ctrl+Y） ---------- */
+await page.keyboard.down('Control'); await page.keyboard.press('KeyY'); await page.keyboard.up('Control');
 await sleep(300);
-check(IS_CM ? 'Ctrl+Y 重做（cm：Mod-Shift-z 被 Shift 大写坑掉）' : 'Ctrl+Shift+Z 重做（块级）',
+check('Ctrl+Y 重做（cm：Mod-Shift-z 被 Shift 大写坑掉）',
   (await md()).includes('第一段abc'), JSON.stringify(await md()));
 
 await page.keyboard.down('Control'); await page.keyboard.press('z'); await page.keyboard.up('Control');
@@ -139,47 +132,25 @@ check('撤销后新输入会砍掉 redo 分支', canRedo === false, `canRedo=${c
 
 /* ---------- ⑥ 实时预览行号 ---------- */
 abs = await openNote('# 一级标题\n\n第一段\n\n- 甲\n- 乙\n\n```js\nconst a = 1;\nconst b = 2;\n```\n');
-if (IS_CM) {
-  // cm：行号槽是 CM 的 lineNumbers gutter（每行都有号，含文末空行），
-  // 注意过滤掉 CM 用来测宽度的 9999 元素。
-  const nums = await gutterNumbers(page);
-  check('实时预览出现行号槽（cm .cm-lineNumbers）', (await gutterVisible(page)) && nums.length > 0, nums.join(','));
-  check('行号从 1 开始', nums[0] === 1, JSON.stringify(nums[0]));
-  check('行号覆盖列表项与代码块每一行',
-    nums.includes(5) && nums.includes(6) && nums.includes(9) && nums.includes(10), nums.join(','));
-  check('文末空行也编号（与 Obsidian 一致）',
-    nums.includes(12) && Math.max(...nums) === 12, nums.join(','));
-  const align = await page.evaluate(() => {
-    const max = window.__editor.view.state.doc.lines;
-    const g = [...document.querySelectorAll('#editor-live .cm-lineNumbers .cm-gutterElement')]
-      .filter((e) => { const n = Number(e.textContent.trim()); return n >= 1 && n <= max; });
-    const h1 = document.querySelector('#editor-live .cm-line.cm-lp-h1');
-    if (!g[0] || !h1) return null;
-    const a = g[0].getBoundingClientRect(), b = h1.getBoundingClientRect();
-    return Math.round(Math.abs((a.top + a.height / 2) - (b.top + b.height / 2)));
-  });
-  check('首行行号与标题行对齐', align !== null && align < 6, `Δ=${align}px`);
-} else {
-  const gutter = await page.evaluate(() => {
-    const g = document.querySelector('.live-gutter');
-    const nums = g ? [...g.querySelectorAll('.ln')].map((d) => ({ n: Number(d.textContent), top: d.style.top })) : [];
-    const h1 = document.querySelector('#editor-live h1').getBoundingClientRect();
-    return { hidden: !g || g.hidden, nums, h1Top: h1.top };
-  });
-  check('实时预览出现行号槽', !gutter.hidden && gutter.nums.length > 0, JSON.stringify(gutter.nums.slice(0, 8)));
-  check('行号从 1 开始且首行对着标题',
-    gutter.nums[0]?.n === 1, JSON.stringify(gutter.nums[0]));
-  const numbers = gutter.nums.map((x) => x.n);
-  check('行号覆盖列表项与代码块每一行',
-    numbers.includes(5) && numbers.includes(6) && numbers.includes(9) && numbers.includes(10), numbers.join(','));
-  // 2026-10-18 用户报：Obsidian 里「段落 + 5 个 \n」显示 1-6，Tracery 只显示 1-5。
-  // 根因是 _collectLineNumbers 跳过了文末空行；CM6/Obsidian 对每一行都编号（含文末空行）。
-  // 本夹具共 12 行（文件以 \n 结尾，第 12 行是文末空行），修后末行必须拿到号。
-  // 注意：围栏行（8/11）在块级模型里本来就没有可见行可挂号（上一轮的既定行为，
-  // 「跳号 7→9 属正常」），CM6 的行号槽与渲染解耦后这类问题才根治——不断言 8/11。
-  check('文末空行也编号（与 Obsidian 一致）',
-    numbers.includes(12) && Math.max(...numbers) === 12, numbers.join(','));
-}
+// cm：行号槽是 CM 的 lineNumbers gutter（每行都有号，含文末空行），
+// 注意过滤掉 CM 用来测宽度的 9999 元素。
+const nums = await gutterNumbers(page);
+check('实时预览出现行号槽（cm .cm-lineNumbers）', (await gutterVisible(page)) && nums.length > 0, nums.join(','));
+check('行号从 1 开始', nums[0] === 1, JSON.stringify(nums[0]));
+check('行号覆盖列表项与代码块每一行',
+  nums.includes(5) && nums.includes(6) && nums.includes(9) && nums.includes(10), nums.join(','));
+check('文末空行也编号（与 Obsidian 一致）',
+  nums.includes(12) && Math.max(...nums) === 12, nums.join(','));
+const align = await page.evaluate(() => {
+  const max = window.__editor.view.state.doc.lines;
+  const g = [...document.querySelectorAll('#editor-live .cm-lineNumbers .cm-gutterElement')]
+    .filter((e) => { const n = Number(e.textContent.trim()); return n >= 1 && n <= max; });
+  const h1 = document.querySelector('#editor-live .cm-line.cm-lp-h1');
+  if (!g[0] || !h1) return null;
+  const a = g[0].getBoundingClientRect(), b = h1.getBoundingClientRect();
+  return Math.round(Math.abs((a.top + a.height / 2) - (b.top + b.height / 2)));
+});
+check('首行行号与标题行对齐', align !== null && align < 6, `Δ=${align}px`);
 
 /* ---------- ⑦ 设置里关掉行号 ---------- */
 await page.keyboard.down('Control'); await page.keyboard.press(','); await page.keyboard.up('Control');
@@ -231,9 +202,8 @@ check('菜单项高度紧凑（≤ 30px）', menuInfo && menuInfo.maxHeight <= 3
 const textMenu = await page.evaluate(() => {
   document.body.click();
   const ed = document.getElementById('editor-live');
-  // 两内核的「正文行」选择器不同：块级是 p（空行占位段除外），cm 是 .cm-line
-  const sel = ed.querySelector('.cm-editor') ? '.cm-line' : 'p';
-  const p = [...ed.querySelectorAll(sel)].find((x) => x.textContent.trim() && !x.classList.contains('md-blank'));
+  // 编辑区正文行：cm 的 .cm-line
+  const p = [...ed.querySelectorAll('.cm-line')].find((x) => x.textContent.trim());
   if (!p) return null;
   const r = p.getBoundingClientRect();
   p.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 8, clientY: r.top + 8 }));

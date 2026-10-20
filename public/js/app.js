@@ -1490,7 +1490,36 @@ function pruneTabs() {
 }
 
 /* ================= 打开笔记 ================= */
+
+/** 双链取词口径：`[[目标|别名]]` / `[[目标#标题]]` / `[[目标.md]]` 都要还原成「目标」。
+ *  统一放一处——「解析能不能命中」和「点未解析链接该创建哪篇」两处口径必须一致，
+ *  否则带别名的链接（[[目标|别名]]）会解析不到、点了还会去建一篇叫「目标|别名」的笔记。 */
+function wikilinkTarget(raw) {
+  return String(raw || '').split('|')[0].split('#')[0].trim().replace(/\.md$/i, '');
+}
+
+/** 点「还不存在的笔记」的双链 → 问一句就当场创建并打开。
+ *  为什么要有：demo-vault/双链与反链.md 把这条写成入口功能（「链接先行」工作流：先织网再填内容），
+ *  反链面板的「未创建的链接」本来就是这套动作——两处共用这里，提示语和行为不会走偏。 */
+async function createMissingNote(raw, newTab = false) {
+  const name = wikilinkTarget(raw);
+  if (!name) return;
+  const ok = await askConfirm({
+    title: `创建「${name}」？`,
+    desc: '这篇笔记还不存在，现在创建它。',
+    okText: '创建',
+  });
+  if (!ok) return;
+  const path = `${name}.md`;
+  try {
+    await Api.createNote(path, '');
+    await refreshTree(); refreshGraph(); refreshTags();
+    openNote(path, null, { newTab });
+  } catch (e) { toast(e.message); }
+}
+
 /**
+ * 打开（已在标签里就切过去）笔记
  * @param {string} path
  * @param {string} [heading]
  * @param {{newTab?: boolean}} [opts] 默认在当前标签打开；newTab=true 时新开一个
@@ -1612,20 +1641,8 @@ const refreshBacklinks = debounce(async () => {
         const item = document.createElement('div');
         item.className = 'backlink-item';
         item.innerHTML = `<div class="bl-name" style="color:var(--link-unresolved)">[[${escapeText(u.raw)}]]</div>`;
-        item.onclick = async () => {
-          const ok = await askConfirm({
-            title: `创建「${u.raw}」？`,
-            desc: '这篇笔记还不存在，现在创建它。',
-            okText: '创建',
-          });
-          if (!ok) return;
-          const path = u.raw.replace(/\.md$/i, '') + '.md';
-          try {
-            await Api.createNote(path, '');
-            await refreshTree(); refreshGraph(); refreshTags();
-            openNote(path, null, { newTab: true });
-          } catch (e) { toast(e.message); }
-        };
+        // 与「点编辑区里未解析的双链」共用同一套动作（问一句 → 创建 → 打开）
+        item.onclick = () => createMissingNote(u.raw, true);
         box.appendChild(item);
       }
     }
@@ -1840,19 +1857,14 @@ function highlightPalette(i) {
 }
 
 /* ================= 编辑器装配 =================
- * 内核：**只有 CodeMirror 6**（v1.4.0 起下线了旧的块级 contenteditable 内核）。
- * 为什么不再保留双内核：块级内核是「整篇 markdown → DOM 重建」，光标/空行/图片宽度这些
- * 问题都出在"重建"上；cm 是行级真实文本 + 装饰，两边维护两套渲染规则只会让 bug 反复。
- * 旧内核的代码、测试口径、设置开关都已删除（历史见 git 与 docs/EDITOR-MIGRATION.md）。 */
+ * 内核：CodeMirror 6（行级真实文本 + 装饰）。 */
 editor = new CmEditor({
   liveEl: $('editor-live'),
-  sourceEl: $('editor-source'),
-  gutterEl: $('source-gutter'),
-  sourceWrap: $('source-wrap'),
   resolveLink: (target) => {
-    const clean = target.split('#')[0].trim().replace(/\.md$/i, '');
-    return state.nameIndex.get(clean.toLowerCase()) || null;
+    return state.nameIndex.get(wikilinkTarget(target).toLowerCase()) || null;
   },
+  // 点未解析的双链 → 问一句就当场创建并打开（见 createMissingNote）
+  onCreateWikilink: (raw) => createMissingNote(raw),
   resolveFile: (name) => resolveVaultFile(name),
   fileUrl: (path) => Api.fileUrl(path),
   // ![[笔记]] 嵌入卡片的内容解析（与 editor.js 的 _renderEmbed 同口径：截 3000 字）
@@ -1873,8 +1885,7 @@ editor = new CmEditor({
         r.readAsDataURL(file);
       });
     } catch (e) { toast(e.message); return { ok: false }; }
-    // 与 editor.js._saveAssetFile 同口径：截图/复制的图默认叫 image.png，一堆 image-2.png
-    // 很难认，换成带时间戳的名字（块级内核在同一处做这件事，cm 侧别漏）
+    // 截图/复制的图默认叫 image.png，一堆 image-2.png 很难认，换成带时间戳的名字
     let name = file.name || '';
     if (!name || /^image\.(png|jpe?g|gif|webp)$/i.test(name)) {
       const d = new Date();
@@ -1930,172 +1941,12 @@ editor = new CmEditor({
   },
 });
 
-// DOM 收尾：#editor-live 是 CM 挂载点（CM 自带 contenteditable，外层容器不能再可编辑）；
-// 旧内核用的源码 textarea 早已不用，直接隐藏。
+// DOM 收尾：#editor-live 是 CM 挂载点（CM 自带 contenteditable，外层容器不能再可编辑）
 $('editor-live').contentEditable = 'false';
-const sourceWrapEl = $('source-wrap');
-if (sourceWrapEl) sourceWrapEl.hidden = true;
 // 测试/调试钩子：拿到当前编辑内核实例（test/engine-test.mjs 用 getContent/view 做断言）
 window.__editor = editor;
 
-// 表格里：Tab / Shift+Tab 在单元格间跳，回车在当前行下方加一行（仿 Obsidian）
-// 用捕获阶段：编辑器自己的 Tab 是「缩进」，必须抢在它前面，并阻止冒泡
-$('editor-live').addEventListener('keydown', (e) => {
-  if (e.key !== 'Tab' && e.key !== 'Enter') return;
-  const sel = window.getSelection();
-  if (!sel.rangeCount) return;
-  const anchor = sel.anchorNode;
-  const cell = (anchor?.nodeType === 1 ? anchor : anchor?.parentElement)?.closest?.('td, th');
-  if (!cell) return;
-  const table = cell.closest('table');
-  if (!table) return;
-  e.stopPropagation();
-
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    const cells = [...table.querySelectorAll('th, td')];
-    const next = cells[cells.indexOf(cell) + (e.shiftKey ? -1 : 1)];
-    if (!next) return;
-    if (!placeCaretInBlock(next, false)) {
-      const r = document.createRange();
-      r.setStart(next, 0);
-      r.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(r);
-    }
-    return;
-  }
-
-  // 回车：在表头里不处理；拖到最后一行下面加一行同列数的新行
-  const tr = cell.closest('tr');
-  const tbody = table.querySelector('tbody');
-  if (!tr || !tbody || !tbody.contains(tr)) return;
-  e.preventDefault();
-  const col = [...tr.children].indexOf(cell);
-  const newTr = document.createElement('tr');
-  const cols = tr.children.length;
-  for (let i = 0; i < cols; i++) {
-    const td = document.createElement('td');
-    td.appendChild(document.createElement('br'));
-    newTr.appendChild(td);
-  }
-  tr.after(newTr);
-  const target = newTr.children[Math.max(0, col)];
-  const r = document.createRange();
-  r.setStart(target, 0);
-  r.collapse(true);
-  sel.removeAllRanges();
-  sel.addRange(r);
-  $('editor-live').focus();
-  // 让输入事件走一遍：序列化 + 自动保存
-  $('editor-live').dispatchEvent(new InputEvent('input', { bubbles: true }));
-}, true);
 $('editor-live').addEventListener('contextmenu', onEditorContextMenu);
-$('editor-source').addEventListener('contextmenu', onEditorContextMenu);
-
-/**
- * 点击落点（实时预览）。
- * 渲染模型里「源码的一行」必须对应一块可点的区域。空行现在是真的占一行高的
- * placeholder（见 style.css 的 .md-blank），点它就是点那一行，这里显式落光标——
- * 浏览器对「只有 <br> 的空块」默认会把光标塞进附近的文字节点，一点就打错地方。
- * 剩下的空隙只可能是块的外边距（e.target 就是编辑区本身），按距离就近落：
- * 靠上一块 → 上一块末尾，靠下一块 → 下一块开头。
- * 标题例外：绝不接受这种「补字」——点到标题下方的空隙再打字，字补进标题里
- * 是最不容易发现、破坏性最大的操作，直接落到下一块开头。
- */
-$('editor-live').addEventListener('mousedown', (e) => {
-  if (e.button !== 0) return;
-  const root = e.currentTarget;
-
-  // ① 点空行：光标固定在这一行（等它已经有字了才交给浏览器按字定位）
-  const blank = e.target.closest?.('.md-blank');
-  if (blank && root.contains(blank)) {
-    if (blank.textContent.trim()) return;
-    placeCaretAtBlock(blank);
-    e.preventDefault();
-    root.focus();
-    return;
-  }
-
-  // ② 点在外边距上：既不在上一块里也不在下一块里
-  if (e.target !== root) return;
-  const blocks = [...root.children].filter((el) => el.offsetHeight > 0);
-  if (!blocks.length) return;
-  let prev = null;
-  let next = null;
-  for (const el of blocks) {
-    const r = el.getBoundingClientRect();
-    if (r.bottom <= e.clientY) prev = el;
-    else if (r.top >= e.clientY && !next) next = el;
-  }
-  let target = null;
-  let atEnd = true;
-  if (prev && next) {
-    const pr = prev.getBoundingClientRect();
-    const nr = next.getBoundingClientRect();
-    atEnd = e.clientY - pr.bottom <= nr.top - e.clientY;
-    target = atEnd ? prev : next;
-  } else if (prev) {
-    target = prev;
-  } else if (next) {
-    target = next;
-    atEnd = false;
-  }
-  // 标题不接收「补字」：改落到下一块开头（没有下一块时才允许落在标题末尾）
-  if (target && atEnd && /^H[1-6]$/.test(target.tagName) && next) {
-    target = next;
-    atEnd = false;
-  }
-  if (!target || !placeCaretInBlock(target, atEnd)) return;
-  e.preventDefault();
-  root.focus();
-});
-
-/** 把光标放到块的首行（空块 <p><br></p> 也接得住） */
-function placeCaretAtBlock(block) {
-  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-  const first = walker.nextNode();
-  const range = document.createRange();
-  if (first) range.setStart(first, 0);
-  else range.setStart(block, 0);
-  range.collapse(true);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-/** 把光标放到块的末尾（atEnd）或开头 */
-function placeCaretInBlock(block, atEnd) {
-  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-  let first = null;
-  let last = null;
-  let t;
-  while ((t = walker.nextNode())) { if (!first) first = t; last = t; }
-  const range = document.createRange();
-  if (!first) {
-    // 空块：光标直接放进块里，否则浏览器会把它甩到别的块
-    range.setStart(block, 0);
-  } else {
-    const node = atEnd ? last : first;
-    range.setStart(node, atEnd ? node.textContent.length : 0);
-  }
-  range.collapse(true);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-  return true;
-}
-
-// 在已选中的文字上右键时保住选区（否则浏览器先折叠选区，「加粗选中文字」就变成插入空标记）
-$('editor-live').addEventListener('mousedown', (e) => {
-  if (e.button !== 2) return;
-  const sel = window.getSelection();
-  if (!sel.rangeCount || sel.isCollapsed) return;
-  const inside = [...sel.getRangeAt(0).getClientRects()].some(
-    (r) => e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom,
-  );
-  if (inside) e.preventDefault();
-});
 
 const refreshRightPanelsThrottled = debounce((content) => refreshRightPanels(content), 400);
 

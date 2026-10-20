@@ -5,8 +5,8 @@
  *   1. 启动服务器（独立端口 + 全新 mkdtemp 配置目录）；
  *   2. 在临时目录里自建一个小仓库（两篇笔记）并通过 /api/vault/open 打开
  *      —— **不写仓库里的 demo-vault**（它是服务端默认仓库，直接写会污染仓库）；
- *   3. 用 `?engine=cm` 打开页面，确认编辑区里挂的是 CodeMirror 6（`.cm-editor`）；
- *   4. 打开笔记 → CM 实时预览装饰生效，且旧块级 DOM 不出现；
+ *   3. 打开页面，确认编辑区里挂的是 CodeMirror 6（`.cm-editor`）；
+ *   4. 打开笔记 → CM 实时预览装饰生效；
  *   5. 真实键盘输入 → 等自动保存 → 用 API 校验内容落盘；
  *   6. 切源码模式（装饰关闭、doc 不变）→ 切回；粘贴附件（拦截→落盘→回插 ![[..]]）；
  *      点 [[双链]] 跳转目标笔记；
@@ -35,7 +35,7 @@ fs.mkdirSync(VAULT, { recursive: true });
 fs.writeFileSync(path.join(VAULT, NOTE), [
   '# 标题甲',
   '',
-  '正文段落，含 [[双链与反链]] 与 #标签X 。',
+  '正文段落，含 [[双链与反链]] 与 #标签X 和 [[还不存在的新笔记]] 。',
   '',
   '## 二级标题',
   '',
@@ -97,7 +97,7 @@ async function main() {
     page.on('pageerror', (e) => browserErrors.push('pageerror: ' + e.message));
     page.on('console', (m) => { if (m.type() === 'error') browserErrors.push('console: ' + m.text()); });
 
-    await page.goto(`${BASE}/?engine=cm`, { waitUntil: 'networkidle0' });
+    await page.goto(`${BASE}`, { waitUntil: 'networkidle0' });
     // 打开自建临时仓库（避免写仓库里的 demo-vault），然后重载让文件树就位
     await page.evaluate(async (vp) => {
       await fetch('/api/vault/open', {
@@ -110,22 +110,19 @@ async function main() {
 
     // 1. app 起来
     const appVisible = await page.evaluate(() => !document.getElementById('app').hidden);
-    check('?engine=cm 下 app 正常启动', appVisible);
+    check('app 正常启动', appVisible);
 
-    // 2. 编辑区挂的是 CM6，且旧块级 DOM 不出现
+    // 2. 编辑区挂的是 CM6
     const dome = await page.evaluate(() => {
       const live = document.getElementById('editor-live');
       return {
         cmEditor: live.querySelectorAll('.cm-editor').length,
         cmContent: !!live.querySelector('.cm-content'),
         editableAttr: live.getAttribute('contenteditable'),
-        sourceWrapHidden: document.getElementById('source-wrap')?.hidden === true,
-        blankBlocks: live.querySelectorAll('.md-blank').length,
       };
     });
     check('编辑区挂载 CodeMirror 6', dome.cmEditor === 1 && dome.cmContent, JSON.stringify(dome));
-    check('cm 模式收尾：外层非 contenteditable / 源码区隐藏 / 无块级占位段',
-      dome.editableAttr === 'false' && dome.sourceWrapHidden && dome.blankBlocks === 0, JSON.stringify(dome));
+    check('编辑区外层非 contenteditable', dome.editableAttr === 'false', JSON.stringify(dome));
 
     // 3. 打开笔记 → CM 实时预览装饰生效
     await page.evaluate((nm) => {
@@ -251,6 +248,43 @@ async function main() {
     if (linkBox) { await page.mouse.click(linkBox.x, linkBox.y); await sleep(1000); }
     const realNav = await page.evaluate(() => document.getElementById('note-path')?.textContent || '');
     check('真实鼠标点击 [[双链]] 也能跳转', !!linkBox && realNav.includes('双链与反链'), `box=${!!linkBox} path=${realNav}`);
+
+    // 7c. 点「还不存在的笔记」的双链 → 灰虚线 + 问一句就当场创建（demo-vault/双链与反链.md 承诺的行为）
+    await page.evaluate(() => {
+      [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('测试笔记'))?.click();
+    });
+    await sleep(1000);
+    const unLink = await page.evaluate(() => {
+      const span = [...document.querySelectorAll('#editor-live .cm-lp-wikilink')]
+        .find((s) => s.textContent.includes('还不存在的新笔记'));
+      if (!span) return null;
+      const r = span.getBoundingClientRect();
+      const cs = getComputedStyle(span);
+      return {
+        x: r.left + r.width / 2, y: r.top + r.height / 2,
+        unresolved: span.classList.contains('cm-lp-unresolved'),
+        borderStyle: cs.borderBottomStyle, color: cs.color,
+      };
+    });
+    check('未解析的双链显示为灰色虚线',
+      !!unLink && unLink.unresolved && unLink.borderStyle === 'dashed',
+      JSON.stringify(unLink));
+    if (unLink) { await page.mouse.click(unLink.x, unLink.y); }
+    await sleep(600);
+    const askCreate = await page.evaluate(() => {
+      const d = document.querySelector('.dialog-backdrop');
+      return d && !d.hidden ? d.querySelector('.dialog-title').textContent : null;
+    });
+    check('点未解析双链会问「要不要当场创建」',
+      !!askCreate && askCreate.includes('还不存在的新笔记'), String(askCreate));
+    await page.evaluate(() => document.querySelector('.dialog-ok')?.click());
+    await sleep(1500);
+    const created = await page.evaluate(() => ({
+      path: document.getElementById('note-path')?.textContent || '',
+      inTree: !!document.querySelector('#file-tree .tree-item[data-path="还不存在的新笔记.md"]'),
+    }));
+    check('确认后当场创建并打开这篇笔记',
+      created.path.includes('还不存在的新笔记') && created.inTree, JSON.stringify(created));
 
     // 8. Enter 续任务列表（P2 keymap 在真实 app 下生效）
     await page.evaluate(() => {

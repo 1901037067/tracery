@@ -34,20 +34,19 @@ const page = await browser.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push('console:' + m.text()); });
-const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
-await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
 await sleep(1000);
 await page.evaluate(() => [...document.querySelectorAll('#file-tree .tree-item')].find(i => i.textContent.includes('图'))?.click());
 await sleep(1200);
 const info = await page.evaluate(() => ({
-  // 块级：`.embed` 块（data-target / embed-title / embed-body）
+  // 整行嵌入：`.embed` 块（data-target / embed-title / embed-body）
   embeds: [...document.querySelectorAll('#editor-live .embed')].map(el => ({
     target: el.dataset.target,
     title: el.querySelector('.embed-title')?.textContent,
     bodyHtml: el.querySelector('.embed-body')?.innerHTML?.slice(0, 160),
     img: el.querySelector('img') ? { src: el.querySelector('img').src, w: el.querySelector('img').naturalWidth, h: el.querySelector('img').naturalHeight } : null,
   })),
-  // cm：`![[..]]` widget（figure.cm-lp-img）与 `![[笔记]]` 卡片（.cm-lp-note）
+  // `![[..]]` widget（figure.cm-lp-img）与 `![[笔记]]` 卡片（.cm-lp-note）
   cmEmbeds: [...document.querySelectorAll('#editor-live .cm-lp-img')].map(el => ({
     name: el.dataset.name,
     cls: el.className,

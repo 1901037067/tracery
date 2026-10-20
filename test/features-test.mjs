@@ -22,6 +22,9 @@ fs.writeFileSync(path.join(VAULT, '功能.md'), [
   '| 列A | 列B |', '| --- | --- |', '| 1 | 2 |', '', '段落', '',
   // 列表标记渲染（2026-10-19）：无序项要出「·」、任务项要去掉 `-`（只剩复选框）
   '- 无序甲', '* 无序乙', '', '- [ ] 任务丙', '',
+  // 第二张表专测「单元格里的行内语法」（2026-10-20）：不动上面那张表的文本，
+  // 免得下面的 Tab 跳格断言里 `doc.indexOf('| 列A')` 找不到
+  '| 行内甲 | 行内乙 |', '| --- | --- |', '| [[第二篇]] | **粗** `码` #标签 |', '',
 ].join('\n'), 'utf8');
 fs.writeFileSync(path.join(VAULT, '第二篇.md'), '# 第二篇\n\n内容\n', 'utf8');
 
@@ -45,9 +48,7 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ' — ' + detail : ''}`);
 };
 
-const ENGINE = 'cm';   // v1.4.0 起只有 CM6 内核
-const IS_CM = true;   // 恒为 true：块级内核已删除
-await page.goto(`http://localhost:${PORT}/?engine=${ENGINE}`, { waitUntil: 'networkidle0' });
+await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
 await sleep(1200);
 await page.evaluate(async (vp) => {
   await fetch('/api/vault/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: vp }) });
@@ -98,76 +99,68 @@ check('任务项去掉列表标记（只剩复选框）',
   listDeco.cbC === 1 && !listDeco.dashC, JSON.stringify(listDeco));
 
 /* ---------- ② 代码块语法高亮 ---------- */
-if (IS_CM) {
-  // cm 的高亮由 CodeMirror 自己的 syntaxHighlighting 产出（不是块级渲染器的 `.tok-*`），
-  // 且围栏行会被折叠、代码正文没有独立 DOM 节点 → 该条按引擎门控（见 7.9-C）
-  console.log('  ⏭ 跳过「代码块 .tok-* 高亮」：cm 走 CodeMirror syntaxHighlighting，无 .tok-* 节点');
-} else {
-  const hl = await page.evaluate(() => ({
-    kw: document.querySelectorAll('#editor-live .tok-kw').length,
-    str: document.querySelectorAll('#editor-live .tok-str').length,
-    com: document.querySelectorAll('#editor-live .tok-com').length,
-    codeText: document.querySelector('#editor-live pre code')?.textContent || '',
-  }));
-  check('代码块高亮（关键字/字符串/注释）', hl.kw > 0 && hl.str > 0 && hl.com > 0, JSON.stringify(hl));
-  check('高亮不改变代码文本', hl.codeText.includes('const x = 42; // 注释'), hl.codeText.split('\n')[0]);
-}
+// cm 的高亮由 CodeMirror 自己的 syntaxHighlighting 产出，围栏行会被折叠、
+// 代码正文没有独立 DOM 节点，故没有对应断言。
 
 /* ---------- ③ 表格 Tab 跳格 + 回车加行 ---------- */
-if (IS_CM) {
-  // cm 的表格是「真实文本行 + 单元格装饰（.cm-lp-cell）」：管道被藏起来、按列宽对齐，
-  // Tab 跳格 / Enter 加行由 cm/editing.js 接管（app.js 的块级表格处理器在 cm 下不参与）。
-  const grid = await page.evaluate(() => ({
-    cells: document.querySelectorAll('#editor-live .cm-lp-cell').length,
-    hasPipe: [...document.querySelectorAll('#editor-live .cm-lp-tbl')].some((l) => l.textContent.includes('|')),
-  }));
-  check('cm 表格渲染成网格（单元格装饰 + 管道隐藏）', grid.cells >= 4 && !grid.hasPipe, JSON.stringify(grid));
+// cm 的表格是「真实文本行 + 单元格装饰（.cm-lp-cell）」：管道被藏起来、按列宽对齐，
+// Tab 跳格 / Enter 加行由 cm/editing.js 接管。
+const grid = await page.evaluate(() => ({
+  cells: document.querySelectorAll('#editor-live .cm-lp-cell').length,
+  hasPipe: [...document.querySelectorAll('#editor-live .cm-lp-tbl')].some((l) => l.textContent.includes('|')),
+}));
+check('cm 表格渲染成网格（单元格装饰 + 管道隐藏）', grid.cells >= 4 && !grid.hasPipe, JSON.stringify(grid));
 
-  await page.evaluate(() => {
-    const ed = window.__tracery.editor;
-    const doc = ed.view.state.doc.toString();
-    ed.view.dispatch({ selection: { anchor: doc.indexOf('| 列A') + 2 } });   // 表头第一格
-    ed.view.focus();
-  });
-  await page.keyboard.press('Tab');
-  await sleep(250);
-  const cellNow = await page.evaluate(() => {
-    const s = window.__tracery.editor.view.state;
-    const h = s.selection.main.head;
-    return s.doc.sliceString(h, h + 2);
-  });
-  check('Tab 跳到下一个单元格', cellNow === '列B', cellNow);
+// 单元格里的行内语法（2026-10-20 修）：格子内的 `[[双链]]` / `**粗**` / `` `码` `` / `#标签`
+// 以前全是源码样式（双链都点不动），现在要和正文一样渲染。
+// 断言前先把光标移出表格行——光标行按设计会露出原始标记。
+await page.evaluate(() => {
+  const ed = window.__tracery.editor;
+  ed.view.dispatch({ selection: { anchor: ed.view.state.doc.length } });
+});
+await sleep(400);
+const cellInline = await page.evaluate(() => {
+  const row = [...document.querySelectorAll('#editor-live .cm-line')]
+    .find((l) => l.className.includes('cm-lp-tbl') && l.textContent.includes('粗'));
+  if (!row) return null;
+  return {
+    text: row.textContent,
+    rawMarkers: /\[\[|\*\*|`/.test(row.textContent),
+    wikilink: row.querySelectorAll('.cm-lp-wikilink').length,
+    unresolved: row.querySelectorAll('.cm-lp-unresolved').length,
+    bold: row.querySelectorAll('.cm-lp-bold').length,
+    code: row.querySelectorAll('.cm-lp-code').length,
+    tag: row.querySelectorAll('.cm-lp-tag').length,
+  };
+});
+check('表格单元格里的行内语法也渲染（双链/粗体/行内代码/标签，且双链能解析）',
+  !!cellInline && cellInline.wikilink === 1 && cellInline.bold === 1 && cellInline.code === 1
+  && cellInline.tag === 1 && !cellInline.rawMarkers && cellInline.unresolved === 0,
+  JSON.stringify(cellInline));
 
-  await page.keyboard.press('Enter');
-  await sleep(1500);
-  const mdNow = fs.readFileSync(path.join(VAULT, '功能.md'), 'utf8');
-  const rows = (mdNow.match(/^\| /gm) || []).length;
-  check('表格里回车新增一行', rows === 4, `rows=${rows}`);
-} else {
-  await page.evaluate(() => {
-    const td = document.querySelector('#editor-live td');
-    const r = document.createRange();
-    r.setStart(td, 0);
-    r.collapse(true);
-    const s = getSelection();
-    s.removeAllRanges();
-    s.addRange(r);
-    document.getElementById('editor-live').focus();
-  });
-  await page.keyboard.press('Tab');
-  await sleep(200);
-  const col = await page.evaluate(() => {
-    const s = getSelection();
-    const pe = s.anchorNode?.nodeType === 1 ? s.anchorNode : s.anchorNode?.parentElement;
-    return pe?.closest('td, th')?.cellIndex;
-  });
-  check('Tab 跳到下一个单元格', col === 1, String(col));
-  await page.keyboard.press('Enter');
-  await sleep(1500);
-  const mdNow = fs.readFileSync(path.join(VAULT, '功能.md'), 'utf8');
-  const rows = (mdNow.match(/^\| /gm) || []).length;
-  check('表格里回车新增一行', rows === 4, `rows=${rows}`);
-}
+await page.evaluate(() => {
+  const ed = window.__tracery.editor;
+  const doc = ed.view.state.doc.toString();
+  ed.view.dispatch({ selection: { anchor: doc.indexOf('| 列A') + 2 } });   // 表头第一格
+  ed.view.focus();
+});
+await page.keyboard.press('Tab');
+await sleep(250);
+const cellNow = await page.evaluate(() => {
+  const s = window.__tracery.editor.view.state;
+  const h = s.selection.main.head;
+  return s.doc.sliceString(h, h + 2);
+});
+check('Tab 跳到下一个单元格', cellNow === '列B', cellNow);
+
+// 口径改成「回车后比回车前多一行」而不是写死行数：夹具里加第二张表时，
+// 写死的 4 会连带失效（表格行都长一样，数量对不上不代表功能坏了）
+const rowsBefore = (fs.readFileSync(path.join(VAULT, '功能.md'), 'utf8').match(/^\| /gm) || []).length;
+await page.keyboard.press('Enter');
+await sleep(1500);
+const mdNow = fs.readFileSync(path.join(VAULT, '功能.md'), 'utf8');
+const rows = (mdNow.match(/^\| /gm) || []).length;
+check('表格里回车新增一行', rows === rowsBefore + 1, `${rowsBefore} → ${rows}`);
 
 /* ---------- ④ 星标 ---------- */
 const pinned = await page.evaluate(async () => {
@@ -215,13 +208,13 @@ await sleep(400);
 await page.evaluate(async () => { await (await fetch('/api/tree')).json(); });
 await page.evaluate(() => window.__tracery.openNote('图.md', null, { newTab: false }));
 await sleep(900);
-const grip = await page.evaluate((isCm) => {
+const grip = await page.evaluate(() => {
   const fig = document.querySelector('.embed-image');
-  const g = fig?.querySelector(isCm ? '.cm-lp-img-grip' : '.img-grip');
+  const g = fig?.querySelector('.cm-lp-img-grip');
   if (!g) return null;
   const r = g.getBoundingClientRect();
   return { x: r.left + 7, y: r.top + 7 };
-}, IS_CM);
+});
 if (grip) {
   await page.mouse.move(grip.x, grip.y);
   // 手柄平时是 opacity:0 + pointer-events:none，悬停才可交互（2026-10-19 改版）；
