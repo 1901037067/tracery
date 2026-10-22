@@ -26,13 +26,13 @@ const res = await fetch(`${BASE}/api/vault/open`, {
 check('打包版：通过 API 切换仓库', res.ok);
 
 const graph = await (await fetch(`${BASE}/api/graph`)).json();
-check('打包版：链接索引工作', graph.nodes.length === 10 && graph.links.length >= 28,
+check('打包版：链接索引工作', graph.nodes.length === 5 && graph.links.length >= 10,
   `${graph.nodes.length} 篇 / ${graph.links.length} 条链接`);
 const diskIndex = JSON.parse(fs.readFileSync(path.join(TEST_VAULT, '.tracery/index.json'), 'utf8'));
 check('打包版：生成可复用的仓库索引缓存', diskIndex.version === 1 && diskIndex.root === path.resolve(TEST_VAULT) && diskIndex.notes.length === graph.nodes.length);
 
 const tags = await (await fetch(`${BASE}/api/tags`)).json();
-check('打包版：标签索引工作', tags.tags.length >= 20, `${tags.tags.length} 个标签`);
+check('打包版：标签索引工作', tags.tags.length >= 8, `${tags.tags.length} 个标签`);
 
 const search = await (await fetch(`${BASE}/api/search?q=` + encodeURIComponent('双链'))).json();
 check('打包版：全文搜索工作', search.results.length >= 2, `${search.results.length} 条结果`);
@@ -50,7 +50,7 @@ await new Promise((r) => setTimeout(r, 2200));
 // 打开一篇包含全部要素的笔记（标题/任务列表/Callout/双链）
 await page.evaluate(() => {
   const items = [...document.querySelectorAll('#file-tree .tree-item')];
-  items.find((i) => i.textContent.includes('Markdown 语法'))?.click();
+  items.find((i) => i.textContent.includes('欢迎使用 Tracery'))?.click();
 });
 await new Promise((r) => setTimeout(r, 900));
 
@@ -98,7 +98,7 @@ const ui = await page.evaluate(() => ({
   electronAPI: !!window.electronAPI?.isElectron,
 }));
 check('打包版：主界面显示（欢迎页已隐藏）', ui.appVisible && ui.welcomeHidden);
-check('打包版：文件树渲染', ui.treeItems >= 10, `${ui.treeItems} 项`);
+check('打包版：文件树渲染', ui.treeItems >= 7, `${ui.treeItems} 项`);
 check('打包版：笔记内容渲染（标题/双链/任务/Callout）—— 分段滚动累加',
   content.headings >= 1 && content.wikilinks >= 1 && content.tasks >= 1 && content.callouts >= 1,
   JSON.stringify({ h: content.headings, wl: content.wikilinks, t: content.tasks, c: content.callouts }));
@@ -133,7 +133,7 @@ const drawingLayout = await page.evaluate(() => {
 check('打包版：图片库 / 画布 / 样式固定分栏且有两种状态分类', drawingLayout.left <= drawingLayout.canvasLeft && drawingLayout.canvasRight <= drawingLayout.right && drawingLayout.tabs === 2, JSON.stringify(drawingLayout));
 await page.click('#draw-cancel');
 await page.evaluate(async () => {
-  await window.__tracery.openNote('双链与反链.md');
+  await window.__tracery.openNote('欢迎使用 Tracery.md');
   const ed = window.__tracery.editor; ed.setMode('read');
   const pos = ed.getContent().indexOf('> [!');
   if (pos >= 0) ed.view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
@@ -149,11 +149,11 @@ await browser.disconnect();
 await fetch(`${BASE}/api/note`, {
   method: 'PUT',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ path: 'Markdown 语法.md', content: '# 测试\n\n打包版写入测试 [[双链与反链]]\n' }),
+  body: JSON.stringify({ path: '欢迎使用 Tracery.md', content: '# 测试\n\n打包版写入测试 [[双链与反链]]\n' }),
 });
-const reread = await (await fetch(`${BASE}/api/note?path=` + encodeURIComponent('Markdown 语法.md'))).json();
+const reread = await (await fetch(`${BASE}/api/note?path=` + encodeURIComponent('欢迎使用 Tracery.md'))).json();
 check('打包版：写入落到真实磁盘', reread.content.includes('打包版写入测试'));
-const onDisk = fs.readFileSync(path.join(TEST_VAULT, 'Markdown 语法.md'), 'utf8');
+const onDisk = fs.readFileSync(path.join(TEST_VAULT, '欢迎使用 Tracery.md'), 'utf8');
 check('打包版：文件系统确实被写入', onDisk.includes('打包版写入测试'));
 
 console.log(`\n${results.filter((r) => r.ok).length}/${results.length} 通过`);

@@ -40,7 +40,7 @@ await page.evaluate(() => { document.getElementById('app').hidden = false; docum
 // 打开一篇内容丰富的笔记
 await page.evaluate(() => {
   const items = [...document.querySelectorAll('#file-tree .tree-item')];
-  items.find((i) => i.textContent.includes('Markdown 语法'))?.click();
+  items.find((i) => i.textContent.includes('欢迎使用 Tracery'))?.click();
 });
 await sleep(900);
 await page.evaluate(() => document.documentElement.dataset.theme = 'dark');

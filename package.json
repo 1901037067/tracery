@@ -1,7 +1,7 @@
 {
   "name": "tracery",
   "version": "1.4.2",
-  "description": "Tracery · 仓库型 Markdown 笔记软件（Obsidian 复刻学习版）— 基于 REA 逆向分析 Obsidian 架构后用 Web 技术栈复刻",
+  "description": "Tracery · 开源的本地 Markdown 笔记软件，支持双链、搜索、绘图和同网手机访问",
   "type": "module",
   "license": "MIT",
   "private": true,

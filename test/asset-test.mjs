@@ -20,6 +20,9 @@ const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
 fs.rmSync(HOME, { recursive: true, force: true });
 fs.mkdirSync(HOME, { recursive: true });
 fs.cpSync(path.join(ROOT, 'demo-vault'), VAULT, { recursive: true });
+// 附件落点测试自行创建嵌套笔记，不依赖用户示例库的目录结构。
+fs.mkdirSync(path.dirname(path.join(VAULT, NOTE)), { recursive: true });
+fs.writeFileSync(path.join(VAULT, NOTE), '# 附件测试\n\n粘贴与拖入图片。\n');
 
 const server = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
   cwd: ROOT,

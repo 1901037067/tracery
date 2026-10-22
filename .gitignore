@@ -1,7 +1,6 @@
 node_modules/
 dist/
-# 并行打包输出（HANDOFF §6：dist/win-unpacked 被运行中的旧包锁住时，
-# 用 --config.directories.output=dist-1.2.1 出到另一个目录）
+# 独立打包输出
 dist-*/
 /.cache/npm/
 
@@ -16,3 +15,14 @@ trash/
 # 构建/调试日志
 *.log
 test/build*.log
+
+# 本地交接、开发记录与备份，不随源码发布
+/.local/
+/docs/AI-START.md
+/docs/EDITOR-MIGRATION.md
+/docs/HANDOFF.md
+/docs/LOCAL-FIRST.md
+/docs/NEXT-STEPS.md
+/docs/OBSIDIAN_ANALYSIS.md
+/docs/ROADMAP.md
+/test/screenshots/

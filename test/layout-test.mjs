@@ -97,7 +97,7 @@ await page.evaluate(() => {
 });
 await sleep(900);
 await page.evaluate(() => {
-  document.querySelector('[data-path="Markdown 语法.md"]')?.click();
+  document.querySelector('[data-path="欢迎使用 Tracery.md"]')?.click();
 });
 await sleep(900);
 

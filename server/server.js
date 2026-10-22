@@ -271,7 +271,7 @@ function resolveDefaultVault() {
   }
   const target = path.join(HOME, 'demo-vault');
   try {
-    const marker = path.join(target, 'Markdown 语法.md');
+    const marker = path.join(target, '欢迎使用 Tracery.md');
     if (!fs.existsSync(marker)) {
       copyDirSafe(DEFAULT_VAULT, target);
     }

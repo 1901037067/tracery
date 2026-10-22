@@ -285,16 +285,16 @@ function build() {
             <img src="/icon.png" alt="Tracery" />
             <div>
               <div class="about-name">Tracery</div>
-              <div class="about-ver">v1.1.1 · MIT 开源</div>
+              <div class="about-ver">MIT 开源</div>
             </div>
           </div>
           <p class="set-note">
-            开源的仓库型 Markdown 笔记软件，Obsidian 兼容备选。
-            架构通过 REA 逆向分析 Obsidian 后复刻，见 <code>docs/OBSIDIAN_ANALYSIS.md</code>。
+            开源的本地 Markdown 笔记软件，笔记和附件保存在自己的电脑里。
+            无需云账户，可在同一可信局域网内通过手机浏览器访问电脑上的笔记。
           </p>
           <div class="set-actions">
-            <a class="btn-ghost" href="https://github.com/" target="_blank" rel="noopener">GitHub</a>
-            <button id="set-open-roadmap" class="btn-ghost">路线图</button>
+            <a class="btn-ghost" href="https://github.com/1901037067/tracery" target="_blank" rel="noopener">GitHub</a>
+            <a class="btn-ghost" href="https://github.com/1901037067/tracery#readme" target="_blank" rel="noopener">使用说明</a>
           </div>
         </div>
 
@@ -387,9 +387,6 @@ function bind(el) {
   };
   el.querySelector('#set-open-theme-doc').onclick = () => {
     toast('见项目内 public/themes/README.md');
-  };
-  el.querySelector('#set-open-roadmap').onclick = () => {
-    toast('见项目内 docs/ROADMAP.md');
   };
   // 点击遮罩关闭
   el.addEventListener('click', (e) => { if (e.target === el) close(); });

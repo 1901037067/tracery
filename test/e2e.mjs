@@ -3,7 +3,7 @@
  * ------------------------------------------------------------------
  * 无头 Edge 真实驱动 Tracery：
  *   1. 启动即自动打开 demo-vault 演示仓库
- *   2. 文件树渲染（10 篇笔记）
+ *   2. 文件树渲染（5 篇入门笔记及附件）
  *   3. 打开笔记 → 实时预览渲染（标题/双链/任务列表/Callout）
  *   4. 编辑器输入 → 自动保存 → API 校验落盘
  *   5. 点击 [[双链]] → 跳转到目标笔记
@@ -115,13 +115,13 @@ async function main() {
 
     // 2. 文件树渲染
     const treeCount = await page.evaluate(() => document.querySelectorAll('#file-tree .tree-item').length);
-    check('文件树渲染全部条目', treeCount >= 10, `${treeCount} 个条目`);
+    check('文件树渲染全部条目', treeCount >= 7, `${treeCount} 个条目`);
     await shot(page, '01-main');
 
-    // 3. 打开「Markdown 语法」笔记，检查实时预览渲染
+    // 3. 打开入门笔记，检查实时预览渲染
     await page.evaluate(() => {
       const items = [...document.querySelectorAll('#file-tree .tree-item')];
-      items.find((i) => i.textContent.includes('Markdown 语法'))?.click();
+      items.find((i) => i.textContent.includes('欢迎使用 Tracery'))?.click();
     });
     await sleep(600);
     let render;
@@ -167,19 +167,19 @@ async function main() {
     await typeText(page, '\n\nTRACERY_E2E_TEST_LINE');
     await sleep(1800); // 等自动保存（900ms 防抖 + 余量）
     const saved = await page.evaluate(async () => {
-      const res = await fetch('/api/note?path=' + encodeURIComponent('Markdown 语法.md'));
+      const res = await fetch('/api/note?path=' + encodeURIComponent('欢迎使用 Tracery.md'));
       const data = await res.json();
       return data.content.includes('TRACERY_E2E_TEST_LINE');
     });
     check('编辑器输入后自动保存到磁盘', saved);
     // 清理测试行
     await page.evaluate(async () => {
-      const res = await fetch('/api/note?path=' + encodeURIComponent('Markdown 语法.md'));
+      const res = await fetch('/api/note?path=' + encodeURIComponent('欢迎使用 Tracery.md'));
       const { content } = await res.json();
       await fetch('/api/note', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: 'Markdown 语法.md', content: content.replace(/\n*TRACERY_E2E_TEST_LINE/g, '') }),
+        body: JSON.stringify({ path: '欢迎使用 Tracery.md', content: content.replace(/\n*TRACERY_E2E_TEST_LINE/g, '') }),
       });
     });
 
@@ -263,6 +263,15 @@ async function main() {
     await shot(page, '05-light');
 
     // 11. 未解析双链 → 点击创建
+    // 测试用未创建链接只写入本套件的隔离副本，示例库不保留无效入口。
+    await page.evaluate(async () => {
+      const path = '双链与反链.md';
+      const note = await (await fetch('/api/note?path=' + encodeURIComponent(path))).json();
+      const response = await fetch('/api/note', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, content: note.content + '\n\n[[一个还没写的主题]]\n' }) });
+      if (!response.ok) throw new Error('无法准备未创建链接测试');
+    });
+    await sleep(500);
     await page.evaluate(async () => {
       document.querySelector('.ribbon-btn[data-panel="files"]').click();
       const items = [...document.querySelectorAll('#file-tree .tree-item')];
@@ -270,6 +279,11 @@ async function main() {
     });
     await sleep(500);
     // 未解析的双链补 `.cm-lp-unresolved` 变体类（灰色虚线）
+    await page.evaluate(() => {
+      const scroller = document.querySelector('#editor-live .cm-scroller');
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    await sleep(300);
     const unresolved = await page.evaluate(() =>
       document.querySelectorAll('#editor-live .cm-lp-wikilink.cm-lp-unresolved').length);
     check('未解析双链显示为灰色虚线样式', unresolved >= 1, `${unresolved} 个未解析链接`);
