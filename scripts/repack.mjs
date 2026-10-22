@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { runtimeDependencies } from './runtime-deps.mjs';
+import { patchWindowsIcon } from './lib/windows-icon.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const OUT = path.join(ROOT, 'dist', 'win-unpacked');
@@ -37,6 +38,7 @@ fs.mkdirSync(path.join(STAGE, 'build'), { recursive: true });
 fs.copyFileSync(path.join(ROOT, 'build', 'icon.png'), path.join(STAGE, 'build', 'icon.png'));
 
 execFileSync(process.execPath, [ASAR_BIN, 'pack', STAGE, ASAR], { stdio: 'inherit' });
+patchWindowsIcon(path.join(OUT, 'Tracery.exe'), ROOT);
 fs.rmSync(STAGE, { recursive: true, force: true });
 
 const size = (fs.statSync(ASAR).size / 1024).toFixed(0);

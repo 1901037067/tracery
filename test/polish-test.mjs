@@ -63,13 +63,13 @@ let seq = 0;
 async function openNote(content) {
   const name = `体验${++seq}.md`;
   const abs = path.join(VAULT, name);
-  fs.writeFileSync(abs, content, 'utf8');
-  await page.evaluate(async (vp) => {
-    await fetch('/api/vault/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: vp }) });
-  }, VAULT.replace(/\\/g, '/'));
-  await sleep(900);
-  await page.evaluate((p) => document.querySelector(`[data-path="${p}"]`)?.click(), name);
-  await sleep(800);
+  // 只创建测试笔记，等树更新后实际点击；反复重开同仓库会与草稿恢复流程竞争。
+  await page.evaluate(async ({ name, content }) => {
+    await window.__editor.flush(); await window.__tracery.Api.createNote(name, content);
+  }, { name, content });
+  await page.waitForSelector(`#file-tree [data-path="${name}"]`);
+  await page.click(`#file-tree [data-path="${name}"]`);
+  await page.waitForFunction(({ name, content }) => window.__tracery.state.currentPath === name && window.__editor.getContent() === content, {}, { name, content });
   return abs;
 }
 const md = () => page.evaluate(() => window.__tracery.editor.getContent());

@@ -55,7 +55,7 @@ try {
   await page.tap('.ribbon-btn[data-panel="search"]');
   await page.type('#search-input', '手机测试'); await sleep(400);
   await page.tap('#search-results .search-result');
-  await page.waitForFunction(() => !document.body.classList.contains('mobile-left-open'));
+  await page.waitForFunction(() => !document.body.classList.contains('mobile-left-open') && document.getElementById('note-path').textContent === '手机测试.md');
   check('手机搜索可打开笔记并收回抽屉', await page.$eval('#note-path', (el) => el.textContent === '手机测试.md'));
   await page.tap('#btn-mode');
   await page.tap('#editor-live .cm-line:nth-child(3)');

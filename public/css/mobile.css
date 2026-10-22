@@ -22,6 +22,7 @@
   .layout > .ribbon, .layout > .sidebar, .layout > .resizer { display: none; }
   .editor-area { margin: 6px 6px 0; border-radius: 12px 12px 0 0; }
   #editor-live .cm-content { padding-left: 16px; padding-right: 16px; padding-top: 18px; padding-bottom: 35vh; }
+  #editor-live .cm-scroller { padding-inline: 0; }
   #editor-live .cm-gutters { font-size: 11px; }
   #editor-live .cm-line.cm-lp-callout { padding-left: 16px; padding-right: 16px; }
   .statusbar { gap: 8px; padding: 6px 10px; font-size: 11px; min-width: 0; }
@@ -37,7 +38,6 @@
   #file-tree { --tree-row-height: 40px; }
   .panel-header { padding: 12px; }
   .panel-actions .mini-btn { min-width: 32px; min-height: 36px; }
-  .rs-tab { min-height: 40px; }
   .outline-item { min-height: 40px; display: flex; align-items: center; }
   body.graph-focus .layout > #sidebar { display: flex; position: static; flex: 1; width: auto !important; margin: 6px 6px 0; border-radius: 12px 12px 0 0; }
   body.graph-focus #panel-graph .panel-header { padding: 6px 10px; }

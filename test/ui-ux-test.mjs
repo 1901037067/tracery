@@ -73,24 +73,25 @@ async function main() {
   /* ---------- 1. 布局 ---------- */
   const layout = await page.evaluate(() => {
     const ribbon = document.querySelector('.ribbon').getBoundingClientRect();
-    const plus = document.getElementById('btn-new-note').getBoundingClientRect();
+    const phone = document.getElementById('btn-phone-access').getBoundingClientRect();
     const theme = document.getElementById('btn-theme').getBoundingClientRect();
+    const settings = document.getElementById('btn-settings').getBoundingClientRect();
     return {
       appName: document.querySelector('.app-name')?.textContent || null,
       leftText: document.querySelector('.titlebar-left')?.textContent.trim() || '',
-      plusIsBottom: plus.bottom > ribbon.bottom - 80,
-      plusAccent: document.getElementById('btn-new-note').classList.contains('accent'),
+      noBottomPlus: !document.getElementById('btn-new-note'),
+      phoneBetween: theme.bottom <= phone.top && phone.bottom <= settings.top,
       themeInRibbon: theme.left < ribbon.right && theme.top > ribbon.top + 100,
       titlebarHasSettings: !!document.querySelector('.titlebar-right #btn-settings'),
     };
   });
   check('左上角不再显示 Tracery 文字', layout.appName === null && !layout.leftText.includes('Tracery'), JSON.stringify(layout));
   check('主题/仓库/设置移到左下角功能区', layout.themeInRibbon && !layout.titlebarHasSettings);
-  check('新建按钮在左下角且为主色按钮', layout.plusIsBottom && layout.plusAccent);
+  check('移除底部加号，手机访问位于主题和设置之间', layout.noBottomPlus && layout.phoneBetween);
   await page.screenshot({ path: path.join(SHOTS, 'ux-layout.png') });
 
   /* ---------- 2. 新建笔记（对话框） ---------- */
-  await page.evaluate(() => document.getElementById('btn-new-note').click());
+  await page.click('#btn-new-note-2');
   await sleep(400);
   const dlg = await page.evaluate(() => ({
     open: !!document.querySelector('.dialog-backdrop') && !document.querySelector('.dialog-backdrop').hidden,

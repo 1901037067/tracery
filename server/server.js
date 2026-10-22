@@ -13,6 +13,8 @@ import { WebSocketServer } from 'ws';
 import { SyncEngine, vaultConfigDir } from './sync.js';
 import { createLanShare } from './lan.js';
 import { buildWorker } from './pwa.js';
+import { phoneAccess } from './access.js';
+import { HOTKEY_COMMANDS, bindingFor, sanitizeHotkeys, validateShortcut } from '../public/js/hotkeys.js';
 import { Vault, IGNORED_DIRS } from './vault.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -155,6 +157,7 @@ const DEFAULT_SETTINGS = {
   autosave: 900,          // 自动保存防抖 ms
   lineNumbers: true,      // 行号：源码模式与实时预览共用
   startup: 'last',        // last | empty
+  hotkeys: {},           // 仅保存用户覆盖；null 表示取消绑定
   // 附件管理：新图片/文件（粘贴、拖入、绘图）的落点
   attachment: {
     mode: 'folder',       // folder=指定文件夹 | note=跟随笔记所在目录 | root=仓库根目录
@@ -172,6 +175,7 @@ function normalizeConfig(cfg) {
     ...DEFAULT_SETTINGS,
     ...(cfg.settings || {}),
     sync: { ...DEFAULT_SETTINGS.sync, ...(cfg.settings?.sync || {}) },
+    hotkeys: sanitizeHotkeys(cfg.settings?.hotkeys),
   };
   // 兼容旧版顶层 theme / themeName
   if (!cfg.settings && cfg.theme) settings.themeMode = cfg.theme === 'light' ? 'light' : 'dark';
@@ -209,6 +213,7 @@ function mergeSettings(patch = {}) {
   if (Number.isFinite(patch.autosave)) s.autosave = Math.min(3000, Math.max(0, Math.round(patch.autosave)));
   if (typeof patch.lineNumbers === 'boolean') s.lineNumbers = patch.lineNumbers;
   if (['last', 'empty'].includes(patch.startup)) s.startup = patch.startup;
+  if (patch.hotkeys && typeof patch.hotkeys === 'object') s.hotkeys = sanitizeHotkeys({ ...s.hotkeys, ...sanitizeHotkeys(patch.hotkeys) });
   // 附件管理（嵌套对象，字段逐个校验）
   if (patch.attachment && typeof patch.attachment === 'object') {
     s.attachment = { ...DEFAULT_SETTINGS.attachment, ...(s.attachment || {}) };
@@ -339,6 +344,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(source);
     }
     // ---- API ----
+    if (p === '/api/access' && req.method === 'GET') return sendJson(res, 200, phoneAccess(server.address().port));
     if (p === '/api/state') {
       return sendJson(res, 200, {
         vault: vault ? { root: vault.root, name: path.basename(vault.root) } : null,
@@ -349,6 +355,13 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/settings' && req.method === 'POST') {
       const patch = await readBody(req);
+      if (patch.hotkeys && typeof patch.hotkeys === 'object') {
+        const hotkeys = sanitizeHotkeys({ ...config.settings.hotkeys, ...sanitizeHotkeys(patch.hotkeys) });
+        for (const command of HOTKEY_COMMANDS) {
+          const error = validateShortcut(command.id, bindingFor(command, hotkeys), hotkeys);
+          if (error) return sendJson(res, 400, { error });
+        }
+      }
       const settings = mergeSettings(patch);
       broadcast({ type: 'settings', settings });
       return sendJson(res, 200, { ok: true, settings });
@@ -455,7 +468,8 @@ const server = http.createServer(async (req, res) => {
       const rel = u.searchParams.get('path');
       if (!rel || !vault.notes.has(rel)) return sendJson(res, 404, { error: '笔记不存在' });
       const content = vault.contentCache.get(rel) ?? '';
-      return sendJson(res, 200, { path: rel, name: vault.notes.get(rel).name, content });
+      const { mtimeMs, size } = vault.files.get(rel) || {};
+      return sendJson(res, 200, { path: rel, name: vault.notes.get(rel).name, content, mtimeMs, size });
     }
     if (p === '/api/note' && req.method === 'PUT') {
       const { path: rel, content } = await readBody(req);
@@ -469,7 +483,8 @@ const server = http.createServer(async (req, res) => {
       await fsp.writeFile(abs, content, 'utf8');
       const change = await vault.applyChange(rel);
       broadcast({ type: 'fs-change', paths: [rel], treeChanged: change.treeChanged });
-      return sendJson(res, 200, { ok: true });
+      const { mtimeMs, size } = vault.files.get(rel) || {};
+      return sendJson(res, 200, { ok: true, mtimeMs, size });
     }
     if (p === '/api/history' && req.method === 'GET') {
       const rel = u.searchParams.get('path');

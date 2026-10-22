@@ -158,6 +158,7 @@ export class CmEditor {
   }
 
   _onUpdate(u) {
+    if (!this._loading && (u.selectionSet || u.docChanged)) this.opts.onSelectionChange?.(u.state.doc.lineAt(u.state.selection.main.head).number);
     if (this._loading || !u.docChanged) return;
     this.md = u.state.doc.toString();
     this.dirty = true;
@@ -388,6 +389,11 @@ export class CmEditor {
   redo() { if (this.isRead) return; redo(this.view); }
 
   /* ---------- 导航 ---------- */
+  scrollToLine(number) {
+    const line = this.view.state.doc.line(Math.max(1, Math.min(number, this.view.state.doc.lines)));
+    this.view.dispatch({ selection: EditorSelection.cursor(line.from), effects: EditorView.scrollIntoView(line.from, { y: 'start' }) });
+    this.view.focus();
+  }
   scrollToHeading(headingText) {
     const text = (headingText || '').trim();
     if (!text) return;

@@ -55,7 +55,7 @@ export function toggleMobilePanel(side) {
     byId('editor-area').inert = true;
     lastTrigger.setAttribute('aria-expanded', 'true');
     const drawer = byId(side === 'left' ? 'sidebar' : 'sidebar-right');
-    drawer.querySelector('input, button, [tabindex="0"]')?.focus();
+    [...drawer.querySelectorAll('input, button, summary, [tabindex="0"]')].find(el => el.getClientRects().length)?.focus();
   }
 }
 
@@ -73,11 +73,11 @@ export function initMobile() {
   compact.addEventListener('change', () => { closeMobilePanels(); resizeViewport(); });
   document.addEventListener('keydown', (event) => {
     if (!isCompact() || byId('mobile-backdrop').hidden) return;
-    if (document.querySelector('.modal:not([hidden]), .dialog-backdrop:not([hidden]), .draw-overlay:not([hidden]), #welcome:not([hidden])')) return;
+    if (document.querySelector('.modal:not([hidden]), .dialog-backdrop:not([hidden]), .draw-overlay:not([hidden]), .phone-access:not([hidden]), #welcome:not([hidden])')) return;
     if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closeMobilePanels({ focus: true }); }
     if (event.key === 'Tab') {
       const selector = document.body.classList.contains('mobile-left-open') ? '.ribbon, #sidebar' : '#sidebar-right';
-      const items = [...document.querySelectorAll(selector)].flatMap((el) => [...el.querySelectorAll('button, input, [tabindex="0"]')])
+      const items = [...document.querySelectorAll(selector)].flatMap((el) => [...el.querySelectorAll('button, input, summary, [tabindex="0"]')])
         .filter((el) => !el.disabled && el.getClientRects().length);
       const index = items.indexOf(document.activeElement);
       if (!items.length) return;

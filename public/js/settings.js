@@ -5,6 +5,7 @@
  */
 import { Api, toast, debounce } from './api.js';
 import { initSyncPane } from './sync-ui.js';
+import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel, validateShortcut, sanitizeHotkeys } from './hotkeys.js';
 
 export const DEFAULT_SETTINGS = {
   themeName: 'apple',
@@ -16,6 +17,7 @@ export const DEFAULT_SETTINGS = {
   autosave: 900,
   lineNumbers: true,   // 行号：源码模式与实时预览共用同一个开关
   startup: 'last',
+  hotkeys: {},
   // 附件管理：新图片/文件（粘贴、拖入、绘图）的落点
   attachment: {
     mode: 'folder',    // folder=指定文件夹 | note=跟随笔记所在目录 | root=仓库根目录
@@ -119,7 +121,7 @@ export function applySettings() {
   if (mediaQuery) { mediaQuery.onchange = null; mediaQuery = null; }
   if (settings.themeMode === 'auto') {
     mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    mediaQuery.onchange = () => { applySettings(); onSettingsApplied?.(); };
+    mediaQuery.onchange = () => applySettings();
   }
 
   onSettingsApplied?.(getSettings());
@@ -127,7 +129,9 @@ export function applySettings() {
 
 export function initSettings(initial) {
   settings = { ...DEFAULT_SETTINGS, ...(initial || {}) };
+  settings.hotkeys = sanitizeHotkeys(settings.hotkeys);
   applySettings();
+  renderActiveControls();
 }
 
 /** 积攒多次改动，防抖后一次性落盘（避免连点时中间改动被丢弃） */
@@ -206,6 +210,7 @@ function build() {
         <div class="settings-nav-title">设置</div>
         <button data-pane="appearance" class="active">外观</button>
         <button data-pane="editor">编辑器</button>
+        <button data-pane="hotkeys">快捷键</button>
         <button data-pane="attachment">附件</button>
         <button data-pane="sync">同步</button>
         <button data-pane="general">通用</button>
@@ -231,6 +236,15 @@ function build() {
             `<input type="range" class="rng" data-key="editorWidth" min="560" max="1000" step="20" value="${settings.editorWidth}" />`)}
           ${ROW('自动保存', '停止输入后多久落盘', SEG('autosave', [[300, '0.3 秒'], [600, '0.6 秒'], [900, '0.9 秒'], [1500, '1.5 秒']], settings.autosave))}
           ${ROW('行号', '在正文左侧显示行号（源码模式与实时预览共用）', TOGGLE('lineNumbers', settings.lineNumbers !== false))}
+        </div>
+
+        <div class="settings-pane" data-pane="hotkeys">
+          <h2>快捷键</h2>
+          <p class="set-note">点击按键录制新组合，Esc 取消；支持 Ctrl / Cmd、Alt 组合键和功能键。修改立即生效并保存在本机。</p>
+          <div class="hotkey-toolbar"><input type="search" id="hotkey-search" class="search-input" placeholder="搜索命令或快捷键…" aria-label="搜索快捷键"><button id="hotkey-reset-all" class="btn-ghost">恢复全部默认</button></div>
+          <p id="hotkey-message" class="hotkey-message" role="status" aria-live="polite"></p>
+          <div id="hotkey-list"></div>
+          <p class="set-note">编辑命令仅在笔记编辑区生效；输入框中保留普通输入与撤销。方向键、Enter、Tab 等基础编辑操作，以及绘图画布内的工具按键保持原有行为。</p>
         </div>
 
         <div class="settings-pane" data-pane="attachment">
@@ -297,9 +311,11 @@ function build() {
 }
 
 function bind(el) {
+  bindHotkeys(el);
   // 左侧导航
   for (const btn of el.querySelectorAll('.settings-nav button')) {
     btn.onclick = () => {
+      cancelHotkeyRecording();
       for (const b of el.querySelectorAll('.settings-nav button')) b.classList.toggle('active', b === btn);
       for (const p of el.querySelectorAll('.settings-pane')) p.classList.toggle('active', p.dataset.pane === btn.dataset.pane);
       if (btn.dataset.pane === 'sync') initSyncPane();   // 每次进来都取一次最新状态
@@ -353,7 +369,8 @@ function bind(el) {
   // 底部按钮
   el.querySelector('#set-done').onclick = () => close();
   el.querySelector('#set-reset').onclick = () => {
-    settings = { ...DEFAULT_SETTINGS };
+    const hotkeys = settings.hotkeys;
+    settings = { ...DEFAULT_SETTINGS, hotkeys };
     applySettings();
     Api.saveSettings(settings).catch(() => {});
     renderActiveControls();
@@ -376,6 +393,76 @@ function bind(el) {
   };
   // 点击遮罩关闭
   el.addEventListener('click', (e) => { if (e.target === el) close(); });
+}
+
+let recordingHotkey = null;
+const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform);
+function cancelHotkeyRecording() { recordingHotkey = null; renderHotkeyControls(); }
+function hotkeyMessage(text, error = false) {
+  const el = document.getElementById('hotkey-message');
+  if (el) { el.textContent = text; el.classList.toggle('error', error); }
+}
+function saveHotkey(command, shortcut) {
+  const error = validateShortcut(command.id, shortcut, settings.hotkeys);
+  if (error) { hotkeyMessage(error, true); return; }
+  recordingHotkey = null;
+  updateSettings({ hotkeys: { [command.id]: shortcut } });
+  hotkeyMessage(`${command.label}：${shortcutLabel(shortcut, isMac())}`);
+}
+function bindHotkeys(el) {
+  const list = el.querySelector('#hotkey-list');
+  for (const group of [...new Set(HOTKEY_COMMANDS.map(command => command.group))]) {
+    const section = document.createElement('section'); section.className = 'hotkey-group';
+    const title = document.createElement('h3'); title.textContent = group; section.append(title);
+    for (const command of HOTKEY_COMMANDS.filter(command => command.group === group)) {
+      const row = document.createElement('div'); row.className = 'hotkey-row'; row.dataset.hotkey = command.id;
+      const label = document.createElement('span'); label.className = 'hotkey-name'; label.textContent = command.label;
+      const controls = document.createElement('div'); controls.className = 'hotkey-controls';
+      const record = document.createElement('button'); record.className = 'hotkey-binding'; record.dataset.command = command.id;
+      record.setAttribute('aria-label', `修改${command.label}快捷键`);
+      record.onclick = () => { recordingHotkey = command.id; renderHotkeyControls(); hotkeyMessage('请按新组合键；Esc 取消，Backspace 清除。'); };
+      record.onkeydown = event => {
+        if (recordingHotkey !== command.id) return;
+        if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) { cancelHotkeyRecording(); return; }
+        event.preventDefault(); event.stopPropagation();
+        if (event.key === 'Escape') { cancelHotkeyRecording(); hotkeyMessage('已取消修改'); return; }
+        if (event.key === 'Backspace' && !event.ctrlKey && !event.metaKey && !event.altKey) { saveHotkey(command, null); return; }
+        if (['Control', 'Meta', 'Alt', 'Shift', 'AltGraph'].includes(event.key) || event.isComposing) return;
+        const shortcut = shortcutFromEvent(event);
+        if (!shortcut) { hotkeyMessage('请使用 Ctrl / Cmd、Alt 组合键，或功能键。', true); return; }
+        saveHotkey(command, shortcut);
+      };
+      record.onblur = () => { if (recordingHotkey === command.id) cancelHotkeyRecording(); };
+      const clear = document.createElement('button'); clear.className = 'mini-btn hotkey-clear'; clear.textContent = '清除'; clear.setAttribute('aria-label', `清除${command.label}快捷键`);
+      clear.onclick = () => saveHotkey(command, null);
+      const reset = document.createElement('button'); reset.className = 'mini-btn hotkey-reset'; reset.textContent = '还原'; reset.title = `默认：${shortcutLabel(command.defaultKey, isMac())}`; reset.setAttribute('aria-label', `还原${command.label}默认快捷键`);
+      reset.onclick = () => saveHotkey(command, command.defaultKey);
+      controls.append(record, clear, reset); row.append(label, controls); section.append(row);
+    }
+    list.append(section);
+  }
+  el.querySelector('#hotkey-search').oninput = () => renderHotkeyControls();
+  el.querySelector('#hotkey-reset-all').onclick = () => {
+    recordingHotkey = null;
+    updateSettings({ hotkeys: Object.fromEntries(HOTKEY_COMMANDS.map(command => [command.id, command.defaultKey])) });
+    hotkeyMessage('已恢复全部默认快捷键');
+  };
+  renderHotkeyControls(el);
+}
+function renderHotkeyControls(root = modalEl) {
+  if (!root) return;
+  const query = root.querySelector('#hotkey-search')?.value.trim().toLowerCase() || '';
+  for (const command of HOTKEY_COMMANDS) {
+    const row = root.querySelector(`.hotkey-row[data-hotkey="${command.id}"]`); if (!row) continue;
+    const shortcut = bindingFor(command, settings.hotkeys), label = shortcutLabel(shortcut, isMac());
+    const button = row.querySelector('.hotkey-binding'), active = recordingHotkey === command.id;
+    button.textContent = active ? '请按快捷键…' : label;
+    button.setAttribute('aria-pressed', String(active)); button.title = `${command.label}：${label}，点击修改`;
+    row.querySelector('.hotkey-clear').disabled = shortcut === null;
+    row.querySelector('.hotkey-reset').disabled = shortcut === command.defaultKey;
+    row.hidden = !!query && !`${command.label} ${command.group} ${label}`.toLowerCase().includes(query);
+  }
+  for (const group of root.querySelectorAll('.hotkey-group')) group.hidden = !group.querySelector('.hotkey-row:not([hidden])');
 }
 
 /** 把当前外观导出成一份可直接使用的主题 CSS */
@@ -431,6 +518,7 @@ function renderActiveControls() {
   // 皮肤文件名提示
   const note = modalEl.querySelector('[data-pane="general"] .set-note code');
   if (note) note.textContent = `public/themes/${settings.themeName}.css`;
+  renderHotkeyControls();
 }
 
 export function openSettings() {
@@ -445,6 +533,7 @@ export function openSettings() {
 export function close() {
   if (!modalEl) return;
   modalEl.hidden = true;
+  cancelHotkeyRecording();
   open = false;
 }
 

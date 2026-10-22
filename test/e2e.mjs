@@ -183,15 +183,29 @@ async function main() {
       });
     });
 
-    // 5. 点击双链跳转（`.cm-lp-wikilink` 是 span，没有 dataset.target；按文本找）
-    await page.evaluate(() => {
-      const span = [...document.querySelectorAll('#editor-live .cm-lp-wikilink')]
-        .find((s) => s.textContent.includes('双链与反链'));
-      span?.click();
-    });
+    // 5. CM 只为视口生成装饰；编辑后光标在文末，逐段找可见链接，再真实点击。
+    let linkBox;
+    for (const fraction of [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0]) {
+      await page.evaluate(fraction => {
+        const scroller = document.querySelector('#editor-live .cm-scroller');
+        scroller.scrollTop = (scroller.scrollHeight - scroller.clientHeight) * fraction;
+      }, fraction);
+      await sleep(250);
+      linkBox = await page.evaluate(() => {
+        const scroller = document.querySelector('#editor-live .cm-scroller').getBoundingClientRect();
+        for (const span of document.querySelectorAll('#editor-live .cm-lp-wikilink')) {
+          const r = span.getBoundingClientRect();
+          if (span.textContent.includes('双链与反链') && r.top >= scroller.top && r.bottom <= scroller.bottom)
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }
+        return null;
+      });
+      if (linkBox) break;
+    }
+    if (linkBox) await page.mouse.click(linkBox.x, linkBox.y);
     await sleep(600);
     const navPath = await page.evaluate(() => document.getElementById('note-path').textContent);
-    check('点击 [[双链]] 跳转到目标笔记', navPath.includes('双链与反链'), navPath);
+    check('点击 [[双链]] 跳转到目标笔记', !!linkBox && navPath.includes('双链与反链'), navPath);
 
     // 6. 反链面板
     const backlinks = await page.evaluate(() => document.querySelectorAll('#backlinks-list .backlink-item').length);

@@ -1,0 +1,76 @@
+/* 一栏一种内容；将低频信息留到主动切换时显示，沿用原有拖宽与移动抽屉。 */
+.sidebar-context-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.library-header, .context-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 10px; min-height: 56px; flex-shrink: 0; }
+.library-header { padding-inline: 8px; letter-spacing: normal; text-transform: none; }
+.sidebar-tabs { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.sidebar-tab { height: 32px; padding: 0 12px; border-radius: var(--r-sm); color: var(--text-secondary); font-size: 13px; font-weight: 400; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.sidebar-tab:hover { background: var(--bg-fill); color: var(--text-primary); }
+.sidebar-tab[aria-selected="true"] { background: var(--bg-sheet); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.icon-tab { width: 32px; padding: 0; }
+.icon-tab svg { width: 18px; height: 18px; }
+.library-tabs { gap: 2px; }
+.library-tabs .icon-tab { width: 30px; }
+.sidebar-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.library-header .panel-actions { gap: 1px; }
+.library-header .panel-actions button { width: 26px; height: 30px; }
+.library-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.library-view[hidden], .sidebar-sections > [hidden] { display: none; }
+.context-tabs { flex: 1; }
+.context-tabs .icon-tab { margin-left: auto; color: var(--text-tertiary); }
+.context-tabs .icon-tab[aria-selected="true"] { color: var(--text-primary); }
+.sidebar-sections { min-height: 0; flex: 1; overflow-y: auto; padding: 2px 14px 24px; }
+.section-content { padding: 0 0 12px; }
+.section-content .panel-empty, .shortcut-list .panel-empty { padding: 8px; font-size: 12px; }
+.shortcut-list .tree-item { width: 100%; text-align: left; }
+.shortcut-list .tree-item .label { flex: 1; text-align: left; }
+#panel-search > .panel-body, #panel-tags > .panel-body { padding-top: 16px; }
+.outline-row { display: flex; align-items: center; min-width: 0; }
+.outline-toggle { width: 22px; min-width: 22px; align-self: stretch; color: var(--text-tertiary); font-size: 10px; }
+.outline-toggle[aria-expanded="true"] { transform: rotate(90deg); }
+.outline-toggle:disabled { visibility: hidden; }
+.outline-children { padding-left: 12px; }
+#outline-list .outline-item { flex: 1; min-width: 0; text-align: left; padding: 6px; font-weight: 400; }
+.outline-row.active { background: var(--accent-soft); border-radius: var(--r-xs); }
+.outline-row.active .outline-item { color: var(--accent); }
+.outline-row.active .outline-item::after { content: ''; }
+.relation-heading, .info-label { font-size: 11px; color: var(--text-tertiary); padding: 10px 7px 4px; }
+#backlinks-list .backlink-item { display: block; width: 100%; text-align: left; padding: 8px; }
+#backlinks-list .bl-name { font-weight: 400; color: var(--text-primary); }
+#backlinks-list .backlink-item:hover .bl-name { color: var(--accent); }
+#backlinks-list .bl-ctx { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text-tertiary); font-size: 11px; }
+.relation-unresolved { margin-top: 8px; }
+.relation-unresolved > summary { cursor: pointer; padding: 10px 8px; font-size: 12px; color: var(--text-secondary); }
+.note-info-path { display: block; width: 100%; text-align: left; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; padding: 7px; border-radius: var(--r-xs); }
+.note-info-path:hover:enabled { background: var(--bg-fill); }
+.note-metadata { margin: 6px 7px; display: grid; grid-template-columns: auto minmax(0,1fr); gap: 8px 12px; font-size: 12px; }
+.note-metadata dt { color: var(--text-tertiary); }
+.note-metadata dd { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; text-align: right; }
+.note-history-btn { margin: 12px 7px 0; padding: 7px 12px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--hairline); border-radius: var(--r-sm); }
+.note-history-btn:disabled { opacity: .45; }
+.phone-access { position: fixed; inset: 0; z-index: 390; display: flex; justify-content: center; align-items: center; background: color-mix(in srgb, var(--bg-window) 55%, transparent); padding: 20px; }
+.phone-access[hidden] { display: none; }
+.phone-access-card { width: 480px; max-width: 100%; max-height: 85dvh; overflow-y: auto; background: var(--bg-sheet); color: var(--text-primary); border-radius: var(--r-lg); box-shadow: var(--shadow-float); padding: 24px; }
+.phone-access-heading { display: flex; align-items: center; justify-content: space-between; }
+.phone-access-heading h2 { margin: 0; font-size: 18px; }
+.phone-access-card p { font-size: 13px; line-height: 1.7; }
+.phone-address { margin: 12px 0; border: 1px solid var(--hairline); padding: 10px; border-radius: var(--r-sm); }
+.phone-address-label { display: block; font-size: 11px; color: var(--text-tertiary); margin-bottom: 5px; }
+.phone-address-controls { display: flex; gap: 6px; }
+.phone-address input { flex: 1; width: 0; min-width: 0; font-family: var(--font-mono); font-size: 12px; background: transparent; border: 0; color: var(--text-primary); }
+.phone-permissions { color: var(--text-secondary); background: var(--accent-soft); border-radius: var(--r-sm); padding: 10px 12px; }
+.phone-access-hint { color: var(--text-tertiary); }
+.phone-other-addresses > summary { padding: 10px 0; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+@media(max-width:900px) {
+  .outline-row, .relation-unresolved > summary { min-height: 44px; }
+  .library-header, .context-header { padding: 8px; }
+  .sidebar-tab { min-height: 40px; }
+  .icon-tab { width: 36px; }
+  .library-tabs .icon-tab { width: 32px; }
+  .library-header .panel-actions button { width: 27px; min-height: 40px; }
+  .outline-toggle { width: 32px; min-width: 32px; }
+  #outline-list .outline-item { min-height: 44px; }
+  .phone-access-card { padding: 18px; }
+  .phone-access-card button { min-height: 44px; }
+  .phone-other-addresses > summary { min-height: 44px; }
+  .phone-address input { font-size: 16px; }
+}

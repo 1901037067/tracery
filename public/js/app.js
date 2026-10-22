@@ -20,6 +20,9 @@ import { initMobile, isCompact, toggleMobilePanel, closeMobilePanels } from './m
 import { initPwa } from './pwa.js';
 import { rememberDraft, clearSavedDraft, recoverDraft } from './recovery.js';
 import { VirtualTree, flattenTree } from './virtual-tree.js';
+import { createSidebarContext, initLibraryTabs, initPhoneAccess, copyLocalText } from './sidebar.js';
+import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel } from './hotkeys.js';
+import { toggleBold, toggleItalic, toggleStrike, insertWikilink } from './cm/editing.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -68,6 +71,8 @@ const state = {
 /** 编辑器实例（boot 之后才创建；定义在这里是为了让 refreshTree / refreshGraph
  *  这类「先声明后调用」的辅助函数能安全地通知它重建装饰）。 */
 let editor = null;
+let sidebars = null;
+let libraryTabs = null;
 
 /* ================= 启动 ================= */
 async function boot() {
@@ -83,9 +88,11 @@ async function boot() {
     state.themeName = s.themeName;
     editor.setAutosave(s.autosave);
     editor.setLineNumbers(s.lineNumbers !== false);
+    refreshShortcutHints();
   });
   editor.setAutosave(state.settings?.autosave ?? 900);
   editor.setLineNumbers(getSettings().lineNumbers !== false);
+  refreshShortcutHints();
   if (st.vault) {
     $('welcome').hidden = true;
     $('app').hidden = false;
@@ -194,6 +201,8 @@ async function openVault(path) {
 async function enterApp(vault) {
   state.vault = vault;
   state.currentPath = null;
+  loadShortcuts();
+  refreshRightPanels(null);
   $('vault-name').textContent = vault.name;
   $('vault-name').title = `${vault.root}\n点击切换 / 管理仓库`;
   document.title = `${vault.name} — Tracery`;
@@ -369,6 +378,7 @@ let virtualTree = null;
 let renderedTree = null;
 function renderTree(rebuild = false) {
   const box = $('file-tree');
+  renderShortcuts();
   if (state.tree && state.files.size > 400) {
     if (!virtualTree) virtualTree = new VirtualTree(box, (row) => {
       if (row.kind === 'dir') return renderDirItem(row.node, row.rel);
@@ -377,7 +387,7 @@ function renderTree(rebuild = false) {
       if (row.kind === 'pinned') el.classList.add('pinned-item');
       return el;
     });
-    if (rebuild || renderedTree !== state.tree) virtualTree.setRows(flattenTree(state.tree, state.collapsed, state.pinned));
+    if (rebuild || renderedTree !== state.tree) virtualTree.setRows(flattenTree(state.tree, state.collapsed, new Set()));
     virtualTree.select(state.currentPath); renderedTree = state.tree; updateCollapseTreeIcon(); return;
   }
   if (virtualTree) { virtualTree.destroy(); virtualTree = null; }
@@ -388,47 +398,51 @@ function renderTree(rebuild = false) {
     box.innerHTML = '<div class="tree-empty">仓库是空的<br>点右上角 ＋ 新建第一篇笔记</div>';
     return;
   }
-  renderPinnedSection(box);
   box.appendChild(renderTreeNode(state.tree, 0, true));
   updateCollapseTreeIcon();
 }
 
-/** 文件树顶部的星标区（有星标才显示） */
-function renderPinnedSection(box) {
-  if (!state.pinned.size) return;
-  const wrap = document.createElement('div');
-  wrap.className = 'pinned-section';
-  const head = document.createElement('div');
-  head.className = 'pinned-head';
-  head.textContent = '星标';
-  wrap.appendChild(head);
-  for (const p of state.pinned) {
-    const item = document.createElement('div');
-    item.className = 'tree-item pinned-item';
-    item.dataset.path = p;
-    const icon = document.createElement('span');
-    icon.className = 'tree-icon';
-    icon.textContent = '★';
-    const label = document.createElement('span');
-    label.className = 'tree-label';
-    label.textContent = p.split('/').pop().replace(/\.md$/i, '');
-    item.append(icon, label);
-    item.onclick = () => openNote(p, null, { newTab: false });
-    item.oncontextmenu = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      showFileMenu(e, { path: p, name: p.split('/').pop() });
-    };
-    wrap.appendChild(item);
+// 收藏与最近打开按仓库隔离；旧全局数据只迁移到第一次接续使用的仓库。
+function shortcutsKey() { return `tracery.shortcuts:${state.vault?.root || ''}`; }
+function loadShortcuts() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(shortcutsKey()) || 'null'); } catch { /* 损坏时使用空列表 */ }
+  if (!saved && !localStorage.getItem('tracery.shortcutsMigrated')) {
+    saved = { pinned: [...state.pinned], recent: state.recent };
+    localStorage.setItem('tracery.shortcutsMigrated', state.vault.root);
   }
-  box.appendChild(wrap);
+  state.pinned = new Set(Array.isArray(saved?.pinned) ? saved.pinned.filter(p => typeof p === 'string') : []);
+  state.recent = Array.isArray(saved?.recent) ? saved.recent.filter(p => typeof p === 'string').slice(0, 8) : [];
+  saveShortcuts();
+}
+function saveShortcuts() { localStorage.setItem(shortcutsKey(), JSON.stringify({ pinned: [...state.pinned], recent: state.recent })); }
+function renderShortcuts() {
+  for (const [id, paths, kind] of [['pinned-list', [...state.pinned], 'pinned'], ['recent-notes', state.recent, 'recent']]) {
+    const box = $(id); box.replaceChildren();
+    const available = paths.filter(p => state.files.has(p));
+    const tab = $(`tab-${kind}`), label = kind === 'pinned' ? '收藏' : '最近打开';
+    tab.title = `${label} · ${available.length}`; tab.setAttribute('aria-label', `${label}，${available.length} 项`);
+    for (const p of available) {
+      const item = document.createElement('button'); item.className = `tree-item ${kind}-item${p === state.currentPath ? ' active' : ''}`; item.dataset.path = p; item.title = p;
+      const icon = document.createElement('span'); icon.className = 'icon'; icon.innerHTML = kind === 'pinned' ? ICON.star : ICON.doc;
+      const label = document.createElement('span'); label.className = 'label tree-label'; label.textContent = basename(p); item.append(icon, label);
+      item.onclick = () => {
+        if (IMG_FILE_RE.test(p)) openLightbox(Api.fileUrl(p), state.files.get(p).name);
+        else if (PDF_FILE_RE.test(p)) openPdfViewer(Api.fileUrl(p), state.files.get(p).name, vaultAbs(p));
+        else openNote(p);
+      };
+      item.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); showFileMenu(e, state.files.get(p)); };
+      box.append(item);
+    }
+    if (!available.length) { const el = document.createElement('div'); el.className = 'panel-empty'; el.textContent = kind === 'pinned' ? '右键笔记可加入收藏' : '打开的笔记会出现在这里'; box.append(el); }
+  }
 }
 
 /** 星标开关（右键菜单用） */
 function togglePin(relPath) {
   if (state.pinned.has(relPath)) state.pinned.delete(relPath);
   else state.pinned.add(relPath);
-  localStorage.setItem('tracery.pinned', JSON.stringify([...state.pinned]));
+  saveShortcuts();
   renderTree(true);
   toast(state.pinned.has(relPath) ? '已加星标' : '已取消星标');
 }
@@ -437,7 +451,13 @@ function togglePin(relPath) {
 function pushRecent(relPath) {
   if (!relPath) return;
   state.recent = [relPath, ...state.recent.filter((p) => p !== relPath)].slice(0, 8);
-  localStorage.setItem('tracery.recent', JSON.stringify(state.recent));
+  saveShortcuts();
+  renderShortcuts();
+}
+
+function renameShortcuts(oldPath, newPath) {
+  const map = p => p === oldPath ? newPath : p.startsWith(`${oldPath}/`) ? `${newPath}${p.slice(oldPath.length)}` : p;
+  state.pinned = new Set([...state.pinned].map(map)); state.recent = state.recent.map(map); saveShortcuts();
 }
 
 function renderDirItem(d, rel) {
@@ -515,6 +535,7 @@ let vaultMenuRequest = 0;
 function closeCtxMenu() {
   vaultMenuRequest++;
   $('vault-name')?.setAttribute('aria-expanded', 'false');
+  $('btn-tab-more')?.setAttribute('aria-expanded', 'false');
   if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; }
 }
 document.addEventListener('click', closeCtxMenu);
@@ -634,6 +655,7 @@ async function renameFolder(rel) {
   const newRel = dir + clean;
   try {
     await Api.rename(rel, newRel);
+    renameShortcuts(rel, newRel);
     const prefix = rel + '/';
     const under = (p) => p === rel || p.startsWith(prefix);
     const mapped = (p) => (p === rel ? newRel : `${newRel}/${p.slice(prefix.length)}`);
@@ -656,7 +678,7 @@ async function deleteFolder(rel) {
   const name = rel.split('/').pop();
   const ok = await askConfirm({
     title: `删除文件夹「${name}」？`,
-    desc: '文件夹里的所有内容会一起移入回收站，之后可以整体恢复（文件面板顶部扫帚图标）。',
+    desc: '文件夹里的所有内容会一起移入回收站，之后可从文件面板的“更多”菜单整体恢复。',
     okText: '删除',
     danger: true,
   });
@@ -1019,8 +1041,8 @@ function showTextMenu(e) {
   const canUndo = editor.canUndo();
   const canRedo = editor.canRedo();
   showMenu(e.clientX, e.clientY, [
-    { icon: ICON.undo, label: '撤销', kbd: 'Ctrl Z', disabled: ro || !canUndo, action: withSelection(() => editor.undo()) },
-    { icon: ICON.redo, label: '重做', kbd: 'Ctrl ⇧ Z', disabled: ro || !canRedo, action: withSelection(() => editor.redo()) },
+    { icon: ICON.undo, label: '撤销', kbd: commandKeyLabel('undo'), disabled: ro || !canUndo, action: withSelection(() => editor.undo()) },
+    { icon: ICON.redo, label: '重做', kbd: commandKeyLabel('redo'), disabled: ro || !canRedo, action: withSelection(() => editor.redo()) },
     '-',
     editItem(ICON.link, '新增链接', () => editor.wrapSelection('[[', ']]')),
     editItem(ICON.globe, '新增外部链接', () => editor.wrapSelection('[', '](https://)')),
@@ -1052,7 +1074,7 @@ function showTextMenu(e) {
 }
 
 function copyText(text) {
-  navigator.clipboard.writeText(text).then(
+  copyLocalText(text).then(
     () => toast('已复制'),
     (err) => toast(`复制失败：${err.message}`),
   );
@@ -1077,6 +1099,7 @@ async function copyImageToClipboard(src) {
 function revealInTree(rel) {
   if (!rel) return;
   switchPanel('files');
+  libraryTabs?.select('library');
   const parts = rel.replace(/\\/g, '/').split('/');
   parts.pop();
   if (parts.length) {
@@ -1155,6 +1178,7 @@ async function renameNote(f) {
   const newPath = dir + bare + ext;
   try {
     await Api.rename(f.path, newPath);
+    renameShortcuts(f.path, newPath);
     const ti = state.tabs.indexOf(f.path);
     if (ti >= 0) state.tabs[ti] = newPath;
     if (state.currentPath === f.path) {
@@ -1170,7 +1194,7 @@ async function renameNote(f) {
 async function deleteNote(f) {
   const ok = await askConfirm({
     title: `删除「${f.name}」？`,
-    desc: '文件会移入回收站，之后可以恢复（文件面板顶部扫帚图标）。',
+    desc: '文件会移入回收站，之后可从文件面板的“更多”菜单恢复。',
     okText: '删除',
     danger: true,
   });
@@ -1320,7 +1344,7 @@ function renderTabs() {
     name.textContent = basename(p);
     const close = document.createElement('button');
     close.className = 'tab-close';
-    close.title = '关闭 (Ctrl+W)';
+    close.title = commandLabel('closeTab');
     close.innerHTML = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.2 3.2l5.6 5.6M8.8 3.2l-5.6 5.6"/></svg>';
     close.onclick = (e) => { e.stopPropagation(); closeTab(i); };
 
@@ -1432,7 +1456,7 @@ function pinAllTabs() {
   for (const p of state.tabs) {
     if (!state.pinned.has(p)) { state.pinned.add(p); added += 1; }
   }
-  localStorage.setItem('tracery.pinned', JSON.stringify([...state.pinned]));
+  saveShortcuts();
   renderTree();
   toast(added ? `已收藏 ${added} 个标签页` : '这些标签页都已经收藏过了');
 }
@@ -1452,7 +1476,7 @@ function updateTabOverflow() {
 /** 把某篇笔记加载进当前标签（不改变标签列表） */
 async function loadTab(path, heading) {
   try {
-    const { content } = await Api.note(path);
+    const { content, ...metadata } = await Api.note(path);
     const recovered = await recoverDraft(state.vault?.root, path, content);
     state.currentPath = path;
     $('note-path').textContent = path;
@@ -1462,7 +1486,8 @@ async function loadTab(path, heading) {
     if (recovered !== null) editor.view.dispatch({ changes: { from: 0, to: editor.view.state.doc.length, insert: recovered } });
     renderTree(); // 高亮
     pushRecent(path);
-    refreshRightPanels(content);
+    refreshRightPanels(editor.getContent());
+    sidebars.setMetadata(path, metadata);
     if (graphView) graphView.opts.activePath = path;
     if (heading) setTimeout(() => editor.scrollToHeading(heading), 60);
     renderTabs();
@@ -1523,6 +1548,9 @@ function pruneTabs() {
   if (!state.tabs.length) {
     state.activeTab = -1;
     state.currentPath = null;
+    refreshRightPanels(null);
+    renderTabs();
+    saveTabsState();
     return;
   }
   if (!state.tabs.includes(prevPath)) {
@@ -1592,112 +1620,10 @@ async function openNote(path, heading, opts = {}) {
 }
 
 function refreshRightPanels(content) {
-  // Windows 上的笔记可能是 CRLF：JS 正则里 `.` 不匹配 \r，`$` 也不会落在 \r 之前 →
-  // 用 `^(#{1,6})\s+(.*)$` 逐行扫会把 CRLF 笔记的标题全部漏掉（大纲变空）。
-  // 统一把换行归一化再扫（标签、代码围栏的判断同样受益）。
-  const src = String(content || '').replace(/\r\n?/g, '\n');
-  // 大纲
-  const outline = $('outline-list');
-  outline.innerHTML = '';
-  const heads = [];
-  let inFence = false;
-  for (const line of src.split('\n')) {
-    if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
-    if (inFence) continue;
-    const m = /^(#{1,6})\s+(.*)$/.exec(line);
-    if (m) heads.push({ level: m[1].length, text: m[2].replace(/[*_`~]/g, '') });
-  }
-  if (!heads.length) {
-    outline.innerHTML = '<div class="panel-empty">当前笔记没有标题</div>';
-  } else {
-    for (const h of heads) {
-      const item = document.createElement('span');
-      item.className = `outline-item lv${Math.min(4, h.level)}`;
-      item.textContent = h.text;
-      item.tabIndex = 0;
-      item.setAttribute('role', 'button');
-      item.onclick = () => { editor.scrollToHeading(h.text); if (isCompact()) closeMobilePanels(); };
-      item.onkeydown = (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); item.click(); } };
-      outline.appendChild(item);
-    }
-  }
-  // 标签
-  const tags = new Set();
-  const tagRe = /(^|[\s(（])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
-  let inF = false;
-  for (const line of src.split('\n')) {
-    if (/^\s*```/.test(line)) { inF = !inF; continue; }
-    if (inF) continue;
-    let m;
-    const re = new RegExp(tagRe.source, 'gu');
-    while ((m = re.exec(line))) tags.add(m[2]);
-  }
-  const tagBox = $('note-tags-list');
-  tagBox.innerHTML = '';
-  if (!tags.size) {
-    tagBox.innerHTML = '<div class="panel-empty">当前笔记没有标签</div>';
-  } else {
-    const cloud = document.createElement('div');
-    cloud.className = 'tag-cloud';
-    for (const t of tags) {
-      const chip = document.createElement('span');
-      chip.className = 'tag-chip';
-      chip.textContent = `#${t}`;
-      chip.onclick = () => { switchPanel('search'); $('search-input').value = `#${t}`; runSearch(`#${t}`); };
-      cloud.appendChild(chip);
-    }
-    tagBox.appendChild(cloud);
-  }
-  // 反链
-  refreshBacklinks();
+  sidebars?.refresh(content);
 }
 
-const refreshBacklinks = debounce(async () => {
-  const box = $('backlinks-list');
-  if (!state.currentPath) {
-    box.innerHTML = '<div class="panel-empty">打开一篇笔记后显示反链</div>';
-    return;
-  }
-  try {
-    const { backlinks, unresolved } = await Api.links(state.currentPath);
-    box.innerHTML = '';
-    $('backlink-count').textContent = String(backlinks.length);
-    if (!backlinks.length && !unresolved.length) {
-      box.innerHTML = '<div class="panel-empty">还没有笔记链接到当前笔记</div>';
-    }
-    const name = basename(state.currentPath);
-    for (const bl of backlinks) {
-      const item = document.createElement('div');
-      item.className = 'backlink-item';
-      const n = document.createElement('div');
-      n.className = 'bl-name';
-      n.textContent = bl.name;
-      const ctx = document.createElement('div');
-      ctx.className = 'bl-ctx';
-      ctx.innerHTML = bl.contexts.map((c) =>
-        `L${c.line} · ${escapeText(c.text).replace(new RegExp(escapeRe(`[[${name}`), 'gi'), (m) => `<mark>${m}</mark>`)}`
-      ).join('<br>');
-      item.append(n, ctx);
-      item.onclick = () => openNote(bl.path, null, { newTab: true });
-      box.appendChild(item);
-    }
-    if (unresolved.length) {
-      const title = document.createElement('div');
-      title.className = 'panel-empty';
-      title.style.padding = '10px 8px 4px';
-      title.textContent = `未创建的链接（${unresolved.length}）`;
-      box.appendChild(title);
-      for (const u of unresolved) {
-        const item = document.createElement('div');
-        item.className = 'backlink-item';
-        item.innerHTML = `<div class="bl-name" style="color:var(--link-unresolved)">[[${escapeText(u.raw)}]]</div>`;
-        // 与「点编辑区里未解析的双链」共用同一套动作（问一句 → 创建 → 打开）
-        item.onclick = () => createMissingNote(u.raw, true);
-        box.appendChild(item);
-      }
-    }
-  } catch { /* ignore */ }
-}, 150);
+function refreshBacklinks() { sidebars?.refreshLinks(); }
 
 function escapeText(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1748,13 +1674,9 @@ function switchPanel(name, { mobileOpen = true } = {}) {
   if (name === 'tags') refreshTags();
 }
 
-/** 右侧栏切换（大纲 / 反链 / 标签）：三个按钮 + 一次只显示一个面板 */
+/** 命令入口切换当前笔记上下文。 */
 function switchRightPanel(name) {
-  for (const b of document.querySelectorAll('.rs-tab')) b.classList.toggle('active', b.dataset.rs === name);
-  for (const p of document.querySelectorAll('#sidebar-right .panel')) {
-    p.classList.toggle('active', p.id === `panel-${name}`);
-  }
-  localStorage.setItem('tracery.rsTab', name);
+  sidebars?.reveal(name);
 }
 
 /** 退出后回到打开图谱前的面板，不再退成左侧栏中的小图谱。 */
@@ -1767,7 +1689,7 @@ function toggleGraphFocus(force) {
 /** 搜索面板空查询时的「最近打开」 */
 function renderRecentList(box) {
   box.innerHTML = '';
-  const list = state.recent || [];
+  const list = (state.recent || []).filter(p => state.files.has(p));
   if (!list.length) {
     box.innerHTML = '<div class="search-empty">输入关键词搜索全文<br>打开过的笔记会出现在这里</div>';
     return;
@@ -1850,8 +1772,8 @@ function renderPalette(q) {
     { icon: '📄', name: '新建笔记', sub: '命令', action: () => createNoteIn('') },
     { icon: '🌗', name: '切换亮色 / 暗色主题', sub: '外观', action: toggleTheme },
     { icon: '⚙️', name: '打开设置', sub: '设置', action: () => openSettings() },
-    { icon: '↶', name: '撤销（Ctrl+Z）', sub: '命令', action: () => editor.undo() },
-    { icon: '↷', name: '重做（Ctrl+Shift+Z）', sub: '命令', action: () => editor.redo() },
+    { icon: '↶', name: commandLabel('undo'), sub: '命令', action: () => editor.undo() },
+    { icon: '↷', name: commandLabel('redo'), sub: '命令', action: () => editor.redo() },
     { icon: '🎨', name: '切换主题皮肤（Apple 风 / Obsidian 风）', sub: '外观', action: cycleThemeSkin },
     { icon: '👁', name: '切换编辑模式（实时预览 / 源码 / 阅读）', sub: '命令', action: () => editor.toggleMode() },
     { icon: '🕸️', name: '打开图谱视图', sub: '命令', action: () => switchPanel('graph') },
@@ -1976,7 +1898,8 @@ editor = new CmEditor({
   onSave: async (path, content) => {
     const root = state.vault?.root;
     try {
-      await Api.saveNote(path, content);
+      const metadata = await Api.saveNote(path, content);
+      if (root === state.vault?.root) sidebars?.setMetadata(path, metadata);
       clearSavedDraft(root, path, content);
       refreshGraph(); refreshTags();
       refreshBacklinks();
@@ -1992,6 +1915,7 @@ editor = new CmEditor({
     $('status-words').textContent = `${words} 词`;
     refreshRightPanelsThrottled(content);
   },
+  onSelectionChange: line => sidebars?.highlight(line),
   onModeChange: (mode) => {
     const label = $('btn-mode-label');
     if (label) label.textContent = mode === 'live' ? '实时预览' : mode === 'source' ? '源码' : '阅读';
@@ -2009,7 +1933,7 @@ window.__editor = editor;
 
 $('editor-live').addEventListener('contextmenu', onEditorContextMenu);
 
-const refreshRightPanelsThrottled = debounce((content) => refreshRightPanels(content), 400);
+const refreshRightPanelsThrottled = debounce(() => refreshRightPanels(editor.getContent()), 200);
 
 function countWords(text) {
   const cjk = (text.match(/[\u4e00-\u9fff\u3040-\u30ff]/g) || []).length;
@@ -2141,6 +2065,34 @@ function initResizers() {
   bind($('resizer-right'), right, 'tracery.ui.rightW', 296);
 }
 
+/* 快捷键的动作与标题使用同一份配置；不接管输入框、弹窗或画板自己的编辑按键。 */
+const hotkeyActions = {
+  palette: openPalette, settings: openSettings,
+  search: () => { switchPanel('search'); $('search-input').focus(); },
+  newNote: () => createNoteIn(''), draw: openDrawPanel, mode: () => editor.toggleMode(),
+  save: () => editor.flush(), theme: toggleTheme, graph: () => switchPanel('graph'), tags: () => switchPanel('tags'),
+  history: openHistory, vault: openVaultPicker, phone: () => $('btn-phone-access').click(), exportHtml, exportPdf,
+  closeTab: () => closeTab(state.activeTab),
+  nextTab: () => { if (state.tabs.length > 1) activateTab((state.activeTab + 1) % state.tabs.length); },
+  previousTab: () => { if (state.tabs.length > 1) activateTab((state.activeTab - 1 + state.tabs.length) % state.tabs.length); },
+  leftSidebar: () => toggleSidebar('left'), rightSidebar: () => toggleSidebar('right'),
+  undo: () => editor.undo(), redo: () => editor.redo(), redoAlt: () => editor.redo(),
+  bold: () => toggleBold(editor.view), italic: () => toggleItalic(editor.view), strike: () => toggleStrike(editor.view), wikilink: () => insertWikilink(editor.view),
+};
+function commandLabel(id) {
+  const command = HOTKEY_COMMANDS.find(c => c.id === id), key = commandKeyLabel(id);
+  return command.label + (key ? ` (${key})` : '');
+}
+function commandKeyLabel(id) {
+  const command = HOTKEY_COMMANDS.find(c => c.id === id), key = bindingFor(command, getSettings().hotkeys);
+  return key ? shortcutLabel(key, /Mac/.test(navigator.platform)) : '';
+}
+function refreshShortcutHints() {
+  for (const [element, command] of Object.entries({ 'btn-settings': 'settings', 'btn-new-note-2': 'newNote', 'btn-draw': 'draw', 'btn-toggle-left': 'leftSidebar', 'btn-toggle-right': 'rightSidebar' })) $(element).title = commandLabel(command);
+  document.querySelector('.ribbon-btn[data-panel="search"]').title = commandLabel('search');
+  for (const close of document.querySelectorAll('#tablist .tab-close')) close.title = commandLabel('closeTab');
+}
+
 /* ================= 主题（由设置模块统一管理） ================= */
 async function toggleTheme() {
   const current = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
@@ -2187,7 +2139,12 @@ function bindGlobalEvents() {
   $('btn-toggle-left').onclick = () => toggleSidebar('left');
   $('btn-toggle-right').onclick = () => toggleSidebar('right');
   // 标签条最右侧的下拉：标签页列表 / 关闭全部 / 收藏全部
-  $('btn-tab-more').onclick = (e) => { e.stopPropagation(); showTabMenu(e.currentTarget); };
+  $('btn-tab-more').onclick = (e) => {
+    e.stopPropagation();
+    if (e.currentTarget.getAttribute('aria-expanded') === 'true') { closeCtxMenu(); return; }
+    showTabMenu(e.currentTarget);
+    e.currentTarget.setAttribute('aria-expanded', 'true');
+  };
   // 折叠状态要看得出来：右栏被折叠时（大纲「消失」了）按钮必须亮起提示，
   // 否则用户会以为面板出 bug 了
   const syncSidebarToggles = () => {
@@ -2238,23 +2195,24 @@ function bindGlobalEvents() {
   for (const btn of document.querySelectorAll('.ribbon-btn[data-panel]')) {
     btn.onclick = () => switchPanel(btn.dataset.panel);
   }
-  // 右侧栏三个切换按钮（记住上次选的）
-  for (const btn of document.querySelectorAll('.rs-tab')) {
-    btn.onclick = () => switchRightPanel(btn.dataset.rs);
-  }
-  switchRightPanel(localStorage.getItem('tracery.rsTab') || 'outline');
-  $('btn-new-note').onclick = () => createNoteIn('');
-  // 右键「+」：新建笔记 / 新建文件夹
-  $('btn-new-note').oncontextmenu = (e) => {
-    e.preventDefault();
-    showMenu(e.clientX, e.clientY, [
-      { label: '新建笔记', icon: ICON.doc, action: () => createNoteIn('') },
-      { label: '新建文件夹', icon: ICON.folder, action: () => createFolderIn('') },
-    ]);
-  };
   $('btn-new-note-2').onclick = () => createNoteIn('');
-  $('btn-trash').onclick = () => openTrash();
-  $('btn-new-folder').onclick = () => createFolderIn('');
+  // 给整个笔记库背景提供根目录操作；行级事件仍由文件/文件夹自己的菜单接管。
+  const rootFileActions = () => [
+    { label: '新建笔记', icon: ICON.doc, action: () => createNoteIn('') },
+    { label: '新建文件夹', icon: ICON.folder, action: () => createFolderIn('') },
+    '-',
+    { label: '在文件树定位当前笔记', icon: ICON.tree, disabled: !state.currentPath, action: () => revealInTree(state.currentPath) },
+    { label: '回收站', icon: ICON.trash, action: () => openTrash() },
+  ];
+  $('panel-files').oncontextmenu = e => {
+    if (!state.vault || libraryTabs.current !== 'library' || e.target.closest('.tree-item, button, input, textarea, [role="tablist"]')) return;
+    e.preventDefault(); e.stopPropagation(); showMenu(e.clientX, e.clientY, rootFileActions());
+  };
+  $('btn-file-more').onclick = e => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    showMenu(r.left, r.bottom + 5, rootFileActions());
+  };
   $('btn-collapse-tree').onclick = () => {
     const all = new Set();
     const walk = (node) => { for (const d of node.dirs || []) { all.add(d.name); walk(d); } };
@@ -2317,28 +2275,35 @@ function bindGlobalEvents() {
   });
   $('palette').addEventListener('click', (e) => { if (e.target === $('palette')) closePalette(); });
 
-  // 快捷键
+  // 统一在捕获阶段分派，优先于 CM 的默认键位；取消绑定后旧键也不能继续偷偷生效。
   document.addEventListener('keydown', (e) => {
-    const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key === ',') { e.preventDefault(); openSettings(); return; }
-    if (mod && e.key.toLowerCase() === 'p' && !e.shiftKey) { e.preventDefault(); openPalette(); }
-    else if (mod && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); switchPanel('search'); $('search-input').focus(); }
-    else if (mod && e.shiftKey && e.key.toLowerCase() === 'd') { e.preventDefault(); openDrawPanel(); }
-    else if (mod && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); createNoteIn(''); }
-    else if (mod && e.key.toLowerCase() === 'e') { e.preventDefault(); editor.toggleMode(); }
-    else if (mod && e.key.toLowerCase() === 'w' && !e.shiftKey) { e.preventDefault(); closeTab(state.activeTab); }
-    else if (mod && e.key === 'Tab') {
-      e.preventDefault();
-      const n = state.tabs.length;
-      if (n > 1) activateTab((state.activeTab + (e.shiftKey ? -1 : 1) + n) % n);
+    if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.getModifierState('AltGraph')) return;
+    if (!$('phone-access-panel').hidden) return;
+    if (settingsIsOpen()) {
+      if (e.key === 'Escape' && !e.target.closest('.hotkey-binding[aria-pressed="true"]')) { e.preventDefault(); closeSettings(); }
+      return;
     }
-    else if (mod && e.key === '\\') { e.preventDefault(); toggleSidebar('left'); }
-    else if (mod && e.shiftKey && e.key === '|') { e.preventDefault(); toggleSidebar('right'); }
-    else if (e.key === 'Escape' && settingsIsOpen()) { e.preventDefault(); closeSettings(); }
-    else if (e.key === 'Escape' && !$('palette').hidden) closePalette();
-    else if (e.key === 'Escape' && !$('welcome').hidden) closeWelcome();
-    else if (e.key === 'Escape' && document.body.classList.contains('graph-focus')) { e.preventDefault(); toggleGraphFocus(false); }
-  });
+    if (document.querySelector('.dialog-backdrop:not([hidden]), .draw-overlay:not([hidden]), .lightbox:not([hidden]), .pdf-viewer:not([hidden]), .history-viewer:not([hidden]), .trash-viewer:not([hidden])')) return;
+    if (e.key === 'Escape') {
+      if (ctxMenu) { e.preventDefault(); closeCtxMenu(); }
+      else if (!$('palette').hidden) closePalette();
+      else if (!$('welcome').hidden) closeWelcome();
+      else if (document.body.classList.contains('graph-focus')) { e.preventDefault(); toggleGraphFocus(false); }
+      return;
+    }
+    if (!$('palette').hidden || !$('welcome').hidden) return;
+    const key = shortcutFromEvent(e); if (!key) return;
+    const editing = editor.view.dom.contains(e.target) || editor.view.hasFocus;
+    const command = HOTKEY_COMMANDS.find(c => bindingFor(c, getSettings().hotkeys) === key && (!c.editorOnly || editing));
+    if (command) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (command.editorOnly && editor.isRead) return;
+      if (e.repeat && !command.editorOnly) return;
+      Promise.resolve(hotkeyActions[command.id]?.()).catch(error => toast(error.message));
+    } else if (editing && HOTKEY_COMMANDS.some(c => c.defaultKey === key)) {
+      e.preventDefault(); e.stopImmediatePropagation();
+    }
+  }, true);
 
   // 编辑器区域滚动时关闭链接预览（capture：cm 内核的滚动发生在内部 `.cm-scroller`，scroll 不冒泡）
   $('editor-live').addEventListener('scroll', () => {
@@ -2357,9 +2322,12 @@ function onWsMessage(msg) {
     refreshGraph();
     refreshTags();
     if (affectsCurrent && !editor.dirty) {
-      Api.note(state.currentPath).then(({ content }) => {
-        editor.load(state.currentPath, content, { keepMode: true });
+      const path = state.currentPath, root = state.vault?.root;
+      Api.note(path).then(({ content, ...metadata }) => {
+        if (path !== state.currentPath || root !== state.vault?.root || editor.dirty) return;
+        editor.load(path, content, { keepMode: true });
         refreshRightPanels(content);
+        sidebars.setMetadata(path, metadata);
       }).catch(() => {});
     } else if (state.currentPath) {
       refreshBacklinks();
@@ -2368,8 +2336,11 @@ function onWsMessage(msg) {
     // 其他窗口切换了仓库：同步标题栏与各索引
     Api.state().then(async (s) => {
       if (s.vault) {
+        const changed = state.vault?.root !== s.vault.root;
         state.vault = s.vault;
         state.currentPath = null;
+        if (changed) loadShortcuts();
+        refreshRightPanels(null);
         $('vault-name').textContent = s.vault.name;
         $('vault-name').title = `${s.vault.root}\n点击切换 / 管理仓库`;
         document.title = `${s.vault.name} — Tracery`;
@@ -2397,6 +2368,12 @@ function toggleSidebar(side) {
     toggleMobilePanel(side);
   } else $(side === 'left' ? 'sidebar' : 'sidebar-right').classList.toggle('collapsed');
 }
+libraryTabs = initLibraryTabs();
+sidebars = createSidebarContext({ state, editor, api: Api, navigate: openNote, createMissing: createMissingNote,
+  searchTag: tag => { switchPanel('search'); $('search-input').value = `#${tag}`; runSearch(`#${tag}`); },
+  history: openHistory, copy: copyText, compact: isCompact, closeMobile: closeMobilePanels });
+sidebars.refresh(null);
+initPhoneAccess({ api: Api, toast, closeMobile: closeMobilePanels });
 initMobile();
 initPwa({ beforeReload: async () => { await editor.flush(); return !editor.dirty; } });
 window.addEventListener('beforeunload', (event) => {

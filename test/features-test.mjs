@@ -59,24 +59,19 @@ await sleep(1500);
 await page.evaluate(() => document.querySelector('[data-path="功能.md"]')?.click());
 await sleep(900);
 
-/* ---------- ① 右栏三按钮切换 ---------- */
+/* ---------- ① 右栏按需显示当前笔记上下文 ---------- */
 const rs = await page.evaluate(async () => {
   const out = [];
-  for (const n of ['backlinks', 'note-tags', 'outline']) {
-    document.querySelector(`.rs-tab[data-rs="${n}"]`).click();
-    await new Promise((r) => setTimeout(r, 250));
-    out.push({
-      tab: document.querySelector('.rs-tab.active')?.dataset.rs,
-      panels: [...document.querySelectorAll('#sidebar-right .panel.active')].map((p) => p.id),
-    });
+  const tabs = [...document.querySelectorAll('[data-context-view]')];
+  for (const tab of tabs) {
+    tab.click();
+    const visible = [...document.querySelectorAll('.sidebar-sections > section')].filter(s => !s.hidden);
+    out.push({ selected: tab.getAttribute('aria-selected') === 'true', unique: visible.length === 1 && visible[0].id === tab.getAttribute('aria-controls') });
   }
-  const tabs = [...document.querySelectorAll('.rs-tab')].map((b) => b.textContent.replace(/\d+/g, '').trim());
-  return { out, tabs };
+  return { out, tabs: tabs.map(t => t.dataset.contextView) };
 });
-check('右栏三个切换按钮', rs.tabs.length === 3 && rs.tabs.join(',').includes('大纲'), rs.tabs.join(' / '));
-check('点按钮只显示对应面板',
-  rs.out.every((r) => r.tab === r.panels[0]?.replace('panel-', '') && r.panels.length === 1),
-  JSON.stringify(rs.out.map((r) => `${r.tab}→${r.panels}`)));
+check('右栏保留大纲 / 关联 / 信息入口', rs.tabs.join(',') === 'outline,links,info', rs.tabs.join(' / '));
+check('每次只显示所选内容，避免信息堆叠', rs.out.every(r => r.selected && r.unique), JSON.stringify(rs.out));
 
 /* ---------- ①b 列表标记渲染（2026-10-19 新增） ----------
  * 契约：无序列表的 `-`/`*`/`+` 要渲染成圆点「·」（不再露源码），
@@ -172,13 +167,14 @@ const pinned = await page.evaluate(async () => {
   await new Promise((res) => setTimeout(res, 300));
   [...document.querySelectorAll('.context-menu button')].find((b) => b.textContent.includes('星标'))?.click();
   await new Promise((res) => setTimeout(res, 500));
+  document.getElementById('tab-pinned').click();
   return {
-    section: !!document.querySelector('.pinned-section'),
+    section: !document.getElementById('section-pinned').hidden && document.getElementById('section-library').hidden,
     count: document.querySelectorAll('.pinned-item').length,
     label: document.querySelector('.pinned-item .tree-label')?.textContent,
   };
 });
-check('右键星标 → 文件树顶部出现星标区', pinned.section && pinned.count === 1 && pinned.label === '第二篇', JSON.stringify(pinned));
+check('右键星标 → 收藏图标可切换到独立收藏列表', pinned.section && pinned.count === 1 && pinned.label === '第二篇', JSON.stringify(pinned));
 
 /* ---------- ⑤ 最近打开（搜索面板空查询） ---------- */
 await page.evaluate(() => document.querySelector('.ribbon-btn[data-panel="search"]').click());

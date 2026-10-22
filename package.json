@@ -26,10 +26,13 @@
     "dist:dir:nosign": "electron-builder --dir --config.win.signAndEditExecutable=false",
     "repack": "node scripts/repack.mjs",
     "build:cmvendor": "node scripts/build-cmvendor.mjs",
+    "build:icons": "node scripts/gen-icon.mjs",
     "release": "node scripts/release.mjs",
     "test:merge": "node test/merge-test.mjs",
     "test:enter": "node test/enter-test.mjs",
     "test:gap": "node test/gap-test.mjs",
+    "test:cursor": "node test/cursor-hit-test.mjs",
+    "test:sidebar": "node test/sidebar-test.mjs",
     "test:polish": "node test/polish-test.mjs",
     "test:menu": "node test/menu-test.mjs",
     "test:trash": "node test/trash-test.mjs",
@@ -46,7 +49,13 @@
     "build:pwa-icons": "node scripts/build-pwa-icons.mjs",
     "test:cmlab": "node test/cmlab-test.mjs",
     "test:engine": "node test/engine-test.mjs",
-    "test:backspace": "node test/backspace-test.mjs"
+    "test:backspace": "node test/backspace-test.mjs",
+    "test:smoke": "node test/run-suite.mjs smoke",
+    "test:core": "node test/run-suite.mjs core",
+    "test:all": "node test/run-suite.mjs full",
+    "test:icons": "node test/icons-test.mjs",
+    "test:hotkeys": "node test/hotkeys-test.mjs",
+    "qa:prepare": "node scripts/prepare-qa.mjs"
   },
   "dependencies": {
     "bonjour-service": "^1.4.4",
@@ -81,6 +90,7 @@
       "package.json"
     ],
     "asar": true,
+    "afterPack": "scripts/after-pack.cjs",
     "win": {
       "target": [
         "portable"

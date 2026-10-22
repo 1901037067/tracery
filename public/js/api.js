@@ -19,6 +19,7 @@ async function api(path, opts = {}) {
 
 export const Api = {
   state: () => api('/api/state'),
+  phoneAccess: () => api('/api/access'),
   openVault: (path) => api('/api/vault/open', { method: 'POST', body: { path } }),
   forgetVault: (path) => api('/api/vault/forget', { method: 'POST', body: { path } }),
   tree: () => api('/api/tree'),

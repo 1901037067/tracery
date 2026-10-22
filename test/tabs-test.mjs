@@ -288,8 +288,8 @@ async function main() {
   });
   await sleep(600);
   const pinnedAll = await page.evaluate(() => ({
-    stored: JSON.parse(localStorage.getItem('tracery.pinned') || '[]').length,
-    section: document.querySelectorAll('#file-tree .pinned-section .pinned-item').length,
+    stored: JSON.parse(localStorage.getItem(`tracery.shortcuts:${window.__tracery.state.vault.root}`)).pinned.length,
+    section: document.querySelectorAll('#pinned-list .pinned-item').length,
     tabs: document.querySelectorAll('#tablist .tab').length,
   }));
   check('「收藏所有标签页」把打开的每个标签都加进星标',

@@ -63,7 +63,12 @@ async function openNote(name, content) {
   return abs;
 }
 async function readNote(abs) {
-  await sleep(1500); // 等自动保存（900ms 防抖 + 余量）
+  // 等实际自动保存完成；负载高时固定1.5秒会先读到旧文件，再在日志里读到新文件。
+  for (let i = 0; i < 50; i++) {
+    const state = await page.evaluate(() => ({ dirty: window.__editor.dirty, content: window.__editor.getContent() }));
+    if (!state.dirty && fs.readFileSync(abs, 'utf8') === state.content) break;
+    await sleep(100);
+  }
   return fs.readFileSync(abs, 'utf8');
 }
 /** 当前场景的笔记原文：用它算「按 md 偏移放光标」 */

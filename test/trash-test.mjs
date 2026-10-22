@@ -74,7 +74,7 @@ const trash1 = await page.evaluate(async () => (await (await fetch('/api/trash')
 check('回收站里能看到这一项', trash1.length === 1 && trash1[0].path === '要删的笔记.md', JSON.stringify(trash1.map((x) => x.path)));
 
 /* ---------- ② 打开回收站面板并恢复 ---------- */
-await page.evaluate(() => document.getElementById('btn-trash').click());
+await page.evaluate(() => { document.getElementById('btn-file-more').click(); [...document.querySelectorAll('.context-menu button')].find(b => b.textContent.includes('回收站')).click(); });
 await sleep(600);
 const panel = await page.evaluate(() => ({
   open: !document.getElementById('trash-viewer').hidden,
@@ -98,7 +98,7 @@ const delAgain = await page.evaluate(async () => {
 });
 check('再次删除重新入回收站', delAgain === 1, String(delAgain));
 await page.evaluate(() => document.getElementById('trash-viewer')?.remove());
-await page.evaluate(() => document.getElementById('btn-trash').click());
+await page.evaluate(() => { document.getElementById('btn-file-more').click(); [...document.querySelectorAll('.context-menu button')].find(b => b.textContent.includes('回收站')).click(); });
 await sleep(600);
 await page.evaluate(() => {
   const btn = [...document.querySelectorAll('.trash-item button')].find((b) => b.textContent === '彻底删除');

@@ -13,7 +13,9 @@
   <link rel="stylesheet" href="/css/style.css" />
   <link rel="stylesheet" href="/css/cm.css" />
   <link rel="stylesheet" href="/css/mobile.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📔</text></svg>" />
+  <link rel="stylesheet" href="/css/sidebar.css" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
   <!-- IMPORTMAP:BEGIN (由 scripts/build-cmvendor.mjs 生成，勿手改) -->
 <script type="importmap">
 {
@@ -89,7 +91,7 @@
       </div>
       <div class="tablist" id="tablist" hidden></div>
       <!-- 标签条最右侧的「标签页列表」下拉（列出已开标签 / 关闭全部 / 收藏全部） -->
-      <button id="btn-tab-more" class="tab-more" title="标签页列表" aria-label="标签页列表">
+      <button id="btn-tab-more" class="tab-more" title="标签页列表" aria-label="标签页列表" aria-haspopup="menu" aria-expanded="false">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
           <path d="M4 6.4L8 10.4l4-4"/>
         </svg>
@@ -153,7 +155,7 @@
           </svg>
         </button>
         <div class="ribbon-spacer"></div>
-        <!-- 底部工具区：主题 / 设置 + 新建 -->
+        <!-- 底部工具区：主题 / 手机访问 / 设置 -->
         <button id="btn-theme" class="ribbon-btn" title="切换亮/暗主题">
           <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
             <circle cx="12" cy="12" r="4"/>
@@ -163,16 +165,13 @@
             <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.4 8.4 0 1 0 20 14.2z"/>
           </svg>
         </button>
+        <button id="btn-phone-access" class="ribbon-btn" title="手机访问：同网连接电脑" aria-label="手机访问" aria-expanded="false" aria-controls="phone-access-panel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18h3"/></svg>
+        </button>
         <button id="btn-settings" class="ribbon-btn" title="设置 (Ctrl+,)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3.2"/>
             <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.11a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.11A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.11a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.55 1z"/>
-          </svg>
-        </button>
-        <div class="ribbon-divider"></div>
-        <button class="ribbon-btn accent" id="btn-new-note" title="新建笔记 (Ctrl+N)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
-            <path d="M12 5v14M5 12h14"/>
           </svg>
         </button>
       </nav>
@@ -181,30 +180,40 @@
       <aside class="sidebar" id="sidebar">
         <!-- 文件树 -->
         <section class="panel active" id="panel-files">
-          <div class="panel-header">
-            <span>文件</span>
-            <span class="panel-actions">
-              <button id="btn-trash" class="mini-btn icon-mini" title="回收站">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.2h11M6.2 4.2V2.8h3.6v1.4M4 4.2l.7 8.2a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1l.7-8.2"/><path d="M6.6 6.8v4M9.4 6.8v4"/></svg>
+          <div class="panel-header library-header">
+            <div class="sidebar-tabs library-tabs" role="tablist" aria-label="笔记导航">
+              <button id="tab-library" class="sidebar-tab icon-tab" data-library-view="library" role="tab" aria-selected="true" aria-controls="section-library" title="笔记库" aria-label="笔记库">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5V3h12v15h-2"/><rect x="4" y="7" width="12" height="15" rx="1.5"/><path d="M7.5 11h5M7.5 15h5"/></svg>
               </button>
-              <button id="btn-new-note-2" class="mini-btn icon-mini" title="新建笔记">
+              <button id="tab-pinned" class="sidebar-tab icon-tab" data-library-view="pinned" role="tab" aria-selected="false" aria-controls="section-pinned" tabindex="-1" title="收藏" aria-label="收藏">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3L12 17.4l-5.6 3 1.1-6.3L3 9.6l6.2-.9z"/></svg>
+              </button>
+              <button id="tab-recent" class="sidebar-tab icon-tab" data-library-view="recent" role="tab" aria-selected="false" aria-controls="section-recent" tabindex="-1" title="最近打开" aria-label="最近打开">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>
+              </button>
+            </div>
+            <span class="panel-actions">
+              <button id="btn-new-note-2" class="mini-btn icon-mini" title="新建笔记 (Ctrl+N)" aria-label="新建笔记">
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
               </button>
-              <button id="btn-new-folder" class="mini-btn icon-mini" title="新建文件夹">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 4.6A1.6 1.6 0 0 1 3.4 3h3l1.4 1.8h4.8a1.6 1.6 0 0 1 1.6 1.6v5a1.6 1.6 0 0 1-1.6 1.6H3.4a1.6 1.6 0 0 1-1.6-1.6z"/><path d="M8 7.6v3.2M6.4 9.2h3.2"/></svg>
-              </button>
-              <button id="btn-collapse-tree" class="mini-btn icon-mini" title="折叠/展开全部">
-                <svg id="collapse-tree-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.6 6L8 9.4 11.4 6"/><path d="M4.6 10L8 13.4 11.4 10"/></svg>
-              </button>
+              <button id="btn-collapse-tree" class="mini-btn icon-mini" title="折叠/展开全部" aria-label="折叠或展开全部文件夹"></button>
+              <button id="btn-file-more" class="mini-btn icon-mini" title="文件操作" aria-label="更多文件操作" aria-haspopup="menu">•••</button>
             </span>
           </div>
-          <div class="panel-body" id="file-tree"></div>
+          <div class="library-view" id="section-library" role="tabpanel" aria-labelledby="tab-library">
+            <div class="panel-body" id="file-tree"></div>
+          </div>
+          <div class="library-view" id="section-pinned" role="tabpanel" aria-labelledby="tab-pinned" hidden>
+            <div id="pinned-list" class="panel-body shortcut-list"></div>
+          </div>
+          <div class="library-view" id="section-recent" role="tabpanel" aria-labelledby="tab-recent" hidden>
+            <div id="recent-notes" class="panel-body shortcut-list"></div>
+          </div>
         </section>
         <!-- 搜索 -->
-        <section class="panel" id="panel-search">
-          <div class="panel-header"><span>搜索</span></div>
+        <section class="panel" id="panel-search" aria-label="搜索">
           <div class="panel-body">
-            <input id="search-input" class="search-input" type="search" placeholder="搜索笔记内容…" />
+            <input id="search-input" class="search-input" type="search" placeholder="搜索笔记内容…" aria-label="搜索笔记内容" />
             <!-- 替换行：有查询词才显示 -->
             <div class="search-replace" id="search-replace" hidden>
               <input id="replace-input" class="search-input replace-input" type="text" placeholder="替换为…" />
@@ -214,8 +223,7 @@
           </div>
         </section>
         <!-- 标签 -->
-        <section class="panel" id="panel-tags">
-          <div class="panel-header"><span>标签</span></div>
+        <section class="panel" id="panel-tags" aria-label="全库标签">
           <div class="panel-body" id="tag-list"></div>
         </section>
         <!-- 图谱 -->
@@ -277,23 +285,46 @@
 
       <div class="resizer" id="resizer-right" title="拖动调节宽度，双击复位"></div>
 
-      <!-- 右侧面板：三个按钮切换（大纲 / 反向链接 / 标签） -->
-      <aside class="sidebar sidebar-right" id="sidebar-right">
-        <div class="rs-tabs" id="rs-tabs">
-          <button class="rs-tab active" data-rs="outline">大纲</button>
-          <button class="rs-tab" data-rs="backlinks">反链<span class="rs-badge" id="backlink-count">0</span></button>
-          <button class="rs-tab" data-rs="note-tags">标签</button>
+      <!-- 右栏一次显示一种上下文，信息与标签按需打开，避免首次使用时堆叠。 -->
+      <aside class="sidebar sidebar-right" id="sidebar-right" aria-label="笔记上下文" aria-describedby="note-context-title">
+        <div class="sidebar-context-label" id="note-context-title">当前笔记 · 未打开笔记</div>
+        <div class="context-header">
+          <div class="sidebar-tabs context-tabs" role="tablist" aria-label="当前笔记">
+            <button id="tab-outline" class="sidebar-tab" data-context-view="outline" role="tab" aria-selected="true" aria-controls="panel-outline">大纲</button>
+            <button id="tab-links" class="sidebar-tab" data-context-view="links" role="tab" aria-selected="false" aria-controls="panel-backlinks" tabindex="-1">关联</button>
+            <button id="tab-info" class="sidebar-tab icon-tab" data-context-view="info" role="tab" aria-selected="false" aria-controls="panel-note-tags" tabindex="-1" title="笔记信息与历史版本" aria-label="笔记信息与历史版本">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.2v.1"/></svg>
+            </button>
+          </div>
         </div>
-        <section class="panel active" id="panel-outline">
-          <div class="panel-body" id="outline-list"></div>
-        </section>
-        <section class="panel" id="panel-backlinks">
-          <div class="panel-body" id="backlinks-list"></div>
-        </section>
-        <section class="panel" id="panel-note-tags">
-          <div class="panel-body" id="note-tags-list"></div>
-        </section>
+        <div class="sidebar-sections">
+          <section id="panel-outline" role="tabpanel" aria-labelledby="tab-outline">
+            <div class="section-content" id="outline-list"></div>
+          </section>
+          <section id="panel-backlinks" role="tabpanel" aria-labelledby="tab-links" hidden>
+            <div class="section-content" id="backlinks-list"></div>
+          </section>
+          <section id="panel-note-tags" role="tabpanel" aria-labelledby="tab-info" hidden>
+            <div class="section-content">
+              <div class="info-label">文件路径</div><button class="note-info-path" id="note-info-path" title="复制相对路径" disabled>未打开笔记</button>
+              <dl class="note-metadata"><dt>修改时间</dt><dd id="note-info-modified">—</dd><dt>文件大小</dt><dd id="note-info-size">—</dd></dl>
+              <div class="info-label">本篇标签</div><div id="note-tags-list"></div>
+              <button class="note-history-btn" id="btn-note-history" disabled>历史版本</button>
+            </div>
+          </section>
+        </div>
       </aside>
+    </div>
+  </div>
+
+  <div class="phone-access" id="phone-access-panel" hidden role="dialog" aria-modal="true" aria-labelledby="phone-access-title">
+    <div class="phone-access-card">
+      <div class="phone-access-heading"><h2 id="phone-access-title">手机访问</h2><button id="btn-phone-close" class="mini-btn" aria-label="关闭手机访问">✕</button></div>
+      <p>手机和电脑连接同一局域网，在手机浏览器打开下面的地址。多网卡时优先选择正在使用的 Wi-Fi 或以太网。</p>
+      <div id="phone-addresses" aria-live="polite"></div>
+      <button id="btn-phone-refresh" class="mini-btn">刷新地址</button>
+      <p class="phone-permissions">当前网页可读取、编辑和管理电脑上的笔记，请仅在可信局域网使用。</p>
+      <p class="phone-access-hint">保持 Tracery 运行、电脑不休眠。手机访问的是当前笔记仓库；电脑关闭或离开同网后，无法继续浏览整库。</p>
     </div>
   </div>
 

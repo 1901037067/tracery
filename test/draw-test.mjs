@@ -415,7 +415,17 @@ async function main() {
     const cv = document.getElementById('draw-canvas').getBoundingClientRect();
     return getComputedStyle(document.querySelector('.draw-props')).display === 'none' && tools.right <= innerWidth && cv.width >= 760 && cv.height > 300;
   }));
-  await page.click('#draw-cancel');
+  // 缩放视口后 Puppeteer 的 scrollIntoView/IntersectionObserver 偶发不返回。
+  // 此按钮本就在固定头栏：核对实际命中元素，再直接用鼠标坐标点击，不能用合成 click 绕过遮挡。
+  const cancel = await page.$eval('#draw-cancel', button => {
+    const r = button.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    return { x, y, hit: !!document.elementFromPoint(x, y)?.closest('#draw-cancel') };
+  });
+  check('窄屏取消按钮可见且未被遮挡', cancel.hit);
+  if (!cancel.hit) throw new Error('窄屏取消按钮不可点击');
+  await page.mouse.click(cancel.x, cancel.y);
+  await page.waitForFunction(() => document.querySelector('.draw-overlay').hidden);
+  check('窄屏真实鼠标点击取消后画板关闭', true);
 
   check('无渲染错误', errors.length === 0, errors.join(' | '));
 

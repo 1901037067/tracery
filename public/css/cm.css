@@ -34,19 +34,20 @@
 #editor-live .cm-scroller {
   font-family: inherit;
   line-height: inherit;
+  /* 居中整列（行号 + 正文），滚动容器仍铺满纸张，滚动条留在最右侧。 */
+  padding-inline: max(24px, calc((100% - var(--editor-width, 720px) - var(--cm-gutter-w) - 32px) / 2));
 }
 /* .cm-line 默认 padding: 0 2px 0 6px，与下面的内容内边距叠加后左边会多 6px */
 #editor-live .cm-line { padding: 0; }
 
-/* 正文内边距：上 26px 对齐块级 .editor、下 40vh 供滚过文末。
-   左右 padding 用「(可用宽 − 行号槽 − 列宽)/2」做居中，宽度小时退化为 48px。
-   行号槽宽在这里固化成变量，改 cm.css 的 gutter padding 时要同步改它。 */
-#editor-live { --cm-gutter-w: 46px; }
+/* 正文与行号间距固定，避免宽窗口下正文居中、行号却留在纸张左边。 */
+#editor-live { --cm-gutter-w: 0px; }
+#editor-live:has(.cm-gutters) { --cm-gutter-w: 46px; }
 #editor-live .cm-content {
   padding-top: 26px;
   padding-bottom: 40vh;
-  padding-left: max(48px, calc((100% - var(--cm-gutter-w) - var(--editor-width, 720px)) / 2));
-  padding-right: max(48px, calc((100% - var(--cm-gutter-w) - var(--editor-width, 720px)) / 2));
+  padding-left: 16px;
+  padding-right: 16px;
   caret-color: var(--accent);
 }
 
@@ -251,11 +252,22 @@
   border: 0; padding: 2px 22px; background: rgba(50, 173, 230, .10);
 }
 #editor-live .cm-line.cm-lp-callout-first {
-  border-radius: 6px 6px 0 0; margin-top: 14px; padding-top: 16px; padding-bottom: 10px;
+  /* CM 按行的 border-box 测高，不计外边距；margin 会让后续点击逐块错位。
+     用透明边框保留卡片外留白，让显示位置、行号与鼠标命中共享同一份高度。 */
+  border-top: 14px solid transparent;
+  border-radius: 6px 6px 0 0 / 20px 20px 0 0;
+  padding-top: 16px; padding-bottom: 10px;
   color: var(--callout-color); font-weight: 650;
 }
-#editor-live .cm-line.cm-lp-callout-last { border-radius: 0 0 6px 6px; padding-bottom: 18px; margin-bottom: 14px; }
-#editor-live .cm-line.cm-lp-callout-first.cm-lp-callout-last { border-radius: 6px; padding-bottom: 16px; }
+#editor-live .cm-line.cm-lp-callout-last {
+  border-bottom: 14px solid transparent;
+  border-radius: 0 0 6px 6px / 0 0 20px 20px;
+  padding-bottom: 18px;
+}
+#editor-live .cm-line.cm-lp-callout-first.cm-lp-callout-last { border-radius: 6px / 20px; padding-bottom: 16px; }
+/* 类型配色使用 background 简写；提高优先级，避免简写把留白重新涂满。 */
+#editor-live .cm-line.cm-lp-callout.cm-lp-callout-first,
+#editor-live .cm-line.cm-lp-callout.cm-lp-callout-last { background-clip: padding-box; }
 #editor-live .cm-line.cm-lp-callout-body { color: var(--text-primary); }
 .cm-lp-callout-icon { display: inline-flex; align-items: center; gap: 6px; vertical-align: -3px; margin-right: 6px; color: inherit; }
 .cm-lp-callout-icon svg { width: 18px; height: 18px; flex-shrink: 0; }

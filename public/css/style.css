@@ -341,18 +341,6 @@ body.electron .electron-only { display: inline-flex !important; }
 .ribbon-btn.active { background: var(--accent-soft); color: var(--accent); }
 .ribbon-btn svg { width: 19px; height: 19px; display: block; }
 .ribbon-spacer { flex: 1; }
-.ribbon-divider {
-  width: 18px; height: 1px; margin: 6px 0;
-  background: var(--hairline-strong); flex-shrink: 0;
-}
-/* 底部主操作：新建笔记 */
-.ribbon-btn.accent {
-  background: var(--accent);
-  color: #fff;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent);
-}
-.ribbon-btn.accent:hover { background: var(--accent-hover); color: #fff; }
-.ribbon-btn.accent:active { transform: scale(0.94); }
 
 /* --- 侧栏 --- */
 .sidebar {
@@ -369,33 +357,6 @@ body.electron .electron-only { display: inline-flex !important; }
 
 .panel { display: none; flex-direction: column; min-height: 0; flex: 1; }
 .panel.active { display: flex; }
-/* 右侧栏三个面板常驻同屏：大纲在上占满，反链/标签在下（没内容时 JS 加 .hidden） */
-/* 右侧栏顶部三个切换按钮（大纲 / 反链 / 标签） */
-.rs-tabs {
-  display: flex; gap: 3px;
-  padding: 8px 8px 6px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--hairline);
-  margin-bottom: 4px;
-}
-.rs-tab {
-  flex: 1; min-width: 0;
-  padding: 5px 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  border-radius: var(--r-sm);
-  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.rs-tab:hover { background: var(--bg-fill); color: var(--text-primary); }
-.rs-tab.active { background: var(--bg-sheet); color: var(--text-primary); font-weight: 550; box-shadow: 0 0 0 1px var(--hairline) inset; }
-.rs-badge {
-  font-size: 10px; line-height: 1.5;
-  padding: 0 5px; border-radius: 999px;
-  background: var(--bg-fill); color: var(--text-tertiary);
-}
-.rs-tab.active .rs-badge { background: var(--accent-soft); color: var(--accent); }
-#sidebar-right .panel { flex: 1; min-height: 0; }
 .panel-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 16px 8px;
@@ -1164,6 +1125,23 @@ body.electron .electron-only { display: inline-flex !important; }
 .link-btn { color: var(--accent); font-size: 12.5px; padding: 6px 4px; }
 .link-btn:hover { text-decoration: underline; }
 
+.hotkey-toolbar { display: flex; gap: 10px; align-items: center; }
+.hotkey-toolbar .search-input { margin: 0; flex: 1; min-width: 0; }
+.hotkey-toolbar button { flex-shrink: 0; font-size: 12px; }
+.hotkey-message { min-height: 22px; margin: 10px 0; font-size: 12px; color: var(--text-secondary); }
+.hotkey-message.error { color: var(--accent); }
+.hotkey-group h3 { font-size: 12px; color: var(--text-tertiary); margin: 20px 0 4px; }
+.hotkey-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--hairline); }
+.hotkey-name { font-size: 13px; flex: 1; min-width: 0; }
+.hotkey-controls { display: flex; align-items: center; gap: 4px; }
+.hotkey-binding { min-width: 110px; padding: 5px 9px; border: 1px solid var(--hairline-strong); border-radius: var(--r-xs); font-size: 12px; font-family: var(--font-mono); background: var(--bg-fill); color: var(--text-primary); }
+.hotkey-binding[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.hotkey-controls button:disabled { opacity: .4; cursor: default; }
+@media(max-width:600px) {
+  .hotkey-row { flex-wrap: wrap; gap: 8px; }
+  .hotkey-name { flex-basis: 100%; }
+  .hotkey-toolbar { flex-wrap: wrap; }
+}
 .settings-footer {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 34px;
