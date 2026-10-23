@@ -1,5 +1,6 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['tab-groups', 'tab-groups-test.mjs', '压缩标签、空白新标签与彩色分组'],
   ['workspace-polish', 'workspace-polish-test.mjs', '空白页、网页链接、大纲悬浮与绘图角点'],
   ['render-preview', 'render-preview-test.mjs', '实时预览下划线、代码块、引用和数学公式'],
   ['embeds-colors', 'embeds-colors-test.mjs', '笔记嵌入、自动补全与绘图自定义颜色'],

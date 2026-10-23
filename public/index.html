@@ -92,14 +92,19 @@
           </svg>
         </button>
       </div>
-      <div class="tablist" id="tablist" hidden></div>
+      <div class="tab-strip" id="tab-strip">
+        <div class="tablist" id="tablist" hidden></div>
+        <button id="btn-tab-new" class="tab-new" title="新建标签页" aria-label="新建标签页">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+        </button>
+      </div>
+      <div class="window-drag-space" aria-hidden="true" title="拖动此处移动窗口"></div>
       <!-- 标签条最右侧的「标签页列表」下拉（列出已开标签 / 关闭全部 / 收藏全部） -->
       <button id="btn-tab-more" class="tab-more" title="标签页列表" aria-label="标签页列表" aria-haspopup="menu" aria-expanded="false">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
           <path d="M4 6.4L8 10.4l4-4"/>
         </svg>
       </button>
-      <div class="window-drag-space" aria-hidden="true" title="拖动此处移动窗口"></div>
       <div class="titlebar-right">
         <button id="btn-pwa-install" class="icon-btn" title="安装到设备" aria-label="安装到设备" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 16v5h16v-5"/></svg>

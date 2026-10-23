@@ -26,6 +26,7 @@ import { noteAnchors, selectNoteContent } from './note-embed.js';
 import { createSidebarContext, initLibraryTabs, initPhoneAccess, copyLocalText } from './sidebar.js';
 import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel } from './hotkeys.js';
 import { toggleBold, toggleItalic, toggleStrike, insertWikilink } from './cm/editing.js';
+import { GROUP_COLORS, isBlankTab, newBlankKey, groupForTab, tidyTabGroups, moveTabToGroup, renameTabKeys } from './tab-workspace.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -61,6 +62,7 @@ const state = {
   currentPath: null,
   tabs: [],                 // 打开的笔记（标签页）
   activeTab: -1,
+  tabGroups: [],
   nameIndex: new Map(),      // 笔记名(小写) -> path，供 resolveLink 用
   collapsed: new Set(JSON.parse(lsGet('tracery.collapsed') || '[]')),
   pinned: new Set(JSON.parse(lsGet('tracery.pinned') || '[]')),   // 星标笔记（仓库相对路径）
@@ -730,7 +732,7 @@ async function renameFolder(rel) {
     const prefix = rel + '/';
     const under = (p) => p === rel || p.startsWith(prefix);
     const mapped = (p) => (p === rel ? newRel : `${newRel}/${p.slice(prefix.length)}`);
-    state.tabs = state.tabs.map((p) => (under(p) ? mapped(p) : p));
+    renameTabKeys(state, p => under(p) ? mapped(p) : p);
     if (state.currentPath && under(state.currentPath)) {
       const np = mapped(state.currentPath);
       state.currentPath = np;
@@ -1250,14 +1252,14 @@ async function renameNote(f) {
   try {
     await Api.rename(f.path, newPath);
     renameShortcuts(f.path, newPath);
-    const ti = state.tabs.indexOf(f.path);
-    if (ti >= 0) state.tabs[ti] = newPath;
+    renameTabKeys(state, p => p === f.path ? newPath : p);
     if (state.currentPath === f.path) {
       state.currentPath = newPath;
       localStorage.setItem('tracery.lastNote', newPath);
       $('note-path').textContent = newPath;
     }
     await refreshTree(); refreshGraph(); refreshTags();
+    renderTabs(); saveTabsState();
     toast('已重命名');
   } catch (e) { toast(e.message); }
 }
@@ -1292,7 +1294,7 @@ async function createNoteIn(dir) {
   try {
     await Api.createNote(path, '');
     await refreshTree(); refreshGraph(); refreshTags();
-    openNote(path, null, { newTab: true });
+    openNote(path, null, { newTab: !isBlankTab(state.tabs[state.activeTab]) });
     toast(`已创建「${name.replace(/\.md$/i, '')}」`);
   } catch (e) { toast(e.message); }
 }
@@ -1321,7 +1323,8 @@ function hasNotePath(p) {
 
 function saveTabsState() {
   try {
-    localStorage.setItem(tabsKey(), JSON.stringify({ tabs: state.tabs, active: state.activeTab }));
+    tidyTabGroups(state);
+    localStorage.setItem(tabsKey(), JSON.stringify({ tabs: state.tabs, active: state.activeTab, groups: state.tabGroups }));
     if (state.currentPath) localStorage.setItem('tracery.lastNote', state.currentPath);
   } catch { /* 隐私模式下忽略 */ }
 }
@@ -1329,12 +1332,15 @@ function saveTabsState() {
 function loadTabsState() {
   try {
     const raw = JSON.parse(lsGet(tabsKey()) || '{}');
-    state.tabs = (Array.isArray(raw.tabs) ? raw.tabs : []).filter((p) => hasNotePath(p));
+    state.tabs = [...new Set((Array.isArray(raw.tabs) ? raw.tabs : []).filter(p => typeof p === 'string' && (isBlankTab(p) || hasNotePath(p))))];
+    state.tabGroups = Array.isArray(raw.groups) ? raw.groups : [];
     state.activeTab = Number.isInteger(raw.active)
       ? Math.min(Math.max(raw.active, 0), state.tabs.length - 1)
       : state.tabs.length - 1;
+    tidyTabGroups(state);
   } catch {
     state.tabs = [];
+    state.tabGroups = [];
     state.activeTab = -1;
   }
 }
@@ -1362,7 +1368,7 @@ function moveTabDragPreview(e, path) {
   if (!tabDragPreview) {
     tabDragPreview = document.createElement('div');
     tabDragPreview.className = 'tab-drag-preview';
-    tabDragPreview.textContent = basename(path);
+    tabDragPreview.textContent = tabLabel(path);
     document.body.appendChild(tabDragPreview);
   }
   const box = tabDragPreview.getBoundingClientRect();
@@ -1372,20 +1378,23 @@ function moveTabDragPreview(e, path) {
 }
 
 function clearTabDropMarks() {
-  document.querySelectorAll('#tablist .tab.drop-before, #tablist .tab.drop-after')
-    .forEach((el) => el.classList.remove('drop-before', 'drop-after'));
+  document.querySelectorAll('#tablist .drop-before, #tablist .drop-after, #tablist .drop-target')
+    .forEach((el) => el.classList.remove('drop-before', 'drop-after', 'drop-target'));
 }
 
 /** 把 from 位置的标签挪到插入位 to（to 是「原数组里的插入下标」） */
-function reorderTabs(from, to) {
+function reorderTabs(from, to, groupId) {
   if (from < 0 || from >= state.tabs.length || to < 0) return;
   const activePath = state.tabs[state.activeTab];
   const [item] = state.tabs.splice(from, 1);
   const insert = Math.max(0, Math.min(from < to ? to - 1 : to, state.tabs.length));
-  if (insert === from) { state.tabs.splice(from, 0, item); return; }
   state.tabs.splice(insert, 0, item);
+  if (groupId !== undefined) {
+    for (const group of state.tabGroups) group.tabs = group.tabs.filter(key => key !== item);
+    state.tabGroups.find(group => group.id === groupId)?.tabs.push(item);
+  }
   // 活跃标签跟着「那篇笔记」走，不能跟着下标走
-  state.activeTab = Math.max(0, state.tabs.indexOf(activePath));
+  state.activeTab = state.tabs.indexOf(activePath);
   renderTabs();
   saveTabsState();
 }
@@ -1399,7 +1408,20 @@ function updateEmptyNote() {
   $('btn-mode').disabled = empty;
 }
 
+function tabLabel(key) { return isBlankTab(key) ? '新标签页' : basename(key); }
+
+async function openBlankTab() {
+  if (!suspendDraw() || !await editor.flush()) return;
+  if (document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
+  const key = newBlankKey();
+  state.tabs.push(key);
+  state.activeTab = state.tabs.length - 1;
+  await loadTab(key);
+  $('empty-open-note').focus();
+}
+
 function renderTabs() {
+  tidyTabGroups(state);
   updateEmptyNote();
   clearTabDragPreview();
   // 标签栏已并入标题栏：标题栏永远可见（拖拽区 + 窗口按钮），
@@ -1412,11 +1434,18 @@ function renderTabs() {
   state.tabs.forEach((p, i) => {
     const tab = document.createElement('div');
     tab.className = `tab${i === state.activeTab ? ' active' : ''}`;
-    tab.title = p;
+    tab.title = isBlankTab(p) ? tabLabel(p) : p;
     tab.dataset.index = String(i);
+    const group = groupForTab(state, p);
+    if (group) {
+      tab.dataset.group = group.id;
+      tab.style.setProperty('--group-color', groupColor(group));
+      if (group.tabs[0] === p) list.appendChild(makeGroupHeader(group));
+      tab.hidden = group.collapsed;
+    }
     const name = document.createElement('span');
     name.className = 'tab-name';
-    name.textContent = basename(p);
+    name.textContent = tabLabel(p);
     const close = document.createElement('button');
     close.className = 'tab-close';
     close.title = commandLabel('closeTab');
@@ -1437,16 +1466,17 @@ function renderTabs() {
         tab.classList.add('dragging');
       }
       moveTabDragPreview(e, p);
-      const over = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.tab');
+      const over = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.tab, .tab-group-header');
       clearTabDropMarks();
       if (!over || over === tab) return;
+      if (over.classList.contains('tab-group-header')) { over.classList.add('drop-target'); return; }
       const r = over.getBoundingClientRect();
       over.classList.add(e.clientX > r.left + r.width / 2 ? 'drop-after' : 'drop-before');
     });
     const endDrag = (e, commit) => {
       if (!tabDrag || tabDrag.from !== i) return;
       const { moved } = tabDrag;
-      const over = moved ? document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.tab') : null;
+      const over = moved ? document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.tab, .tab-group-header') : null;
       tabDrag = null;
       clearTabDragPreview();
       tab.classList.remove('dragging');
@@ -1454,10 +1484,13 @@ function renderTabs() {
       if (!moved || !commit || !over) return;
       suppressTabClick = true;
       setTimeout(() => { suppressTabClick = false; }, 0);
+      if (over.classList.contains('tab-group-header')) {
+        moveTabToGroup(state, p, over.dataset.group); renderTabs(); saveTabsState(); return;
+      }
       const target = Number(over.dataset.index);
       if (!Number.isFinite(target) || target === i) return;
       const r = over.getBoundingClientRect();
-      reorderTabs(i, target + (e.clientX > r.left + r.width / 2 ? 1 : 0));
+      reorderTabs(i, target + (e.clientX > r.left + r.width / 2 ? 1 : 0), groupForTab(state, state.tabs[target])?.id || null);
     };
     tab.addEventListener('pointerup', (e) => endDrag(e, true));
     tab.addEventListener('pointercancel', (e) => endDrag(e, false));
@@ -1466,24 +1499,24 @@ function renderTabs() {
     tab.append(name, close);
     tab.onclick = () => { if (suppressTabClick) return; activateTab(i); };
     tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } };
+    tab.oncontextmenu = e => { e.preventDefault(); showTabContextMenu(e, p); };
     list.appendChild(tab);
   });
-  const active = list.children[state.activeTab];
-  active?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  updateTabOverflow();
+  layoutTabs();
 }
 
 /** 标签条最右侧的下拉菜单（2026-10-19 用户需求）：
  *  ① 列出当前打开了哪些标签页（当前那个带 ✓，点一项即切过去）；② 关闭所有标签页；③ 收藏所有标签页。 */
 function showTabMenu(btn) {
   const r = btn.getBoundingClientRect();
+  const noteCount = state.tabs.filter(key => !isBlankTab(key)).length;
   const items = [];
   if (state.tabs.length) {
     state.tabs.forEach((p, i) => {
       items.push({
         icon: ICON.doc,
-        label: basename(p),
-        title: p,                       // 悬停看完整路径（菜单里塞路径会太宽，见 §5-52）
+        label: tabLabel(p),
+        title: groupForTab(state, p)?.name || (isBlankTab(p) ? '新标签页' : p),
         checked: i === state.activeTab,
         action: () => activateTab(i),
       });
@@ -1499,9 +1532,9 @@ function showTabMenu(btn) {
     action: () => closeAllTabs(),
   });
   items.push({
-    label: state.tabs.length ? `收藏所有标签页（${state.tabs.length}）` : '收藏所有标签页',
+    label: noteCount ? `收藏所有标签页（${noteCount}）` : '收藏所有标签页',
     icon: ICON.star,
-    disabled: !state.tabs.length,
+    disabled: !noteCount,
     action: () => pinAllTabs(),
   });
   showMenu(r.left, r.bottom + 6, items);
@@ -1530,6 +1563,7 @@ function pinAllTabs() {
   if (!state.tabs.length) { toast('当前没有打开的标签页'); return; }
   let added = 0;
   for (const p of state.tabs) {
+    if (isBlankTab(p)) continue;
     if (!state.pinned.has(p)) { state.pinned.add(p); added += 1; }
   }
   saveShortcuts();
@@ -1537,20 +1571,146 @@ function pinAllTabs() {
   toast(added ? `已收藏 ${added} 个标签页` : '这些标签页都已经收藏过了');
 }
 
-/** 标签溢出时给可滚的一侧加渐隐（配合 CSS 的 mask），提示那边还有标签 */
-function updateTabOverflow() {
+/** 按可用宽度压缩标签，保留末尾加号和独立拖窗区。 */
+function layoutTabs() {
   const list = $('tablist');
   if (!list) return;
-  if (list.hidden) { list.removeAttribute('data-overflow'); return; }
-  const max = list.scrollWidth - list.clientWidth;
-  if (max <= 1) { list.removeAttribute('data-overflow'); return; }
-  const atStart = list.scrollLeft <= 1;
-  const atEnd = list.scrollLeft >= max - 1;
-  list.dataset.overflow = atStart ? 'end' : atEnd ? 'start' : 'both';
+  list.removeAttribute('data-overflow');
+  const count = list.querySelectorAll('.tab:not([hidden])').length;
+  const groups = state.tabGroups.reduce((sum, group) => sum + Math.min(120, 24 + group.name.length * 13), 0);
+  const desired = 35 + count * 168 + groups + Math.max(0, count + state.tabGroups.length - 1) * 4;
+  $('tab-strip').style.flexBasis = `${desired}px`;
+  const average = list.clientWidth / Math.max(1, count + state.tabGroups.length);
+  const groupCap = Math.min(120, Math.max(4, list.clientWidth / (state.tabGroups.length + 1) * .65));
+  for (const header of list.querySelectorAll('.tab-group-header')) header.style.maxWidth = `${groupCap}px`;
+  list.classList.toggle('is-compact', average < 86);
+  list.classList.toggle('is-micro', average < 28);
+  list.style.gap = `${Math.min(4, average / 8)}px`;
+}
+
+function groupColor(group) { return GROUP_COLORS.find(([key]) => key === group.color)?.[2] || GROUP_COLORS[0][2]; }
+
+function bindGroupDrag(header, group) {
+  let gesture = null;
+  header.onpointerdown = event => {
+    if (event.button !== 0) return;
+    gesture = { x: event.clientX, y: event.clientY, moved: false };
+    header.setPointerCapture(event.pointerId);
+  };
+  header.onpointermove = event => {
+    if (!gesture) return;
+    if (!gesture.moved && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) < 5) return;
+    gesture.moved = true; header.classList.add('dragging');
+    moveTabDragPreview(event, group.name);
+    clearTabDropMarks();
+    const over = document.elementFromPoint(event.clientX, event.clientY)?.closest('.tab, .tab-group-header');
+    if (over && over.dataset.group !== group.id) over.classList.add('drop-target');
+  };
+  const end = (event, commit) => {
+    if (!gesture) return;
+    const moved = gesture.moved; gesture = null; clearTabDragPreview(); clearTabDropMarks(); header.classList.remove('dragging');
+    if (!moved) return;
+    suppressTabClick = true; setTimeout(() => { suppressTabClick = false; }, 0);
+    if (!commit) return;
+    const over = document.elementFromPoint(event.clientX, event.clientY)?.closest('.tab, .tab-group-header');
+    if (!over || over.dataset.group === group.id) return;
+    const active = state.tabs[state.activeTab], box = over.getBoundingClientRect(), after = event.clientX > box.left + box.width / 2;
+    const targetGroup = state.tabGroups.find(item => item.id === over.dataset.group);
+    const targetKey = targetGroup ? (after ? targetGroup.tabs.at(-1) : targetGroup.tabs[0]) : state.tabs[Number(over.dataset.index)];
+    state.tabs = state.tabs.filter(key => !group.tabs.includes(key));
+    state.tabs.splice(state.tabs.indexOf(targetKey) + (after ? 1 : 0), 0, ...group.tabs);
+    state.activeTab = state.tabs.indexOf(active); renderTabs(); saveTabsState();
+  };
+  header.onpointerup = event => end(event, true);
+  header.onpointercancel = header.onlostpointercapture = event => end(event, false);
+}
+
+function makeGroupHeader(group) {
+  const header = document.createElement('button');
+  header.className = 'tab-group-header';
+  header.dataset.group = group.id;
+  header.style.setProperty('--group-color', groupColor(group));
+  header.setAttribute('aria-expanded', String(!group.collapsed));
+  header.title = `${group.name} · ${group.tabs.length} 个标签（点击${group.collapsed ? '展开' : '折叠'}，右键编辑）`;
+  header.classList.toggle('is-current', group.collapsed && group.tabs.includes(state.tabs[state.activeTab]));
+  const label = document.createElement('span'); label.className = 'tab-group-label'; label.textContent = group.name;
+  const count = document.createElement('span'); count.className = 'tab-group-count'; count.textContent = group.tabs.length;
+  header.append(label, count);
+  header.onclick = () => { if (suppressTabClick) return; group.collapsed = !group.collapsed; renderTabs(); saveTabsState(); };
+  header.oncontextmenu = e => { e.preventDefault(); showGroupEditor(group, e.clientX, e.clientY); };
+  bindGroupDrag(header, group);
+  return header;
+}
+
+function showTabContextMenu(event, key) {
+  const group = groupForTab(state, key);
+  const refresh = () => { renderTabs(); saveTabsState(); };
+  const items = [{ label: '添加到新分组', icon: ICON.folder, action: () => {
+    const created = { id: crypto.randomUUID(), name: '新分组', color: GROUP_COLORS[state.tabGroups.length % GROUP_COLORS.length][0], collapsed: false, tabs: [] };
+    state.tabGroups.push(created); moveTabToGroup(state, key, created.id); refresh();
+    showGroupEditor(created, event.clientX, event.clientY);
+  } }];
+  for (const target of state.tabGroups) {
+    if (target === group) continue;
+    items.push({ label: `移入「${escapeText(target.name)}」`, icon: ICON.folder, action: () => { moveTabToGroup(state, key, target.id); refresh(); } });
+  }
+  if (group) items.push({ label: '移出分组', icon: ICON.doc, action: () => {
+    // 移到组后方，避免同组连续化再次把标签包在组里。
+    const active = state.tabs[state.activeTab], last = group.tabs.at(-1);
+    if (last !== key) { state.tabs.splice(state.tabs.indexOf(key), 1); state.tabs.splice(state.tabs.indexOf(last) + 1, 0, key); }
+    state.activeTab = state.tabs.indexOf(active);
+    moveTabToGroup(state, key, null); refresh();
+  } });
+  items.push('-', { label: '关闭标签页', icon: ICON.close, action: () => closeTab(state.tabs.indexOf(key)) });
+  showMenu(event.clientX, event.clientY, items);
+}
+
+function showGroupEditor(group, x, y) {
+  closeCtxMenu();
+  const menu = document.createElement('div'); menu.className = 'context-menu tab-group-editor';
+  ctxMenu = menu;
+  menu.onclick = e => e.stopPropagation();
+  const label = document.createElement('label'); label.textContent = '分组名称';
+  const input = document.createElement('input'); input.value = group.name; input.maxLength = 40; input.setAttribute('aria-label', '分组名称');
+  input.oninput = () => { group.name = input.value.trim() || '未命名分组'; renderTabs(); saveTabsState(); };
+  input.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); closeCtxMenu(); } };
+  label.append(input); menu.append(label);
+  const colors = document.createElement('div'); colors.className = 'tab-group-colors'; colors.setAttribute('role', 'radiogroup'); colors.setAttribute('aria-label', '分组颜色');
+  for (const [key, name, value] of GROUP_COLORS) {
+    const color = document.createElement('button'); color.className = 'tab-group-color'; color.title = name; color.setAttribute('aria-label', name); color.setAttribute('role', 'radio'); color.setAttribute('aria-checked', String(group.color === key)); color.dataset.color = key;
+    color.style.setProperty('--group-color', value);
+    color.onclick = () => { group.color = key; for (const swatch of colors.children) swatch.setAttribute('aria-checked', String(swatch === color)); renderTabs(); saveTabsState(); };
+    colors.append(color);
+  }
+  menu.append(colors);
+  const action = (text, callback) => { const button = document.createElement('button'); button.textContent = text; button.onclick = () => { closeCtxMenu(); callback(); }; menu.append(button); };
+  action('在分组中新建标签页', async () => { await openBlankTab(); const key = state.tabs[state.activeTab]; if (isBlankTab(key)) { moveTabToGroup(state, key, group.id); renderTabs(); saveTabsState(); } });
+  action('取消分组', () => { state.tabGroups = state.tabGroups.filter(item => item !== group); renderTabs(); saveTabsState(); });
+  action('关闭分组', () => closeTabGroup(group));
+  document.body.append(menu);
+  const box = menu.getBoundingClientRect(); menu.style.left = `${Math.max(8, Math.min(x, innerWidth - box.width - 8))}px`; menu.style.top = `${Math.max(8, Math.min(y, innerHeight - box.height - 8))}px`;
+  requestAnimationFrame(() => { input.focus(); input.select(); });
+}
+
+async function closeTabGroup(group) {
+  if (!suspendDraw() || !await editor.flush()) return;
+  const active = state.tabs[state.activeTab], index = state.activeTab;
+  state.tabs = state.tabs.filter(key => !group.tabs.includes(key));
+  state.activeTab = state.tabs.includes(active) ? state.tabs.indexOf(active) : Math.min(index, state.tabs.length - 1);
+  if (state.activeTab >= 0) await loadTab(state.tabs[state.activeTab]);
+  else { state.currentPath = null; localStorage.removeItem('tracery.lastNote'); editor.load('', ''); refreshRightPanels(null); renderTree(); renderTabs(); saveTabsState(); }
 }
 
 /** 把某篇笔记加载进当前标签（不改变标签列表） */
 async function loadTab(path, heading) {
+  if (isBlankTab(path)) {
+    state.currentPath = null;
+    editor.load('', '');
+    $('note-path').textContent = '';
+    refreshRightPanels(null);
+    renderTree(); renderTabs(); saveTabsState();
+    return;
+  }
   try {
     const { content, ...metadata } = await Api.note(path);
     const recovered = await recoverDraft(state.vault?.root, path, content);
@@ -1580,8 +1740,11 @@ async function activateTab(i, heading) {
   if (isCompact()) closeMobilePanels();
   if (document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
   const path = state.tabs[i];
+  const group = groupForTab(state, path);
+  if (group) group.collapsed = false;
   if (state.activeTab === i && state.currentPath === path) {
     if (heading) editor.scrollToHeading(heading);
+    renderTabs(); saveTabsState();
     return;
   }
   await editor.flush();
@@ -1613,15 +1776,15 @@ async function closeTab(i) {
   else if (wasActive) state.activeTab = Math.min(i, state.tabs.length - 1);
 
   renderTabs();
-  if (state.tabs[state.activeTab] !== prevPath) await loadTab(state.tabs[state.activeTab]);
+  if (state.activeTab >= 0 && state.tabs[state.activeTab] !== prevPath) await loadTab(state.tabs[state.activeTab]);
   else saveTabsState();
 }
 
 /** 外部删除/同步后清理失效标签 */
 function pruneTabs() {
   const before = state.tabs.length;
-  const prevPath = state.currentPath;
-  state.tabs = state.tabs.filter((p) => hasNotePath(p));
+  const prevPath = state.tabs[state.activeTab];
+  state.tabs = state.tabs.filter((p) => isBlankTab(p) || hasNotePath(p));
   if (state.tabs.length === before) return;
   if (!state.tabs.length) {
     state.activeTab = -1;
@@ -1635,6 +1798,7 @@ function pruneTabs() {
     return;
   }
   if (!state.tabs.includes(prevPath)) {
+    if (!prevPath) { state.activeTab = -1; renderTabs(); saveTabsState(); return; }
     state.activeTab = Math.min(state.activeTab, state.tabs.length - 1);
     loadTab(state.tabs[state.activeTab]);
   } else {
@@ -1691,12 +1855,14 @@ async function openNote(path, heading, opts = {}) {
     return;
   }
   await editor.flush();
-  const newTab = opts.newTab === true || state.tabs.length === 0;
+  const newTab = (opts.newTab === true && !isBlankTab(state.tabs[state.activeTab])) || state.activeTab < 0 || state.tabs.length === 0;
   if (newTab) {
     const at = state.activeTab < 0 ? 0 : state.activeTab + 1;
     state.tabs.splice(at, 0, path);
     state.activeTab = at;
   } else {
+    const previous = state.tabs[state.activeTab];
+    for (const group of state.tabGroups) group.tabs = group.tabs.map(key => key === previous ? path : key);
     state.tabs[state.activeTab] = path;
   }
   await loadTab(path, heading);
@@ -2274,19 +2440,10 @@ function bindGlobalEvents() {
     anchor.setAttribute('aria-expanded', 'true');
   };
 
-  // 标签条：滚轮横滚 + 溢出渐隐（标签多了不挤压，滚着看）
-  const tablist = $('tablist');
-  tablist.addEventListener('scroll', updateTabOverflow, { passive: true });
-  tablist.addEventListener('wheel', (e) => {
-    if (tablist.scrollWidth <= tablist.clientWidth) return;
-    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;   // 触摸板横滑交给浏览器
-    tablist.scrollLeft += e.deltaY;
-    e.preventDefault();
-  }, { passive: false });
-  window.addEventListener('resize', () => {
-    $('tablist').querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    updateTabOverflow();
-  });
+  $('btn-tab-new').onclick = openBlankTab;
+  const tabResize = new ResizeObserver(layoutTabs);
+  tabResize.observe($('tab-strip'));
+  window.addEventListener('resize', layoutTabs);
 
   // 左侧功能区
   for (const btn of document.querySelectorAll('.ribbon-btn[data-panel]')) {

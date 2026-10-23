@@ -1,21 +1,55 @@
-/* 标签与窗口拖拽分区，标签溢出只发生在自身滚动容器中。 */
-.titlebar-left { flex: 0 1 auto; max-width: 260px; margin-right: 8px; }
+/* 标签压缩，末尾加号与下拉菜单之间留出独立拖窗区。 */
+.titlebar { justify-content: flex-start; }
+.titlebar-left { flex: 0 0 auto; max-width: 260px; margin-right: 8px; }
 .titlebar-left .vault-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .titlebar-right { flex: 0 0 auto; }
-.window-drag-space { flex: 0 0 clamp(96px, 12vw, 168px); height: 100%; align-self: stretch; display: grid; place-items: center; -webkit-app-region: drag; user-select: none; }
-.window-drag-space::after { content: ''; width: 24px; height: 3px; border-radius: 3px; background: var(--hairline-strong); opacity: .65; pointer-events: none; }
-.tablist { gap: 4px; align-items: center; padding: 5px 4px; -webkit-app-region: drag; }
-.tablist .tab { flex: 0 0 168px; min-width: 108px; max-width: 180px; height: 34px; padding: 0 8px 0 12px; border: 1px solid transparent; border-radius: 8px; }
+.tab-strip { display: flex; align-items: center; min-width: 32px; flex: 0 1 32px; align-self: stretch; overflow: clip; }
+.tablist { flex: 1; min-width: 0; gap: 4px; align-items: center; padding: 5px 0; overflow: clip; mask-image: none !important; -webkit-app-region: drag; }
+.tablist .tab { flex: 1 1 168px; min-width: 0; max-width: 168px; height: 34px; padding: 0 8px 0 12px; border: 1px solid transparent; border-radius: 8px; }
 .tablist .tab:hover { background: var(--bg-fill); color: var(--text-primary); }
 .tablist .tab.active { background: var(--bg-sheet); border-color: var(--hairline); box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 .tablist .tab.active::after { left: 12px; right: 12px; bottom: 0; border-radius: 2px; }
-.tab-more { align-self: center; height: 32px; border-radius: 8px; margin: 0 4px; }
+.tablist .tab[data-group] { border-top: 3px solid var(--group-color); border-radius: 5px; }
+.tablist.is-compact .tab { padding: 0 3px; gap: 2px; }
+.tablist.is-compact .tab.active { min-width: 56px; }
+.tablist.is-compact .tab:not(.active):not(:hover) .tab-close { display: none; }
+.tablist.is-micro .tab { padding: 0; border-left: 0; border-right: 0; gap: 0; }
+.tablist.is-micro .tab .tab-close { display: none; }
+.tablist.is-micro .tab.active .tab-close { display: grid; }
+.tablist.is-compact .tab:not(.active):not(.drop-before):not(.drop-after)::before { content: ''; position: absolute; right: 0; top: 10px; height: 14px; width: 1px; background: var(--hairline-strong); }
+.tablist.is-micro .tab.active::after { left: 0; right: 0; }
+.tab-new { flex: 0 0 32px; width: 32px; height: 32px; padding: 8px; margin-left: 3px; border-radius: 8px; color: var(--text-secondary); -webkit-app-region: no-drag; }
+.tab-new svg { display: block; width: 16px; height: 16px; }
+.tab-new:hover { color: var(--text-primary); background: var(--bg-fill); }
+.window-drag-space { flex: 1 0 96px; min-width: 96px; height: 100%; align-self: stretch; -webkit-app-region: drag; user-select: none; }
+.tab-more { flex: 0 0 32px; align-self: center; height: 32px; border-radius: 8px; margin: 0 4px; }
+.tab-group-header { position: relative; display: flex; align-items: center; flex: 0 0 auto; min-width: 0; max-width: 120px; height: 26px; padding: 0 8px; border-radius: 5px; background: var(--group-color); color: white; font-size: 12px; gap: 4px; -webkit-app-region: no-drag; }
+.tab-group-header::before { content: ''; position: absolute; top: -4px; left: 0; right: -4px; height: 3px; border-radius: 2px; background: var(--group-color); }
+.tab-group-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-group-count { flex: 0 0 auto; font-size: 10px; opacity: .8; }
+.tab-group-header[aria-expanded="true"] .tab-group-count { display: none; }
+.tab-group-header.is-current { outline: 2px solid var(--group-color); outline-offset: 2px; }
+.tab-group-header:hover { filter: brightness(1.12); }
+.tab-group-header.dragging { opacity: .45; }
+.tab-group-header.drop-target { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.tablist.is-micro .tab-group-header { padding: 0 1px; }
+.tablist.is-micro .tab-group-count { display: none; }
+.tab-group-editor { width: 240px; padding: 12px; }
+.tab-group-editor label { display: grid; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+.tab-group-editor input { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid var(--hairline); border-radius: 6px; background: var(--bg-sheet); color: var(--text-primary); }
+.tab-group-colors { display: flex; gap: 7px; padding: 12px 0; }
+.context-menu .tab-group-color { padding: 0; min-width: 19px; width: 19px; height: 19px; border-radius: 50%; background: var(--group-color); border: 2px solid transparent; }
+.context-menu .tab-group-color[aria-checked="true"] { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.context-menu .tab-group-color:hover { background: var(--group-color); filter: brightness(1.15); }
+.tab-group-editor > button { width: 100%; }
 @media(max-width:1100px) and (min-width:901px) { .titlebar-left { max-width: 210px; } .titlebar-left .vault-name { max-width: 120px; } }
 @media(max-width:900px) {
-  .window-drag-space { display: none; }
   .titlebar-left { max-width: none; }
   .titlebar-left .vault-name { max-width: min(38vw,180px); }
-  .tablist { padding: 4px 0; }
-  .tablist .tab { height: 34px; flex-basis: 150px; }
+  .tab-strip { grid-column: 1; grid-row: 2; width: 100%; min-width: 0; }
+  .tablist { width: auto; padding: 4px 0; }
+  .tablist .tab { height: 34px; }
+  .tablist .tab-close { width: 22px; height: 28px; }
+  .window-drag-space { display: none; }
   .tab-more { height: 36px; }
 }

@@ -52,12 +52,13 @@ try {
   await page.click('#draw-cancel');
   const blankHeader = await page.evaluate(() => {
     const list = document.querySelector('#tablist'), last = list.lastElementChild.getBoundingClientRect(), bounds = list.getBoundingClientRect();
-    return { gap: bounds.right - last.right, region: getComputedStyle(list).getPropertyValue('-webkit-app-region'), tab: getComputedStyle(list.lastElementChild).getPropertyValue('-webkit-app-region'), more: getComputedStyle(document.querySelector('#btn-tab-more')).getPropertyValue('-webkit-app-region') };
+    const plus = document.querySelector('#btn-tab-new').getBoundingClientRect(), more = document.querySelector('#btn-tab-more').getBoundingClientRect();
+    return { gap: plus.left - last.right, dragGap: more.left - plus.right, region: getComputedStyle(list).getPropertyValue('-webkit-app-region'), tab: getComputedStyle(list.lastElementChild).getPropertyValue('-webkit-app-region'), more: getComputedStyle(document.querySelector('#btn-tab-more')).getPropertyValue('-webkit-app-region') };
   });
-  assert.ok(blankHeader.gap > 100); assert.equal(blankHeader.region, 'drag'); assert.equal(blankHeader.tab, 'no-drag'); assert.equal(blankHeader.more, 'no-drag');
+  assert.ok(blankHeader.gap <= 8); assert.ok(blankHeader.dragGap >= 96); assert.equal(blankHeader.region, 'drag'); assert.equal(blankHeader.tab, 'no-drag'); assert.equal(blankHeader.more, 'no-drag');
   await page.evaluate(async () => {for(let i=0;i<22;i++){const p=`很多标签 ${i}.md`;await window.__tracery.Api.createNote(p,'# 标签');await window.__tracery.openNote(p,null,{newTab:true});}});
   const header=()=>page.evaluate(()=>{const r=q=>document.querySelector(q).getBoundingClientRect().toJSON(); return {drag:r('.window-drag-space'),tabs:r('#tablist'),active:r('#tablist .tab.active'),controls:r('.titlebar-right'),region:getComputedStyle(document.querySelector('.window-drag-space')).getPropertyValue('-webkit-app-region'),scroll:document.getElementById('tablist').scrollWidth>document.getElementById('tablist').clientWidth};});
-  for(const width of [1440,1024]) {await page.setViewport({width,height:900}); await sleep(150); const h=await header();assert.ok(h.drag.width>=95);assert.equal(h.region,'drag');assert.ok(h.tabs.right<=h.drag.left && h.drag.right<=h.controls.left);assert.ok(h.scroll);assert.ok(h.active.left>=h.tabs.left-1 && h.active.right<=h.tabs.right+1);}
+  for(const width of [1440,1024]) {await page.setViewport({width,height:900}); await sleep(150); const h=await header();assert.ok(h.drag.width>=95);assert.equal(h.region,'drag');assert.ok(h.tabs.right<=h.drag.left && h.drag.right<=h.controls.left);assert.equal(h.scroll,false);assert.ok(h.active.left>=h.tabs.left-1 && h.active.right<=h.tabs.right+1);}
   await page.screenshot({path:path.join(OUT,'many-tabs.png')});
-  assert.deepEqual(errors,[]); console.log('PASS 空画布拖动也显示框选区域、松开清除；22 标签溢出仍保留独立拖窗区');
+  assert.deepEqual(errors,[]); console.log('PASS 空画布拖动也显示框选区域、松开清除；22 标签压缩且保留独立拖窗区');
 }finally{await browser?.close();server.kill();}
