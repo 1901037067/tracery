@@ -76,7 +76,7 @@ function scanInline(text, base, out, opts = {}) {
       // 双链的解析结果决定 cls：未解析补 `cm-lp-unresolved`（与块级 .wikilink.unresolved 对齐）
       let cls = p.cls;
       if (p.link && resolveLink) {
-        const target = String(m[1] || '').split('|')[0].split('#')[0].trim();
+        const target = String(m[1] || '').trim();
         let resolved = null;
         try { resolved = resolveLink(target); } catch { resolved = null; }
         if (!resolved) cls += ' cm-lp-unresolved';

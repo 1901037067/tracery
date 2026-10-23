@@ -1,5 +1,6 @@
 /* 仓库索引独立于 HTTP 生命周期，便于用临时大仓库测量启动与增量更新。 */
 import fsp from 'node:fs/promises';
+import { noteIndex, resolveNote } from '../public/js/wiki-path.js';
 import path from 'node:path';
 import { readIndex, writeIndex, snapshotIndex, sameStat, fileStat } from './index-cache.js';
 export const IGNORED_DIRS = new Set(['.tracery', '.evnote', '.obsidian', '.git', 'node_modules', '.trash']);
@@ -77,6 +78,7 @@ export class Vault {
   }
 
   _addName(rel, name) {
+    this._linkIndex = null;
     const key = name.toLowerCase();
     if (!this.byName.has(key)) this.byName.set(key, []);
     const paths = this.byName.get(key);
@@ -150,6 +152,7 @@ export class Vault {
 
   /** 反链等派生图数据 */
   rebuildGraph() {
+    this._linkIndex = null;
     this.stats.graphBuilds++;
     for (const n of this.notes.values()) n.backlinks = new Set();
     for (const [rel, note] of this.notes) {
@@ -166,21 +169,10 @@ export class Vault {
 
   /** Obsidian 式链接解析：先按路径，再按文件名唯一匹配 */
   resolve(target, fromRel) {
-    const clean = target.trim().replace(/\\/g, '/').replace(/\.md$/i, '');
-    if (!clean) return null;
-    // 1) 相对当前笔记的路径
-    const fromDir = fromRel.includes('/') ? fromRel.slice(0, fromRel.lastIndexOf('/')) : '';
-    const tryPaths = [];
-    if (clean.includes('/')) tryPaths.push(clean, `${clean}.md`);
-    else {
-      if (fromDir) tryPaths.push(`${fromDir}/${clean}.md`);
-      tryPaths.push(`${clean}.md`);
+    if (!this._linkIndex || this._indexNotes !== this.notes) {
+      this._linkIndex = noteIndex(this.notes.keys()); this._indexNotes = this.notes;
     }
-    for (const p of tryPaths) if (this.notes.has(p)) return p;
-    // 2) 全库文件名匹配（唯一时才解析，与 Obsidian 行为一致）
-    const arr = this.byName.get(clean.toLowerCase());
-    if (arr && arr.length === 1) return arr[0];
-    return null;
+    return resolveNote(target, fromRel || '', this._linkIndex);
   }
 
   tree() {

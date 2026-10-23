@@ -1,5 +1,6 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['path-tabs', 'path-selection-tabs-test.mjs', '双链路径、可见框选与标签拖窗分区'],
   ['workspace', 'workspace-tools-test.mjs', '排序、右键目标、流畅图谱与悬浮画板'],
   ['icons', 'icons-test.mjs', '品牌图标与安装入口', true],
   ['hotkeys', 'hotkeys-test.mjs', '快捷键设置、菜单开合与宽屏行号', true],

@@ -21,6 +21,7 @@ import { initPwa } from './pwa.js';
 import { rememberDraft, clearSavedDraft, recoverDraft } from './recovery.js';
 import { VirtualTree, flattenTree } from './virtual-tree.js';
 import { FILE_SORTS, validSort, sortTree } from './file-sort.js';
+import { noteIndex, resolveNote, missingNotePath } from './wiki-path.js';
 import { createSidebarContext, initLibraryTabs, initPhoneAccess, copyLocalText } from './sidebar.js';
 import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel } from './hotkeys.js';
 import { toggleBold, toggleItalic, toggleStrike, insertWikilink } from './cm/editing.js';
@@ -298,6 +299,7 @@ async function refreshTree() {
   }
   state.nameIndex = new Map();
   for (const f of state.files.values()) if (/\.(md|markdown|txt)$/i.test(f.name)) state.nameIndex.set(f.name.replace(/\.(md|markdown|txt)$/i, '').toLowerCase(), f.path);
+  state.noteIndex = noteIndex(state.files.keys());
   renderTree(true);
   // 文件树变了 → 装饰里的 `![[图片]]`/`![](路径)` 可能从「找不到」变「找得到」（或反之）。
   // CM 的装饰只在 doc/视口/选区变化时重建，索引变化必须显式通知（块级内核没这方法，忽略）。
@@ -1605,7 +1607,8 @@ async function createMissingNote(raw, newTab = false) {
     okText: '创建',
   });
   if (!ok) return;
-  const path = `${name}.md`;
+  const path = missingNotePath(raw, state.currentPath || '');
+  if (!path) { toast('链接路径超出笔记库，请检查路径'); return; }
   try {
     await Api.createNote(path, '');
     await refreshTree(); refreshGraph(); refreshTags();
@@ -1864,7 +1867,7 @@ function highlightPalette(i) {
 editor = new CmEditor({
   liveEl: $('editor-live'),
   resolveLink: (target) => {
-    return state.nameIndex.get(wikilinkTarget(target).toLowerCase()) || null;
+    return state.noteIndex ? resolveNote(target, editor?.path || state.currentPath || '', state.noteIndex) : null;
   },
   // 点未解析的双链 → 问一句就当场创建并打开（见 createMissingNote）
   onCreateWikilink: (raw) => createMissingNote(raw),
@@ -1872,7 +1875,7 @@ editor = new CmEditor({
   fileUrl: (path) => Api.fileUrl(path),
   // ![[笔记]] 嵌入卡片的内容解析（与 editor.js 的 _renderEmbed 同口径：截 3000 字）
   loadNote: async (name) => {
-    const p = resolveVaultFile(name);
+    const p = state.noteIndex ? resolveNote(name, editor?.path || state.currentPath || '', state.noteIndex) : null;
     if (!p) return null;
     try { const { content } = await Api.note(p); return (content || '').slice(0, 3000); } catch { return null; }
   },
@@ -2214,7 +2217,10 @@ function bindGlobalEvents() {
     tablist.scrollLeft += e.deltaY;
     e.preventDefault();
   }, { passive: false });
-  window.addEventListener('resize', updateTabOverflow);
+  window.addEventListener('resize', () => {
+    $('tablist').querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    updateTabOverflow();
+  });
 
   // 左侧功能区
   for (const btn of document.querySelectorAll('.ribbon-btn[data-panel]')) {

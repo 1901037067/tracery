@@ -133,7 +133,7 @@ export class CmEditor {
         // 走「问一句就当场创建」那条路（demo-vault/双链与反链.md 承诺的行为，反链面板同口径）。
         onOpenWikilink: (target) => {
           const resolved = this.opts.resolveLink?.(target) || null;
-          if (resolved) this.opts.onNavigate?.(resolved);
+          if (resolved) this.opts.onNavigate?.(resolved, target.includes('#') ? target.split('|')[0].split('#').slice(1).join('#') : undefined);
           else this.opts.onCreateWikilink?.(target);
         },
         onHoverWikilink: (target, el) => this.opts.onPreviewWikilink?.(target, el),

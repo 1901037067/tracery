@@ -386,6 +386,12 @@ function draw() {
   for (const el of elements) drawElement(ctx, el);
   // 选中框 / 缩放柄画在屏幕坐标系，不随缩放变粗
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (drag?.mode === 'marquee') {
+    const a = worldToScreen(drag.start.x, drag.start.y), b = worldToScreen(drag.cur.x, drag.cur.y);
+    const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y), w = Math.abs(a.x - b.x), h = Math.abs(a.y - b.y);
+    ctx.save(); ctx.fillStyle = 'rgba(105,101,219,.12)'; ctx.strokeStyle = '#6965db'; ctx.lineWidth = 1;
+    ctx.fillRect(x, y, w, h); ctx.strokeRect(x + .5, y + .5, w, h); ctx.restore();
+  }
   drawSelection();
   canvas.dataset.strokes = String(elements.length);
   canvas.dataset.selected = String(selected.size);
@@ -905,6 +911,7 @@ function onPointerUp(e) {
   if (d.mode === 'erase') snapshot();
   if (d.mode === 'marquee') {
     drag = null;
+    scheduleDraw();
     return;
   }
   scheduleDraw();

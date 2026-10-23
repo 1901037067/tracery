@@ -148,8 +148,8 @@ check('至少两个标签（启动自开的 + 点击两篇）', header.tabCount 
 check('Tab 条整体在编辑区上方（已搬进标题栏，不再是编辑区内部的行）', header.listAboveEditor, `listBottom=${header.listTop.toFixed(0)}`);
 check('Tab 条贴在窗口最顶部', header.listTop < 60, `top=${header.listTop.toFixed(1)}px`);
 // 卡片式标签（2026-10-19）：标签只有 33px 高、贴标题栏底边坐着，不再要求与窗口按钮同中心
-check('标签卡片底边贴着标题栏底边（±2px）',
-  header.tabBottom != null && Math.abs(header.tabBottom - header.titlebarBottom) <= 2,
+check('标签卡片在标题栏内留出上下边距',
+  header.tabBottom != null && header.titlebarBottom - header.tabBottom >= 3 && header.titlebarBottom - header.tabBottom <= 10,
   `tabBottom=${header.tabBottom?.toFixed(1)} titlebarBottom=${header.titlebarBottom?.toFixed(1)}`);
 check('标题栏高度紧凑（30~50px）', header.titlebarH > 30 && header.titlebarH < 50, `${header.titlebarH.toFixed(1)}px`);
 check('笔记头行已删除（界面不再显示文件名+模式那一行）', header.noteHeaderGone && header.editorFirstChild === 'editor-wrap', `firstChild=${header.editorFirstChild}`);

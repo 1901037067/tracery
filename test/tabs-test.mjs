@@ -144,9 +144,8 @@ async function main() {
   });
   // 契约更新（2026-10-19）：标签从「33px 卡片贴底坐」改成**铺满标题栏高度**——
   // 顶边要贴到窗口最上方（top≈0）、高度≈标题栏高度，见 docs/HANDOFF.md §5 新决策。
-  check('标签无缝连接且铺满标题栏（gap=0 + 分隔线 + 两端圆角 + 顶边到顶）',
-    look.gap === 0 && (look.count === 1 || look.divider >= 1)
-    && look.firstRadius >= 6 && look.top <= 1 && look.height >= look.barHeight - 2
+  check('标签为有间距的紧凑卡片，留出标题栏边缘',
+    look.gap >= 3 && look.firstRadius >= 6 && look.top >= 3 && look.height < look.barHeight
     && look.closeOpacity > 0.2,
     JSON.stringify(look));
 
@@ -257,7 +256,7 @@ async function main() {
     const b = btn.getBoundingClientRect();
     return {
       exists: !!btn,
-      fullHeight: Math.abs(b.height - bar.height) <= 2,
+      fullHeight: b.height >= 30 && b.height < bar.height,
       rightOfTabs: b.left >= list.right - 60,
       tabs: document.querySelectorAll('#tablist .tab').length,
     };

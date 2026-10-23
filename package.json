@@ -1,6 +1,6 @@
 {
   "name": "tracery",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Tracery · 开源的本地 Markdown 笔记软件，支持双链、搜索、绘图和同网手机访问",
   "type": "module",
   "license": "MIT",
