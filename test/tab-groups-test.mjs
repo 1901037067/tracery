@@ -50,6 +50,19 @@ try {
   await page.click('.tab-group-color[data-color="teal"]'); await page.click('.tab-group-editor input'); await page.keyboard.press('Enter');
   state = await snapshot(); assert.equal(state.groups.length, 2); assert.ok(state.groups.some(group => group.color === 'teal'));
   const classId = state.groups.find(group => group.name === '上课').id;
+  await page.click('#btn-tab-more'); await menu('笔记1'); await page.waitForFunction(() => window.__tracery.state.currentPath === '笔记1.md');
+  const expandedLook = await page.evaluate(id => {
+    const header = [...document.querySelectorAll('.tab-group-header')].find(node => node.dataset.group === id);
+    const rail = [...document.querySelectorAll('.tab-group-rail')].find(node => node.dataset.group === id);
+    const members = [...document.querySelectorAll('.tab')].filter(node => node.dataset.group === id);
+    const active = members.find(node => node.classList.contains('active'));
+    return { right: rail.getBoundingClientRect().right, end: members.at(-1).getBoundingClientRect().right, gap: header.querySelector('.tab-group-label').getBoundingClientRect().top - rail.getBoundingClientRect().bottom,
+      underline: getComputedStyle(active, '::after').backgroundColor, group: getComputedStyle(rail).backgroundColor, radius: parseFloat(getComputedStyle(active).borderTopLeftRadius) };
+  }, toolId);
+  assert.ok(Math.abs(expandedLook.right - expandedLook.end) < 1); assert.ok(expandedLook.gap >= 6);
+  assert.equal(expandedLook.underline, expandedLook.group); assert.ok(expandedLook.radius >= 10);
+  await page.screenshot({ path: path.join(OUT, 'group-active-connected.png'), clip: { x: 140, y: 0, width: 1000, height: 52 } });
+  await open(4);
   await page.click(`.tab-group-header[data-group="${toolId}"]`);
   assert.equal(await page.$$eval(`.tab[data-group="${toolId}"]`, nodes => nodes.every(node => node.hidden)), true);
   assert.equal((await snapshot()).path, '笔记4.md');
@@ -132,6 +145,22 @@ try {
   await page.click('.tab-group-header', { button: 'right' }); await menu('关闭分组');
   await page.waitForFunction(() => window.__tracery.state.tabs.length === 0);
   assert.equal((await snapshot()).groups.length, 0); assert.equal((await snapshot()).path, null);
+  // 只有一个折叠分组时，应显示完整组名，不能退化成只剩数量。
+  await open(1); await open(2); await open(3);
+  await context('笔记1'); await menu('添加到新分组'); await page.waitForSelector('.tab-group-editor input');
+  await page.click('.tab-group-color[data-color="teal"]'); await page.click('.tab-group-editor input'); await page.keyboard.press('Enter');
+  await context('笔记2'); await menu('移入「新分组」'); await context('笔记3'); await menu('移入「新分组」');
+  await page.click('.tab-group-header');
+  const collapsedLook = await page.$eval('.tab-group-header', node => {
+    const label = node.querySelector('.tab-group-label');
+    return { name: label.textContent, visible: label.clientWidth >= label.scrollWidth, width: node.getBoundingClientRect().width, rails: document.querySelectorAll('.tab-group-rail').length, current: node.classList.contains('is-current'), background: getComputedStyle(node).backgroundColor };
+  });
+  assert.equal(collapsedLook.name, '新分组'); assert.ok(collapsedLook.visible); assert.ok(collapsedLook.width >= 64); assert.equal(collapsedLook.rails, 0); assert.ok(collapsedLook.current);
+  await page.screenshot({ path: path.join(OUT, 'single-collapsed-group.png'), clip: { x: 140, y: 0, width: 700, height: 52 } });
+  await page.click('.tab-group-header'); await page.screenshot({ path: path.join(OUT, 'single-expanded-group.png'), clip: { x: 140, y: 0, width: 1000, height: 52 } });
+  await page.evaluate(() => window.__tracery.Api.saveSettings({ themeMode: 'dark' })); await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+  await sleep(250); // 等主题颜色过渡完成再保存视觉对照。
+  await page.screenshot({ path: path.join(OUT, 'groups-dark.png'), clip: { x: 140, y: 0, width: 1000, height: 52 } });
   assert.deepEqual(errors, []);
-  console.log('PASS +空白页/替换、新建继承分组、命名颜色/折叠恢复、标签拖入移出/整组换序、压缩无横滚/拖窗空区、关闭取消与仓库隔离');
+  console.log('PASS 连续分组色线、同色活动下划线、组名留白和单组折叠名称；+空白页/替换、分组拖拽/恢复、压缩/拖窗、关闭取消与仓库隔离');
 } finally { await browser?.close(); server.kill(); }

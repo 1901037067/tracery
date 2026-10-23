@@ -1428,7 +1428,7 @@ function renderTabs() {
   // 无标签时只隐藏标签列表本身，不能再隐藏整个 bar
   const list = $('tablist');
   if (!list) return;
-  if (!state.tabs.length) { list.hidden = true; list.innerHTML = ''; return; }
+  if (!state.tabs.length) { list.hidden = true; list.innerHTML = ''; layoutTabs(); return; }
   list.hidden = false;
   list.innerHTML = '';
   state.tabs.forEach((p, i) => {
@@ -1502,6 +1502,10 @@ function renderTabs() {
     tab.oncontextmenu = e => { e.preventDefault(); showTabContextMenu(e, p); };
     list.appendChild(tab);
   });
+  for (const group of state.tabGroups.filter(group => !group.collapsed)) {
+    const rail = document.createElement('span'); rail.className = 'tab-group-rail'; rail.dataset.group = group.id;
+    rail.setAttribute('aria-hidden', 'true'); rail.style.setProperty('--group-color', groupColor(group)); list.append(rail);
+  }
   layoutTabs();
 }
 
@@ -1577,15 +1581,31 @@ function layoutTabs() {
   if (!list) return;
   list.removeAttribute('data-overflow');
   const count = list.querySelectorAll('.tab:not([hidden])').length;
-  const groups = state.tabGroups.reduce((sum, group) => sum + Math.min(120, 24 + group.name.length * 13), 0);
+  const headers = [...list.querySelectorAll('.tab-group-header')];
+  const measure = document.createElement('canvas').getContext('2d');
+  const preferred = headers.map(header => {
+    measure.font = getComputedStyle(header).font;
+    return Math.min(180, Math.ceil(measure.measureText(header.querySelector('.tab-group-label').textContent).width) + 34);
+  });
+  const groups = preferred.reduce((sum, width) => sum + width, 0);
   const desired = 35 + count * 168 + groups + Math.max(0, count + state.tabGroups.length - 1) * 4;
   $('tab-strip').style.flexBasis = `${desired}px`;
   const average = list.clientWidth / Math.max(1, count + state.tabGroups.length);
-  const groupCap = Math.min(120, Math.max(4, list.clientWidth / (state.tabGroups.length + 1) * .65));
-  for (const header of list.querySelectorAll('.tab-group-header')) header.style.maxWidth = `${groupCap}px`;
+  const available = Math.max(0, list.clientWidth - (count ? 56 + (count - 1) * 8 : 0));
+  const scale = groups ? Math.min(1, available / groups) : 1;
+  headers.forEach((header, index) => { header.style.width = `${preferred[index] * scale}px`; });
   list.classList.toggle('is-compact', average < 86);
   list.classList.toggle('is-micro', average < 28);
   list.style.gap = `${Math.min(4, average / 8)}px`;
+  const origin = list.getBoundingClientRect();
+  for (const rail of list.querySelectorAll('.tab-group-rail')) {
+    const header = headers.find(node => node.dataset.group === rail.dataset.group);
+    const members = [...list.querySelectorAll('.tab:not([hidden])')].filter(node => node.dataset.group === rail.dataset.group);
+    if (!header || !members.length) continue;
+    const start = header.getBoundingClientRect().left - origin.left + 8;
+    rail.style.left = `${start}px`;
+    rail.style.width = `${Math.max(0, members.at(-1).getBoundingClientRect().right - origin.left - start)}px`;
+  }
 }
 
 function groupColor(group) { return GROUP_COLORS.find(([key]) => key === group.color)?.[2] || GROUP_COLORS[0][2]; }
@@ -1634,8 +1654,8 @@ function makeGroupHeader(group) {
   header.title = `${group.name} · ${group.tabs.length} 个标签（点击${group.collapsed ? '展开' : '折叠'}，右键编辑）`;
   header.classList.toggle('is-current', group.collapsed && group.tabs.includes(state.tabs[state.activeTab]));
   const label = document.createElement('span'); label.className = 'tab-group-label'; label.textContent = group.name;
-  const count = document.createElement('span'); count.className = 'tab-group-count'; count.textContent = group.tabs.length;
-  header.append(label, count);
+  header.setAttribute('aria-label', `${group.name}，${group.tabs.length} 个标签`);
+  header.append(label);
   header.onclick = () => { if (suppressTabClick) return; group.collapsed = !group.collapsed; renderTabs(); saveTabsState(); };
   header.oncontextmenu = e => { e.preventDefault(); showGroupEditor(group, e.clientX, e.clientY); };
   bindGroupDrag(header, group);
