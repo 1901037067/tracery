@@ -17,7 +17,8 @@
  * P1 覆盖：标题、粗体/斜体/删除线/高亮/行内代码、双链/嵌入/标签、
  * 列表、引用、代码块（围栏隐藏）、分割线、表格（行装饰；完整表格是 P3）。
  */
-import { parseMarkdown } from '../markdown.js';
+import { parseMarkdown, codeTokens } from '../markdown.js';
+import { inlineMath } from '../math.js';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import { Annotation, StateField } from '@codemirror/state';
 
@@ -29,6 +30,7 @@ import { Annotation, StateField } from '@codemirror/state';
  * 只给内容上样式）；marker=0 的（#标签）整段挂牌。 */
 const INLINE_PATTERNS = [
   { re: /`([^`\n]+)`/g, cls: 'cm-lp-code', marker: 1 },
+  { re: /<u>([^\n]*?)<\/u>/gi, cls: 'cm-lp-underline', head: 3, tail: 4 },
   // `![[x]]` 的开闭标记长度不对称（`![[` = 3、`]]` = 2），不能用单一 marker：
   // 早先写成 marker:4 会把名字的首尾各吃掉一个字（实测 `![[常用代码]]` 只显示「用」）。
   // 这里用 head/tail 分开声明；图片类嵌入由 widgets.js 的行内图片 widget 接管（见 embed 标记）。
@@ -52,7 +54,7 @@ const isImageName = (n) => DEFAULT_IMG_RE.test(String(n || '').split('|')[0].spl
  *  marker=0 → 整段推一个 mark。
  *  opts.isImage 命中的 `![[..]]` **不挂牌**——留给 widgets.js 的行内图片 widget 整段 replace。 */
 function scanInline(text, base, out, opts = {}) {
-  const consumed = [];
+  const consumed = inlineMath(text).map(math => [math.from, math.to]);
   const overlaps = (s, e) => consumed.some(([a, b]) => s < b && a < e);
   const isImage = opts.isImage || isImageName;
   const resolveLink = opts.resolveLink;
@@ -148,10 +150,14 @@ function collectBlockDecos(blocks, state, cursor, out, opts = {}) {
         break;
       case 'quote': {
         for (let n = b.line; n <= b.endLine; n++) {
-          if (cursor.has(n + 1)) continue; // 光标行保持原始 >
           const line = docLine(state, n);
-          const m = QUOTE_MARK_RE.exec(line.text);
-          if (m) out.push({ from: line.from, to: line.from + m[1].length, cls: '', kind: 'hide' });
+          if (opts.quoteLines.has(line.from)) continue;
+          opts.quoteLines.add(line.from);
+          const m = /^(?:[ \t]*>[ \t]?)+/.exec(line.text);
+          const depth = (m?.[0].match(/>/g) || []).length;
+          out.push({ from: line.from, cls: 'cm-lp-quote', attrs: { style: `--cm-quote-depth:${Math.max(1, depth)}` }, kind: 'line' });
+          if (cursor.has(n + 1)) continue;
+          if (m) out.push({ from: line.from, to: line.from + m[0].length, cls: '', kind: 'hide' });
         }
         collectBlockDecos(b.blocks, state, cursor, out, opts);
         break;
@@ -159,9 +165,20 @@ function collectBlockDecos(blocks, state, cursor, out, opts = {}) {
       case 'callout':
         collectBlockDecos(b.blocks, state, cursor, out, opts);
         break;
-      case 'fence':
-        out.push({ from: state.doc.lineAt(b.lineStart).from, cls: 'cm-lp-fence', kind: 'line' });
+      case 'fence': {
+        const active = [...cursor].some(n => n >= b.line + 1 && n <= b.endLine + 1);
+        const first = active ? b.line : Math.min(b.line + 1, b.endLine);
+        const last = active || !b.closed ? b.endLine : Math.max(first, b.endLine - 1);
+        for (let n = first; n <= last; n++) {
+          const line = docLine(state, n);
+          const cls = `cm-lp-code-line${n === first ? ' cm-lp-code-first' : ''}${n === last ? ' cm-lp-code-last' : ''}`;
+          out.push({ from: line.from, cls, attrs: n === first ? { 'data-language': b.lang || 'text' } : {}, kind: 'line' });
+          if (n === b.line || (b.closed && n === b.endLine)) continue;
+          const lead = /^(?:[ \t]*>[ \t]?)+/.exec(line.text)?.[0].length || 0;
+          for (const token of codeTokens(line.text.slice(lead), b.lang.toLowerCase())) out.push({ from: line.from + lead + token.from, to: line.from + lead + token.to, cls: token.cls, kind: 'mark', always: true });
+        }
         break;
+      }
       case 'hr':
         out.push({ from: state.doc.lineAt(b.lineStart).from, cls: 'cm-lp-hr', kind: 'line' });
         if (!cursor.has(b.line + 1)) {
@@ -274,7 +291,7 @@ export function createLivePreview(opts = {}) {
       const cursor = cursorOf(state);
       const raw = [];
       try {
-        collectBlockDecos(blocks, state, cursor, raw, opts);
+        collectBlockDecos(blocks, state, cursor, raw, { ...opts, quoteLines: new Set() });
         // 只装饰视口范围（visibleRanges 自带缓冲区；视口外不建 DOM）
         const lo = view.visibleRanges[0]?.from ?? 0;
         const hi = view.visibleRanges[view.visibleRanges.length - 1]?.to ?? state.doc.length;
@@ -286,8 +303,8 @@ export function createLivePreview(opts = {}) {
           if (!Number.isFinite(d.from) || !Number.isFinite(to) || d.from < 0 || to > state.doc.length) continue;
           if (to < lo || d.from > hi) continue;
           // 光标行规则：mark/hide 在光标行一律不挂（显示原始语法）；行装饰（字号等）照常
-          if (d.kind !== 'line' && cursor.has(state.doc.lineAt(d.from).number)) continue;
-          if (d.kind === 'line') spans.push(Decoration.line({ class: d.cls }).range(d.from));
+          if (!d.always && d.kind !== 'line' && cursor.has(state.doc.lineAt(d.from).number)) continue;
+          if (d.kind === 'line') spans.push(Decoration.line({ class: d.cls, attributes: d.attrs }).range(d.from));
           else if (d.kind === 'mark') spans.push(Decoration.mark({ class: d.cls }).range(d.from, to));
           // 带 widget 的替换（列表圆点）：把源码标记换成渲染后的样子
           else if (d.widget && d.from < to) spans.push(Decoration.replace({ widget: d.widget }).range(d.from, to));
@@ -320,6 +337,16 @@ class ZeroWidget extends WidgetType {
   eq() { return true; }
 }
 
+class EmptyCodeWidget extends WidgetType {
+  constructor(lang, from, readOnly) { super(); this.lang = lang; this.from = from; this.readOnly = readOnly; }
+  eq(other) { return other.lang === this.lang && other.from === this.from && other.readOnly === this.readOnly; }
+  toDOM(view) {
+    const node = document.createElement('div'); node.className = 'cm-lp-empty-code cm-lp-code-first'; node.dataset.language = this.lang || 'text';
+    if (!this.readOnly) node.onmousedown = event => { event.preventDefault(); view.dispatch({ selection: { anchor: this.from } }); view.focus(); };
+    return node;
+  }
+}
+
 const fenceCache = { key: null, set: null };
 
 /** 围栏/表格分隔行是否要「整行收起」——实时预览按光标判断（光标进代码块要露围栏），
@@ -350,6 +377,11 @@ function buildFenceDecos(state, readOnly = false) {
       if (b.type === 'fence') {
         const cursorIn = [...cursor].some((n) => n >= b.line + 1 && n <= b.endLine + 1);
         if (!cursorIn) {
+          if (b.closed && !b.code) {
+            const open = docLine(state, b.line), close = docLine(state, b.endLine);
+            spans.push(Decoration.replace({ widget: new EmptyCodeWidget(b.lang, open.from, readOnly), block: true }).range(open.from, close.to));
+            continue;
+          }
           // 围栏两行各自整行收起。块级 replace 的配方是 [line.from, line.to)
           // （不含换行）——早先图省事写成从开围栏到闭围栏的一个大 range，
           // 把代码正文也一起替换没了，行号 8-11 全丢。
@@ -358,7 +390,7 @@ function buildFenceDecos(state, readOnly = false) {
           if (openLine.from < openLine.to) {
             spans.push(Decoration.replace({ widget: new ZeroWidget(), block: true }).range(openLine.from, openLine.to));
           }
-          if (closeLine.from < closeLine.to && closeLine.number !== openLine.number) {
+          if (b.closed && closeLine.from < closeLine.to && closeLine.number !== openLine.number) {
             spans.push(Decoration.replace({ widget: new ZeroWidget(), block: true }).range(closeLine.from, closeLine.to));
           }
         }

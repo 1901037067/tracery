@@ -24,6 +24,7 @@ import { editingExtensions, editingKeymap } from './editing.js';
 import { widgetExtensions, setEmbedWidth } from './widgets.js';
 import { wikiCompletion } from './wiki-completion.js';
 import { noteAnchors } from '../note-embed.js';
+import { mathPreview } from './math.js';
 
 /** 极简防抖（与 api.js 同语义，避免引擎依赖 api） */
 function debounce(fn, ms) {
@@ -116,6 +117,7 @@ export class CmEditor {
         readOnly,
       }),
       createFenceHiding({ readOnly }),
+      mathPreview({ readOnly }),
       ...widgetExtensions({
         resolveImage: (name) => {
           const p = this.opts.resolveFile?.(name);

@@ -118,6 +118,20 @@
    有序列表的 `1.` 仍走 .cm-lp-marker（编号要给用户看见）。 */
 .cm-lp-bullet { color: var(--text-secondary); }
 .cm-lp-fence { color: var(--text-tertiary); }
+.cm-lp-underline { text-decoration-line: underline !important; text-underline-offset: .14em; }
+#editor-live .cm-line.cm-lp-code-line { background: var(--bg-code); color: var(--code-text); font-family: var(--font-mono); font-size: .92em; line-height: 1.65; padding: 0 16px; tab-size: 4; }
+#editor-live .cm-line.cm-lp-code-first { position: relative; padding-top: 30px; border-radius: 9px 9px 0 0; }
+#editor-live .cm-line.cm-lp-code-last { padding-bottom: 14px; border-radius: 0 0 9px 9px; }
+#editor-live .cm-line.cm-lp-code-first.cm-lp-code-last { border-radius: 9px; }
+.cm-lp-code-first::after { content: attr(data-language); position: absolute; right: 14px; top: 6px; color: var(--text-tertiary); font: 11px var(--font-mono); pointer-events: none; }
+.cm-lp-empty-code { position: relative; min-height: 58px; border-radius: 9px; background: var(--bg-code); }
+#editor-live .cm-line.cm-lp-quote { position: relative; padding-left: calc(var(--cm-quote-depth, 1) * 20px); }
+.cm-lp-quote::before { content: ''; position: absolute; inset: 0 auto 0 0; width: calc(var(--cm-quote-depth, 1) * 20px); background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, var(--hairline)) 0 2px, transparent 2px 20px); pointer-events: none; }
+.cm-math-inline { cursor: text; }
+.cm-math-inline .katex { font-size: 1.12em; }
+.cm-math-block, .md-math-display { padding: 14px 8px; overflow-x: auto; text-align: center; }
+.cm-math-block .katex-display, .md-math-display .katex-display { margin: 0; }
+.cm-math-block .katex-display > .katex { white-space: nowrap; }
 .cm-lp-hr { border-top: 1px solid var(--hairline); }
 
 /* ---------- ③ 行级装饰：标题 ----------

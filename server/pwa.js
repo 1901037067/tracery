@@ -10,7 +10,7 @@ export function buildWorker(publicDir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const rel = `${prefix}/${entry.name}`;
       if (entry.isDirectory()) walk(path.join(dir, entry.name), rel);
-      else if (/\.(html|js|css|png|webmanifest|woff2)$/i.test(rel) && !/\/(sw\.js|cmlab\.(html|js))$/.test(rel)) {
+      else if (/\.(html|m?js|css|png|webmanifest|woff2)$/i.test(rel) && !/\/(sw\.js|cmlab\.(html|js))$/.test(rel)) {
         assets.push(rel);
         hash.update(rel).update(fs.readFileSync(path.join(dir, entry.name)));
       }

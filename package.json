@@ -26,6 +26,7 @@
     "dist:dir:nosign": "electron-builder --dir --config.win.signAndEditExecutable=false",
     "repack": "node scripts/repack.mjs",
     "build:cmvendor": "node scripts/build-cmvendor.mjs",
+    "build:math": "node scripts/vendor-math.mjs",
     "build:icons": "node scripts/gen-icon.mjs",
     "release": "node scripts/release.mjs",
     "test:merge": "node test/merge-test.mjs",
@@ -71,6 +72,7 @@
     "@lezer/markdown": "^1.8.0",
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
+    "katex": "0.19.0",
     "puppeteer-core": "^23.11.1"
   },
   "build": {

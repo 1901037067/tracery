@@ -10,6 +10,7 @@
  * 记录它在 Markdown 源码中的位置，供编辑器把 DOM 光标映射回源码偏移。
  */
 
+import { mathHtml, inlineMath } from './math.js';
 const INLINE_TOKEN = '\u0001';
 
 /* ================= 代码高亮（轻量自研，够用的范围：注释/字符串/数字/关键字） =================
@@ -30,28 +31,30 @@ const LANG_ALIAS = {
 };
 
 /** 把代码文本转成带 <span class="tok-*"> 的 HTML（未知语言只转义、不着色） */
-export function highlightCode(text, lang) {
+export function codeTokens(text, lang) {
   const key = LANG_ALIAS[lang] || lang;
   const kws = CODE_KEYWORDS[key];
-  if (!kws) return escapeHtml(text);
-  const esc = escapeHtml;
+  if (!kws) return [];
   const kw = kws.trim().split(/\s+/).join('|');
   // python/bash 用 # 注释；其余用 // 与 /* */
   const comment = key === 'py' || key === 'bash' ? '#[^\\n]*' : '\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/';
   const str = '"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\'|`(?:\\\\.|[^`\\\\])*`';
   const re = new RegExp(`(${comment})|(${str})|(\\b\\d+(?:\\.\\d+)?\\b)|\\b(${kw})\\b`, 'g');
-  let out = '';
-  let last = 0;
+  const tokens = [];
   let m;
   while ((m = re.exec(text))) {
-    out += esc(text.slice(last, m.index));
-    if (m[1]) out += `<span class="tok-com">${esc(m[1])}</span>`;
-    else if (m[2]) out += `<span class="tok-str">${esc(m[2])}</span>`;
-    else if (m[3]) out += `<span class="tok-num">${esc(m[3])}</span>`;
-    else out += `<span class="tok-kw">${esc(m[4])}</span>`;
-    last = m.index + m[0].length;
+    tokens.push({ from: m.index, to: m.index + m[0].length, cls: m[1] ? 'tok-com' : m[2] ? 'tok-str' : m[3] ? 'tok-num' : 'tok-kw' });
   }
-  out += esc(text.slice(last));
+  return tokens;
+}
+
+export function highlightCode(text, lang) {
+  let out = '', last = 0;
+  for (const token of codeTokens(text, lang)) {
+    out += escapeHtml(text.slice(last, token.from)) + `<span class="${token.cls}">${escapeHtml(text.slice(token.from, token.to))}</span>`;
+    last = token.to;
+  }
+  out += escapeHtml(text.slice(last));
   return out;
 }
 
@@ -80,10 +83,17 @@ function wikilinkHtml(target, alias, opts) {
 export function inlineToHtml(text, opts = {}) {
   const stash = [];
   const keep = (html) => { stash.push(html); return `${INLINE_TOKEN}${stash.length - 1}${INLINE_TOKEN}`; };
-  let s = escapeHtml(text);
+  let prepared = '', lastMath = 0;
+  for (const math of inlineMath(text)) {
+    prepared += text.slice(lastMath, math.from) + keep(`<span class="md-math" data-math-source="${escapeHtml(text.slice(math.from, math.to))}">${mathHtml(math.tex, math.display)}</span>`);
+    lastMath = math.to;
+  }
+  let s = escapeHtml(prepared + text.slice(lastMath));
 
   // 行内代码（最高优先级，内部不再解析）
   s = s.replace(/`([^`\n]+)`/g, (m, c) => keep(`<code>${c}</code>`));
+  // 只开放无属性的下划线标签，其余 HTML 继续按原文转义。
+  s = s.replace(/&lt;u&gt;([^\n]*?)&lt;\/u&gt;/gi, '<u>$1</u>');
 
   // 图片 ![alt](url)：相对路径按仓库文件解析（Obsidian 仓库里通常写 ![](附件/a.png)）
   s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (m, alt, inner) => {
@@ -130,10 +140,6 @@ export function inlineToHtml(text, opts = {}) {
   s = s.replace(/~~([^~]+)~~/g, (m, c) => keep(`<del>${c}</del>`));
   s = s.replace(/==([^=]+)==/g, (m, c) => keep(`<mark>${c}</mark>`));
 
-  // 行内公式 $...$ / $$...$$（无数学引擎，等宽呈现）
-  s = s.replace(/\$\$([^$\n]+)\$\$/g, (m, c) => keep(`<span class="md-math" style="font-family:var(--font-mono)">$$${c}$$</span>`));
-  s = s.replace(/\$([^$\n]+)\$/g, (m, c) => keep(`<span class="md-math" style="font-family:var(--font-mono)">$${c}$</span>`));
-
   // 标签 #tag
   s = s.replace(/(^|[\s(（])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu, (m, pre, tag) =>
     `${pre}${keep(`<span class="md-tag" data-tag="${escAttr(tag)}">#${tag}</span>`)}`);
@@ -156,7 +162,8 @@ export function inlineToHtml(text, opts = {}) {
  * 列表续言的塌缩平移）与原实现逐字一致——先行为不变，让 roundtrip/gap/enter/
  * polish/e2e 当护栏，再谈清理历史遗留。 */
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
-const FENCE_RE = /^\s*```(\w*)\s*$/;
+const FENCE_RE = /^\s*(`{3,}|~{3,})([^`]*)$/;
+const MATH_LINE_RE = /^\s*\$\$(.*?)\$\$\s*$/;
 const HR_RE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
 const LIST_RE = /^(\s*)([-*+]|\d+\.)\s+(.*)$/;
 const CALLOUT_RE = /^\s*>\s*\[!(\w+)\]\s*(.*)$/;
@@ -254,19 +261,35 @@ function scanBlocks(lines, lineStarts, lineEnd, start, stop, ctx) {
     // 代码围栏
     const fence = FENCE_RE.exec(line);
     if (fence) {
-      const lang = fence[1] || '';
+      const marker = fence[1], lang = (fence[2] || '').trim().split(/\s+/)[0];
+      const closing = new RegExp('^\\s*' + marker[0] + '{' + marker.length + ',}\\s*$');
       const buf = [];
       const openLine = i;
       i++;
-      while (i < stop && !FENCE_RE.test(lines[i])) { buf.push(lines[i]); i++; }
-      i++; // 跳过结束围栏
+      while (i < stop && !closing.test(lines[i])) { buf.push(lines[i]); i++; }
+      const closed = i < stop;
+      if (closed) i++; // 只有同符号、足够长、无语言信息的围栏才能闭合
       out.push({
-        type: 'fence', lang, code: buf.join('\n'), line: openLine, endLine: Math.min(lines.length - 1, i - 1),
+        type: 'fence', lang, marker, closed, code: buf.join('\n'), line: openLine, endLine: Math.min(lines.length - 1, i - 1),
         lineStart: lineStarts[openLine],
         lineEnd: lineEnd(Math.min(lines.length - 1, i - 1)),
         contentStart: lineStarts[openLine] + fence[0].length + 1,
       });
       continue;
+    }
+
+    // 独立公式只在找到成对 $$ 时成立；未闭合时仍保持可编辑的原文。
+    const inlineDisplay = MATH_LINE_RE.exec(line);
+    if (line.trim() === '$$' || inlineDisplay) {
+      let end = i, tex = inlineDisplay?.[1];
+      if (!inlineDisplay) {
+        end = i + 1; while (end < stop && lines[end].trim() !== '$$') end++;
+        if (end < stop) tex = lines.slice(i + 1, end).join('\n');
+      }
+      if (tex != null) {
+        out.push({ type: 'math', tex, line: i, endLine: end, lineStart: lineStarts[i], lineEnd: lineEnd(end), contentStart: lineStarts[i], source: lines.slice(i, end + 1).join('\n') });
+        i = end + 1; continue;
+      }
     }
 
     // 标题
@@ -370,7 +393,7 @@ function scanBlocks(lines, lineStarts, lineEnd, start, stop, ctx) {
     const startLine = i;
     i++;
     while (i < stop && !/^\s*$/.test(lines[i]) && !HEADING_RE.test(lines[i]) && !FENCE_RE.test(lines[i])
-           && !HR_RE.test(lines[i]) && !/^\s*>/.test(lines[i]) && !LIST_RE.test(lines[i])
+           && !HR_RE.test(lines[i]) && !/^\s*>/.test(lines[i]) && !LIST_RE.test(lines[i]) && lines[i].trim() !== '$$' && !MATH_LINE_RE.test(lines[i])
            && !(lines[i].includes('|') && i + 1 < stop && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && /-/.test(lines[i + 1]))) {
       buf.push(lines[i]); i++;
     }
@@ -495,6 +518,7 @@ function renderBlock(b, ctx) {
     }
     case 'fence': {
       const pre = document.createElement('pre');
+      pre.dataset.fenceMarker = b.marker || '```';
       const code = document.createElement('code');
       if (b.lang) code.className = `language-${b.lang}`;
       code.innerHTML = highlightCode(b.code, b.lang);
@@ -507,6 +531,11 @@ function renderBlock(b, ctx) {
       }
       tagEl(pre, b, ctx.tagOffsets);
       return pre;
+    }
+    case 'math': {
+      const div = document.createElement('div'); div.className = 'md-math md-math-display';
+      div.dataset.mathSource = b.source; div.innerHTML = mathHtml(b.tex, true);
+      tagEl(div, b, ctx.tagOffsets); return div;
     }
     case 'heading': {
       const h = document.createElement(`h${b.level}`);
@@ -636,6 +665,7 @@ function serializeInline(node) {
     case 'EM': case 'I': return `*${inner()}*`;
     case 'DEL': case 'S': case 'STRIKE': return `~~${inner()}~~`;
     case 'MARK': return `==${inner()}==`;
+    case 'U': return `<u>${inner()}</u>`;
     case 'CODE': return `\`${el.textContent}\``;
     case 'BR': return '\n';
     case 'IMG': {
@@ -668,7 +698,7 @@ function serializeInline(node) {
         return t.startsWith('#') ? t : `#${t}`;
       }
       if (el.classList.contains('embed-slot')) return `![[${el.dataset.embed || ''}]]`;
-      if (el.classList.contains('md-math')) return el.textContent;
+      if (el.classList.contains('md-math')) return el.dataset.mathSource || el.textContent;
       return inner();
     }
     case 'DIV': case 'P': case 'FIGURE': {
@@ -703,7 +733,7 @@ function serializeBlocks(root) {
     const tag = el.tagName;
     if (/^H[1-6]$/.test(tag)) {
       push(`${'#'.repeat(Number(tag[1]))} ${serializeInline(el).trim()}`, el);
-    } else if (tag === 'P' || (tag === 'DIV' && !el.classList.contains('callout'))) {
+    } else if (tag === 'P' || (tag === 'DIV' && !el.classList.contains('callout') && !el.classList.contains('md-math-display'))) {
       const raw = [...el.childNodes].map(serializeInline).join('');
       const md = raw.trim();
       // 段落分隔符占位段：空的直接跳过——它代表的就是那个单空行，
@@ -718,10 +748,13 @@ function serializeBlocks(root) {
     } else if (tag === 'BLOCKQUOTE') {
       const innerMd = serializeBlocks(el).trim();
       if (innerMd) push(innerMd.split('\n').map((l) => `> ${l}`).join('\n'), el);
+    } else if (el.classList.contains('md-math-display')) {
+      push(el.dataset.mathSource || el.textContent, el);
     } else if (tag === 'PRE') {
       const code = el.querySelector('code');
-      const lang = code?.className?.match(/language-(\w+)/)?.[1] || '';
-      push('```' + lang + '\n' + (code?.textContent || '') + '\n```', el);
+      const lang = code?.className?.match(/language-([^\s]+)/)?.[1] || '';
+      const marker = el.dataset.fenceMarker || '```';
+      push(marker + lang + '\n' + (code?.textContent || '') + '\n' + marker, el);
     } else if (tag === 'HR') {
       push('---', el);
     } else if (tag === 'TABLE') {
