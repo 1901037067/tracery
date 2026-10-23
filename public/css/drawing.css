@@ -34,6 +34,17 @@
 .draw-board-background button:hover { background: var(--bg-fill); }
 .draw-board-background button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .draw-element-style.disabled { opacity: .42; pointer-events: none; }
+.draw-color-group .dp-label { margin-bottom: 8px; }
+.draw-element-style .dp-group + .dp-group { margin-top: 14px; padding-top: 12px; }
+.draw-color-group .draw-color-presets { display: flex; gap: 4px; flex-wrap: nowrap; }
+.draw-color-group .draw-swatch, .draw-color-group .draw-bg { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 5px; }
+.draw-custom-color { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.draw-color-picker { width: 30px; height: 28px; flex: 0 0 30px; padding: 2px; cursor: pointer; border: 1px solid var(--hairline); border-radius: 6px; background: var(--bg-sheet); }
+.draw-color-hex { min-width: 0; width: 80px; flex: 1; padding: 5px 6px; font: 11px var(--font-mono); color: var(--text-primary); border: 1px solid var(--hairline); border-radius: 6px; background: var(--bg-sheet); }
+.draw-color-apply { padding: 5px 6px; border-radius: 6px; font-size: 11px; color: var(--accent); background: var(--accent-soft); }
+.draw-color-recent { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
+.draw-color-recent > span { font-size: 10px; color: var(--text-tertiary); margin-right: 2px; }
+.draw-recent-swatch { width: 16px; height: 16px; flex: 0 0 16px; background: var(--sw); border: 1px solid var(--hairline-strong); border-radius: 4px; }
 #draw-close-library, #draw-close-props { margin-left: auto; width: 24px; height: 24px; color: var(--text-tertiary); border-radius: 6px; font-size: 18px; }
 .draw-side-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .draw-panel-backdrop { display: none; }

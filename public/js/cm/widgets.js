@@ -24,10 +24,12 @@ import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import { parseCached, refreshLivePreview } from './decorations.js';
 import { renderMarkdown } from '../markdown.js';
+import { wikiParts } from '../wiki-path.js';
+import { renderNoteContent } from '../note-embed.js';
 
 const DEFAULT_IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 /** 附件类扩展名（非图片也算附件 → 文件条，而不是笔记嵌入卡片） */
-const DEFAULT_ASSET_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|pdf|mp4|mp3|wav|zip|docx?|xlsx?|pptx?|txt|csv)$/i;
+const DEFAULT_ASSET_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|pdf|mp4|mp3|wav|zip|docx?|xlsx?|pptx?|csv)$/i;
 const EMBED_LINE_RE = /^!\[\[([^\]]+)\]\]$/;   // 整行就是一个嵌入
 const TASK_MARK_RE = /^(\s*[-*+]\s+)\[([ xX])\]/;
 const QUOTE_MARK_RE = /^(\s*>\s?)/;
@@ -218,10 +220,12 @@ export function setEmbedWidth(view, pos, width) {
  *   ② 嵌入 StateField 在收到该 effect 时重建装饰 → 新 widget（eq 带上 md）→ DOM 重渲染；
  *   ③ 首次渲染没有内容时显示「加载中…」并触发一次解析（模块级 pending 去重）。 */
 const noteLoaded = StateEffect.define();
+const noteScope = StateField.define({ create: () => ({}), update: (value, tr) => tr.annotation(refreshLivePreview) ? {} : value });
 
 export const noteCache = StateField.define({
   create: () => new Map(),
   update(map, tr) {
+    if (tr.annotation(refreshLivePreview)) return new Map();
     let next = map;
     for (const e of tr.effects) {
       if (e.is(noteLoaded)) { next = new Map(next); next.set(e.value.name, e.value.md); }
@@ -231,8 +235,8 @@ export const noteCache = StateField.define({
 });
 
 class NoteEmbedWidget extends WidgetType {
-  constructor({ name, from, md }) { super(); this.name = name; this.from = from; this.md = md; }
-  eq(o) { return o.name === this.name && o.from === this.from && o.md === this.md; }
+  constructor({ name, from, md, opts, scope }) { super(); this.name = name; this.from = from; this.md = md; this.opts = opts; this.scope = scope; }
+  eq(o) { return o.name === this.name && o.from === this.from && o.md === this.md && o.scope === this.scope && o.opts.readOnly === this.opts.readOnly; }
   get estimatedHeight() { return 140; }
   toDOM(view) {
     const box = document.createElement('div');
@@ -240,18 +244,30 @@ class NoteEmbedWidget extends WidgetType {
     box.contentEditable = 'false';
     box.dataset.name = this.name;
     box.dataset.from = String(this.from);
+    const head = document.createElement('div'); head.className = 'cm-lp-note-title';
+    const parts = wikiParts(this.name), title = document.createElement('span');
+    title.textContent = parts.alias || [parts.target || '当前笔记', parts.heading].filter(Boolean).join(' › '); head.append(title);
+    const open = document.createElement('button'); open.className = 'cm-embed-open'; open.textContent = '↗';
+    open.title = '打开原笔记'; open.setAttribute('aria-label', '打开原笔记');
+    open.onclick = () => this.opts.openNote?.(this.name, this.md); head.append(open);
+    if (!this.opts.readOnly) {
+      const edit = document.createElement('button'); edit.className = 'cm-embed-edit'; edit.textContent = '编辑引用';
+      edit.onclick = () => { view.dispatch({ selection: { anchor: view.state.doc.lineAt(this.from).to } }); view.focus(); };
+      head.append(edit);
+    }
+    box.append(head);
     if (this.md == null) {
-      box.innerHTML = `<div class="cm-lp-note-loading">加载中… ${this.name}</div>`;
+      const loading = document.createElement('div'); loading.className = 'cm-lp-note-loading'; loading.textContent = '加载中…'; box.append(loading);
       this.load?.(view);      // 首次渲染时触发解析（load 由 embedWidgets 注入）
       return box;
     }
-    const head = document.createElement('div');
-    head.className = 'cm-lp-note-title';
-    head.textContent = `📄 ${this.name}`;
+    const result = typeof this.md === 'string' ? { md: this.md } : this.md;
     const body = document.createElement('div');
     body.className = 'cm-lp-note-body';
-    body.appendChild(renderMarkdown(this.md, { tagOffsets: false }));
-    box.append(head, body);
+    if (result.error) { body.textContent = result.error; box.classList.add('cm-embed-error'); }
+    else body.appendChild(renderNoteContent(result, this.opts));
+    body.addEventListener('load', () => view.requestMeasure(), true);
+    box.append(body);
     return box;
   }
   ignoreEvent() { return true; }   // 卡片内容只读（要编辑请点开原笔记）
@@ -262,45 +278,54 @@ class NoteEmbedWidget extends WidgetType {
  *  在 CM6 里不会像 ViewPlugin 那样即时反映到 DOM（实测：create 时默认光标在第 1 行，
  *  会让该行图片被跳过且其后选区重建也不刷新）。块级嵌入恒定显示，保证确定性。 */
 export function embedWidgets(opts = {}) {
-  const pending = new Set();
+  const requests = new WeakMap();
   const load = (view, name) => {
+    const scope = view.state.field(noteScope);
+    if (!requests.has(scope)) requests.set(scope, new Set());
+    const pending = requests.get(scope);
     if (pending.has(name) || !opts.loadNote) return;
     pending.add(name);
-    Promise.resolve(opts.loadNote(name))
-      .then((md) => { pending.delete(name); if (md != null && view.dom.isConnected) view.dispatch({ effects: noteLoaded.of({ name, md }) }); })
-      .catch(() => pending.delete(name));
+    Promise.resolve().then(() => opts.loadNote(name)).catch(() => ({ error: '嵌入加载失败，请检查文件后刷新重试' }))
+      .then(md => {
+        pending.delete(name);
+        if (view.dom.isConnected && view.state.field(noteScope, false) === scope) view.dispatch({ effects: noteLoaded.of({ name, md: md ?? { error: '找不到这篇笔记，请检查引用路径' } }) });
+      });
   };
   const build = (state) => {
     const { blocks } = parseCached(state);
     const cache = state.field(noteCache, false) || null;
     const b = new RangeSetBuilder();
     for (const blk of blocks) {
-      if (blk.type !== 'paragraph' || blk.line !== blk.endLine) continue;
-      const m = EMBED_LINE_RE.exec(blk.text.trim());
+      if (blk.type !== 'paragraph') continue;
+      for (let n = blk.line; n <= blk.endLine; n++) {
+      const line = docLine(state, n);
+      const m = EMBED_LINE_RE.exec(line.text.trim());
       if (!m) continue;
       const emb = parseEmbed(m[1], opts);
-      const line = docLine(state, blk.line);
       if (line.from >= line.to) continue;
       let widget;
       if (emb.isImage || emb.isAsset) {
         widget = new ImageEmbedWidget({ raw: m[1], ...emb }, line.from, opts.onImageClick);
       } else if (opts.loadNote) {
-        widget = new NoteEmbedWidget({ name: emb.name, from: line.from, md: cache?.get(emb.name) ?? null });
-        widget.load = (view) => load(view, emb.name);
+        widget = new NoteEmbedWidget({ name: m[1], from: line.from, md: cache?.get(m[1]) ?? null, opts, scope: state.field(noteScope) });
+        widget.load = (view) => load(view, m[1]);
       } else {
         continue;                    // 既不认附件、又没有解析器 → 保留原始语法
       }
       // 块级 replace 的 range 用 [line.from, line.to)：整行收起成 widget（P1 坑 4）
-      b.addRange(line.from, line.to, Decoration.replace({ widget, block: true }));
+      if (widget instanceof NoteEmbedWidget && !opts.readOnly && cursorLines(state).has(n + 1)) {
+        b.addRange(line.to, line.to, Decoration.widget({ widget, block: true, side: 1 }));
+      } else b.addRange(line.from, line.to, Decoration.replace({ widget, block: true }));
+      }
     }
     return b.finish();
   };
   const embeds = StateField.define({
     create: (state) => build(state),
-    update: (value, tr) => ((tr.docChanged || tr.effects.some((e) => e.is(noteLoaded))) ? build(tr.state) : value),
+    update: (value, tr) => ((tr.docChanged || tr.selection || tr.annotation(refreshLivePreview) || tr.effects.some((e) => e.is(noteLoaded))) ? build(tr.state) : value),
     provide: (f) => EditorView.decorations.from(f),
   });
-  return [noteCache, embeds];
+  return [noteScope, noteCache, embeds];
 }
 
 /* 兼容旧名（P3 探针与文档用它）：现由 embedWidgets 统一处理图片/附件/笔记 */

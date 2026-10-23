@@ -50,6 +50,11 @@ try {
   const cleared=await page.$eval('#draw-canvas',c=>{const d=devicePixelRatio; return [...c.getContext('2d').getImageData(435*d,285*d,1,1).data];});
   assert.ok(cleared[0]>=250 && cleared[1]>=250);
   await page.click('#draw-cancel');
+  const blankHeader = await page.evaluate(() => {
+    const list = document.querySelector('#tablist'), last = list.lastElementChild.getBoundingClientRect(), bounds = list.getBoundingClientRect();
+    return { gap: bounds.right - last.right, region: getComputedStyle(list).getPropertyValue('-webkit-app-region'), tab: getComputedStyle(list.lastElementChild).getPropertyValue('-webkit-app-region'), more: getComputedStyle(document.querySelector('#btn-tab-more')).getPropertyValue('-webkit-app-region') };
+  });
+  assert.ok(blankHeader.gap > 100); assert.equal(blankHeader.region, 'drag'); assert.equal(blankHeader.tab, 'no-drag'); assert.equal(blankHeader.more, 'no-drag');
   await page.evaluate(async () => {for(let i=0;i<22;i++){const p=`很多标签 ${i}.md`;await window.__tracery.Api.createNote(p,'# 标签');await window.__tracery.openNote(p,null,{newTab:true});}});
   const header=()=>page.evaluate(()=>{const r=q=>document.querySelector(q).getBoundingClientRect().toJSON(); return {drag:r('.window-drag-space'),tabs:r('#tablist'),active:r('#tablist .tab.active'),controls:r('.titlebar-right'),region:getComputedStyle(document.querySelector('.window-drag-space')).getPropertyValue('-webkit-app-region'),scroll:document.getElementById('tablist').scrollWidth>document.getElementById('tablist').clientWidth};});
   for(const width of [1440,1024]) {await page.setViewport({width,height:900}); await sleep(150); const h=await header();assert.ok(h.drag.width>=95);assert.equal(h.region,'drag');assert.ok(h.tabs.right<=h.drag.left && h.drag.right<=h.controls.left);assert.ok(h.scroll);assert.ok(h.active.left>=h.tabs.left-1 && h.active.right<=h.tabs.right+1);}

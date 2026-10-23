@@ -22,6 +22,8 @@ import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { createLivePreview, createFenceHiding, refreshLivePreview } from './decorations.js';
 import { editingExtensions, editingKeymap } from './editing.js';
 import { widgetExtensions, setEmbedWidth } from './widgets.js';
+import { wikiCompletion } from './wiki-completion.js';
+import { noteAnchors } from '../note-embed.js';
 
 /** 极简防抖（与 api.js 同语义，避免引擎依赖 api） */
 function debounce(fn, ms) {
@@ -88,6 +90,7 @@ export class CmEditor {
       this.lineNumComp.of(!read && this.showLineNumbers ? lineNumbers() : []),
       history(),
       Prec.high(keymap.of(editingKeymap)),
+      ...wikiCompletion(this.opts.completeWiki),
       keymap.of([...historyKeymap, ...defaultKeymap]),
       markdown({ base: markdownLanguage, addKeymap: false }),
       syntaxHighlighting(defaultHighlightStyle),
@@ -128,6 +131,11 @@ export class CmEditor {
         isImage: this.opts.isImage,
         isAsset: this.opts.isAsset,
         loadNote: this.opts.loadNote,
+        fileUrl: this.opts.fileUrl,
+        resolveFile: this.opts.resolveFile,
+        resolveLink: this.opts.resolveLink,
+        openLink: this.opts.openEmbedLink,
+        openNote: this.opts.openEmbedNote,
         onImageClick: this.opts.onImageClick,
         // 双链点击：解析得到就跳过去；解析不到（这篇笔记还不存在）→ 交给 onCreateWikilink
         // 走「问一句就当场创建」那条路（demo-vault/双链与反链.md 承诺的行为，反链面板同口径）。
@@ -398,6 +406,11 @@ export class CmEditor {
     const text = (headingText || '').trim();
     if (!text) return;
     const doc = this.view.state.doc;
+    if (text.startsWith('^')) {
+      const block = noteAnchors(doc.toString()).find(item => item.anchor === text);
+      if (block) this.scrollToLine(block.line + 1);
+      return;
+    }
     for (let n = 1; n <= doc.lines; n++) {
       const line = doc.line(n);
       const m = /^#{1,6}\s+(.*)$/.exec(line.text);

@@ -21,7 +21,8 @@ import { initPwa } from './pwa.js';
 import { rememberDraft, clearSavedDraft, recoverDraft } from './recovery.js';
 import { VirtualTree, flattenTree } from './virtual-tree.js';
 import { FILE_SORTS, validSort, sortTree } from './file-sort.js';
-import { noteIndex, resolveNote, missingNotePath } from './wiki-path.js';
+import { noteIndex, resolveNote, missingNotePath, normalizeNotePath, wikiParts } from './wiki-path.js';
+import { noteAnchors, selectNoteContent } from './note-embed.js';
 import { createSidebarContext, initLibraryTabs, initPhoneAccess, copyLocalText } from './sidebar.js';
 import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel } from './hotkeys.js';
 import { toggleBold, toggleItalic, toggleStrike, insertWikilink } from './cm/editing.js';
@@ -360,6 +361,54 @@ function resolveVaultFile(name) {
   const want = name.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
   const leaf = want.split('/').pop();
   return state.fileLookup.get(want) || state.fileLookup.get(leaf) || null;
+}
+
+function resolveEmbeddedFile(name, from) {
+  const folder = from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : '';
+  const raw = name.replace(/\\/g, '/');
+  const candidate = normalizeNotePath(`${folder}/${raw}`);
+  if (candidate && state.files.has(candidate)) return candidate;
+  if (/^\.{1,2}\//.test(raw)) return null;
+  return resolveVaultFile(raw);
+}
+
+async function loadEmbeddedNote(raw) {
+  const from = editor?.path || state.currentPath || '';
+  const path = state.noteIndex && resolveNote(raw, from, state.noteIndex);
+  if (!path) return { error: '找不到这篇笔记，请检查引用路径或是否有同名笔记' };
+  try {
+    const content = path === editor.path ? editor.getContent() : (await Api.note(path)).content;
+    return { path, ...selectNoteContent(content, wikiParts(raw).heading) };
+  } catch { return { path, error: '笔记读取失败，请检查文件后刷新重试' }; }
+}
+
+async function completeWiki(query) {
+  const hash = query.indexOf('#'), caret = query.indexOf('^');
+  const anchorAt = hash >= 0 ? hash : caret;
+  if (anchorAt >= 0) {
+    const target = query.slice(0, anchorAt), part = query.slice(anchorAt + 1);
+    const path = state.noteIndex && resolveNote(target || '#', editor.path || '', state.noteIndex);
+    if (!path) return [];
+    try {
+      const content = path === editor.path ? editor.getContent() : (await Api.note(path)).content;
+      const needle = (hash < 0 ? '^' : '') + part;
+      return noteAnchors(content).filter(item => (needle.startsWith('^') === item.anchor.startsWith('^')) && (item.anchor + item.label).toLowerCase().includes(needle.toLowerCase()))
+        .slice(0, 60).map(item => ({ label: item.anchor, target: `${target}#${item.anchor}`, detail: item.anchor.startsWith('^') ? item.label : '标题', type: 'text' }));
+    } catch { return []; }
+  }
+  return [...state.files.keys()].filter(path => path.toLowerCase().includes(query.toLowerCase()))
+    .sort((a, b) => Number(!state.noteIndex?.exact.has(a)) - Number(!state.noteIndex?.exact.has(b)) || a.localeCompare(b, 'zh-CN', { numeric: true }))
+    .slice(0, 80).map(path => ({ label: path.replace(/\.(md|markdown|txt)$/i, ''), detail: state.noteIndex?.exact.has(path) ? '笔记' : '附件', type: 'text' }));
+}
+
+function openEmbeddedLink(raw, from = editor.path) {
+  const path = state.noteIndex && resolveNote(raw, from, state.noteIndex);
+  if (path) openNote(path, wikiParts(raw).heading, { newTab: true });
+  else {
+    const file = resolveEmbeddedFile(wikiParts(raw).target, from);
+    if (file) window.open(Api.fileUrl(file), '_blank', 'noopener');
+    else toast('找不到引用的笔记或附件');
+  }
 }
 
 /* ================= 文件树 ================= */
@@ -1866,19 +1915,17 @@ function highlightPalette(i) {
  * 内核：CodeMirror 6（行级真实文本 + 装饰）。 */
 editor = new CmEditor({
   liveEl: $('editor-live'),
-  resolveLink: (target) => {
-    return state.noteIndex ? resolveNote(target, editor?.path || state.currentPath || '', state.noteIndex) : null;
+  resolveLink: (target, from) => {
+    return state.noteIndex ? resolveNote(target, from ?? editor?.path ?? state.currentPath ?? '', state.noteIndex) : null;
   },
   // 点未解析的双链 → 问一句就当场创建并打开（见 createMissingNote）
   onCreateWikilink: (raw) => createMissingNote(raw),
-  resolveFile: (name) => resolveVaultFile(name),
+  resolveFile: (name, from) => from ? resolveEmbeddedFile(name, from) : resolveVaultFile(name),
   fileUrl: (path) => Api.fileUrl(path),
-  // ![[笔记]] 嵌入卡片的内容解析（与 editor.js 的 _renderEmbed 同口径：截 3000 字）
-  loadNote: async (name) => {
-    const p = state.noteIndex ? resolveNote(name, editor?.path || state.currentPath || '', state.noteIndex) : null;
-    if (!p) return null;
-    try { const { content } = await Api.note(p); return (content || '').slice(0, 3000); } catch { return null; }
-  },
+  loadNote: loadEmbeddedNote,
+  completeWiki,
+  openEmbedLink: openEmbeddedLink,
+  openEmbedNote: (raw, result) => result?.path ? openNote(result.path, wikiParts(raw).heading, { newTab: true }) : openEmbeddedLink(raw),
   // 附件落盘（与 editor.js 的 _saveAssetFile 同口径；CM 内核把 File 递出来，这里存好后回插）
   saveAsset: async (file) => {
     if (file.size > 30 * 1024 * 1024) { toast('文件超过 30MB，无法作为附件存入'); return { ok: false }; }
@@ -2361,6 +2408,7 @@ function bindGlobalEvents() {
 /* ================= WebSocket 同步 ================= */
 function onWsMessage(msg) {
   if (msg.type === 'fs-change') {
+    editor.refreshDecorations();
     const paths = msg.paths || [];
     const affectsCurrent = state.currentPath && paths.some((p) => p === state.currentPath || p === '*' || p === state.currentPath + '.md');
     if (msg.treeChanged !== false || !fileSort.startsWith('name')) refreshTree().then(() => pruneTabs());

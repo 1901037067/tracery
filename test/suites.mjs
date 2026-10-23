@@ -1,5 +1,6 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['embeds-colors', 'embeds-colors-test.mjs', '笔记嵌入、自动补全与绘图自定义颜色'],
   ['path-tabs', 'path-selection-tabs-test.mjs', '双链路径、可见框选与标签拖窗分区'],
   ['workspace', 'workspace-tools-test.mjs', '排序、右键目标、流畅图谱与悬浮画板'],
   ['icons', 'icons-test.mjs', '品牌图标与安装入口', true],

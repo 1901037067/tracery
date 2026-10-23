@@ -31,6 +31,67 @@ const ROTATE_OFFSET = 26;     // 旋转柄离形状顶边的屏幕距离（px）
 const ROTATE_SNAP = Math.PI / 12;   // 按住 Shift 时的 15° 吸附
 const DRAFTS_KEY = 'tracery.drawDrafts';   // 草稿箱存本地 localStorage（不进仓库、不同步）
 const DRAFT_LIMIT = 30;
+const RECENT_COLORS_KEY = 'tracery.draw.recentColors';
+const COLOR_LIMIT = 8;
+const normalizeColor = value => {
+  const hex = String(value || '').trim().replace(/^#/, '');
+  if (/^[0-9a-f]{3}$/i.test(hex)) return '#' + [...hex].map(c => c + c).join('').toLowerCase();
+  return /^[0-9a-f]{6}$/i.test(hex) ? '#' + hex.toLowerCase() : null;
+};
+
+function recentColors() {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_COLORS_KEY) || '[]');
+    return Array.isArray(list) ? [...new Set(list.map(normalizeColor).filter(Boolean))].slice(0, COLOR_LIMIT) : [];
+  } catch { return []; }
+}
+
+function rememberColor(color) {
+  const value = normalizeColor(color);
+  if (!value) return;
+  try { localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify([value, ...recentColors().filter(c => c !== value)].slice(0, COLOR_LIMIT))); }
+  catch { toast('最近颜色未能保存到本机'); }
+  renderRecentColors();
+}
+
+function renderRecentColors() {
+  const colors = recentColors();
+  propsEl.querySelectorAll('.draw-color-recent').forEach(row => {
+    row.replaceChildren(); row.hidden = !colors.length;
+    const label = document.createElement('span'); label.textContent = '最近'; row.append(label);
+    for (const color of colors) {
+      const button = document.createElement('button');
+      button.className = 'draw-recent-swatch'; button.dataset.color = color;
+      button.style.setProperty('--sw', color); button.title = color.toUpperCase();
+      button.setAttribute('aria-label', `最近颜色 ${color.toUpperCase()}`); row.append(button);
+    }
+  });
+}
+
+function colorControls(kind, colors) {
+  const label = kind === 'stroke' ? '描边' : '图形背景';
+  return `<div class="dp-group draw-color-group" data-color-kind="${kind}">
+    <div class="dp-label">${label}</div>
+    <div class="dp-row draw-color-presets">
+      ${kind === 'background' ? '<button class="draw-bg draw-bg-none" data-color="transparent" title="透明" aria-label="透明背景"></button>' : ''}
+      ${colors.map(color => `<button class="${kind === 'stroke' ? 'draw-swatch' : 'draw-bg'}" data-color="${color}" title="${color}" aria-label="${label} ${color}" style="--sw:${color}"></button>`).join('')}
+    </div>
+    <div class="draw-custom-color">
+      <input type="color" class="draw-color-picker" aria-label="${label}自定义选色" title="打开${label}选色板" />
+      <input type="text" class="draw-color-hex" aria-label="${label}色号" placeholder="#RRGGBB" maxlength="7" spellcheck="false" />
+      <button class="draw-color-apply" title="应用${label}色号">应用</button>
+    </div>
+    <div class="draw-color-recent" aria-label="${label}最近颜色" hidden></div>
+  </div>`;
+}
+
+function chooseColor(kind, value) {
+  const color = value === 'transparent' && kind === 'background' ? value : normalizeColor(value);
+  if (!color) return false;
+  applyStyle(kind === 'stroke' ? { stroke: color } : { background: color, fillStyle: color === 'transparent' ? 'none' : (style.fillStyle === 'none' ? 'hachure' : style.fillStyle) });
+  rememberColor(color);
+  return true;
+}
 
 const TOOLS = [
   ['select', '选择', 'V'],
@@ -1127,6 +1188,12 @@ function syncStyleUI() {
   propsEl.querySelectorAll('.draw-dash').forEach((b) => b.classList.toggle('active', b.dataset.dash === style.strokeStyle));
   const bg = propsEl.querySelector('.draw-bg-none');
   if (bg) bg.classList.toggle('active', style.background === 'transparent');
+  propsEl.querySelectorAll('.draw-color-group').forEach(group => {
+    const color = normalizeColor(style[group.dataset.colorKind]);
+    group.querySelector('.draw-color-picker').value = color || '#ffffff';
+    const hex = group.querySelector('.draw-color-hex');
+    if (document.activeElement !== hex) hex.value = color?.toUpperCase() || '';
+  });
 }
 
 function updateZoomLabel() {
@@ -1271,19 +1338,8 @@ function ensure() {
           </div>
         </div>
         <div class="draw-element-style">
-        <div class="dp-group">
-          <div class="dp-label">描边</div>
-          <div class="dp-row">
-            ${STROKE_COLORS.map((c, i) => `<button class="draw-swatch${i === 0 ? ' active' : ''}" data-color="${c}" title="${c}" style="--sw:${c}"></button>`).join('')}
-          </div>
-        </div>
-        <div class="dp-group">
-          <div class="dp-label">图形背景</div>
-          <div class="dp-row">
-            <button class="draw-bg draw-bg-none active" data-color="transparent" title="透明"></button>
-            ${BG_COLORS.map((c) => `<button class="draw-bg" data-color="${c}" title="${c}" style="--sw:${c}"></button>`).join('')}
-          </div>
-        </div>
+        ${colorControls('stroke', STROKE_COLORS)}
+        ${colorControls('background', BG_COLORS)}
         <div class="dp-group">
           <div class="dp-label">填充</div>
           <div class="dp-row">
@@ -1395,14 +1451,23 @@ function ensure() {
   overlay.querySelector('#draw-zoom-out').onclick = () => zoomBy(1 / 1.15);
   overlay.querySelector('#draw-zoom-val').onclick = resetView;
 
-  propsEl.querySelectorAll('.draw-swatch').forEach((b) => {
-    b.onclick = () => applyStyle({ stroke: b.dataset.color });
-  });
-  propsEl.querySelectorAll('.draw-bg').forEach((b) => {
-    b.onclick = () => {
-      const c = b.dataset.color;
-      applyStyle({ background: c, fillStyle: c === 'transparent' ? 'none' : (style.fillStyle === 'none' ? 'hachure' : style.fillStyle) });
+  renderRecentColors();
+  propsEl.querySelectorAll('.draw-color-group').forEach(group => {
+    const kind = group.dataset.colorKind, hex = group.querySelector('.draw-color-hex');
+    group.onclick = event => {
+      const button = event.target.closest('button[data-color]');
+      if (button) chooseColor(kind, button.dataset.color);
     };
+    group.querySelector('.draw-color-picker').onchange = event => chooseColor(kind, event.target.value);
+    const applyHex = () => {
+      const color = normalizeColor(hex.value);
+      hex.setCustomValidity(color ? '' : '请输入 3 位或 6 位十六进制色号，例如 #1971C2');
+      if (!color) { hex.reportValidity(); return; }
+      chooseColor(kind, color); hex.value = color.toUpperCase();
+    };
+    hex.oninput = () => hex.setCustomValidity('');
+    hex.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); applyHex(); } };
+    group.querySelector('.draw-color-apply').onclick = applyHex;
   });
   propsEl.querySelectorAll('.draw-fill').forEach((b) => {
     b.onclick = () => applyStyle({ fillStyle: b.dataset.fill });

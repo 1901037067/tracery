@@ -4,7 +4,7 @@
 .titlebar-right { flex: 0 0 auto; }
 .window-drag-space { flex: 0 0 clamp(96px, 12vw, 168px); height: 100%; align-self: stretch; display: grid; place-items: center; -webkit-app-region: drag; user-select: none; }
 .window-drag-space::after { content: ''; width: 24px; height: 3px; border-radius: 3px; background: var(--hairline-strong); opacity: .65; pointer-events: none; }
-.tablist { gap: 4px; align-items: center; padding: 5px 4px; -webkit-app-region: no-drag; }
+.tablist { gap: 4px; align-items: center; padding: 5px 4px; -webkit-app-region: drag; }
 .tablist .tab { flex: 0 0 168px; min-width: 108px; max-width: 180px; height: 34px; padding: 0 8px 0 12px; border: 1px solid transparent; border-radius: 8px; }
 .tablist .tab:hover { background: var(--bg-fill); color: var(--text-primary); }
 .tablist .tab.active { background: var(--bg-sheet); border-color: var(--hairline); box-shadow: 0 1px 3px rgba(0,0,0,.05); }
