@@ -7,7 +7,7 @@ import { Api, toast, debounce, fuzzyMatch, connectWs } from './api.js';
 import { CmEditor } from './cm/engine.js';
 import { ForceGraph } from './graph.js';
 import {
-  initSettings, updateSettings, getSettings, openSettings, close as closeSettings,
+  initSettings, receiveSettings, updateSettings, getSettings, openSettings, close as closeSettings,
   isOpen as settingsIsOpen, onApplied, ACCENTS, resolveAssetDir,
 } from './settings.js';
 import { onSyncStatus } from './sync-ui.js';
@@ -27,6 +27,8 @@ import { createSidebarContext, initLibraryTabs, initPhoneAccess, copyLocalText }
 import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel } from './hotkeys.js';
 import { toggleBold, toggleItalic, toggleStrike, insertWikilink } from './cm/editing.js';
 import { GROUP_COLORS, isBlankTab, newBlankKey, groupForTab, tidyTabGroups, moveTabToGroup, renameTabKeys } from './tab-workspace.js';
+import { createSavedGroups } from './saved-groups.js';
+import { DEFAULT_LAYOUT, LAYOUT_FIELDS } from './layout-settings.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -78,6 +80,10 @@ const state = {
 let editor = null;
 let sidebars = null;
 let libraryTabs = null;
+const savedGroups = createSavedGroups({ state, openNote,
+  prepare: async () => suspendDraw() && await editor.flush(), activate: activateTab,
+  changed: () => { renderTabs(); saveTabsState(); },
+});
 
 /* ================= 启动 ================= */
 async function boot() {
@@ -91,8 +97,9 @@ async function boot() {
     state.settings = s;
     state.theme = document.documentElement.dataset.theme;
     state.themeName = s.themeName;
-    editor.setAutosave(s.autosave);
-    editor.setLineNumbers(s.lineNumbers !== false);
+    if (editor.autosaveMs !== s.autosave) editor.setAutosave(s.autosave);
+    if (editor.showLineNumbers !== (s.lineNumbers !== false)) editor.setLineNumbers(s.lineNumbers !== false);
+    editor.view.requestMeasure();
     refreshShortcutHints();
   });
   editor.setAutosave(state.settings?.autosave ?? 900);
@@ -473,6 +480,7 @@ function renderTree(rebuild = false) {
 // 收藏与最近打开按仓库隔离；旧全局数据只迁移到第一次接续使用的仓库。
 function shortcutsKey() { return `tracery.shortcuts:${state.vault?.root || ''}`; }
 function loadShortcuts() {
+  savedGroups.load();
   fileSort = validSort(localStorage.getItem(`tracery.fileSort:${state.vault.root}`)); sortedTree = null;
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(shortcutsKey()) || 'null'); } catch { /* 损坏时使用空列表 */ }
@@ -486,6 +494,7 @@ function loadShortcuts() {
 }
 function saveShortcuts() { localStorage.setItem(shortcutsKey(), JSON.stringify({ pinned: [...state.pinned], recent: state.recent })); }
 function renderShortcuts() {
+  savedGroups.render();
   for (const [id, paths, kind] of [['pinned-list', [...state.pinned], 'pinned'], ['recent-notes', state.recent, 'recent']]) {
     const box = $(id); box.replaceChildren();
     const available = paths.filter(p => state.files.has(p));
@@ -526,6 +535,7 @@ function pushRecent(relPath) {
 
 function renameShortcuts(oldPath, newPath) {
   const map = p => p === oldPath ? newPath : p.startsWith(`${oldPath}/`) ? `${newPath}${p.slice(oldPath.length)}` : p;
+  savedGroups.rename(map);
   state.pinned = new Set([...state.pinned].map(map)); state.recent = state.recent.map(map); saveShortcuts();
 }
 
@@ -1705,6 +1715,7 @@ function showGroupEditor(group, x, y) {
   menu.append(colors);
   const action = (text, callback) => { const button = document.createElement('button'); button.textContent = text; button.onclick = () => { closeCtxMenu(); callback(); }; menu.append(button); };
   action('在分组中新建标签页', async () => { await openBlankTab(); const key = state.tabs[state.activeTab]; if (isBlankTab(key)) { moveTabToGroup(state, key, group.id); renderTabs(); saveTabsState(); } });
+  action(savedGroups.has(group.id) ? '更新保存的分组' : '保存分组', () => savedGroups.save(group));
   action('取消分组', () => { state.tabGroups = state.tabGroups.filter(item => item !== group); renderTabs(); saveTabsState(); });
   action('关闭分组', () => closeTabGroup(group));
   document.body.append(menu);
@@ -2298,18 +2309,8 @@ async function editDrawing(rel) {
 function initResizers() {
   const left = $('sidebar');
   const right = $('sidebar-right');
-  const MIN = 190;
-  const MAX = 640;
-
-  const apply = (el, key) => {
-    if (!el) return;
-    const v = Number(lsGet(key));
-    if (v >= MIN && v <= MAX) el.style.width = `${v}px`;
-  };
-  apply(left, 'tracery.ui.sidebarW');
-  apply(right, 'tracery.ui.rightW');
-
-  const bind = (handle, panel, key, def) => {
+  const bind = (handle, panel, key) => {
+    const { min: MIN, max: MAX } = LAYOUT_FIELDS[key];
     if (!handle || !panel) return;
     handle.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -2320,25 +2321,25 @@ function initResizers() {
       document.body.classList.add('resizing');
       const move = (ev) => {
         const w = Math.min(MAX, Math.max(MIN, startW + (ev.clientX - startX) * sign));
-        panel.style.width = `${Math.round(w)}px`;
+        updateSettings({ layout: { [key]: Math.round(w) } });
       };
       const up = () => {
         handle.classList.remove('dragging');
         document.body.classList.remove('resizing');
-        localStorage.setItem(key, String(Math.round(panel.getBoundingClientRect().width)));
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
     });
     handle.addEventListener('dblclick', () => {
-      panel.style.width = `${def}px`;
-      localStorage.removeItem(key);
+      updateSettings({ layout: { [key]: DEFAULT_LAYOUT[key] } });
     });
   };
-  bind($('resizer-left'), left, 'tracery.ui.sidebarW', 272);
-  bind($('resizer-right'), right, 'tracery.ui.rightW', 296);
+  bind($('resizer-left'), left, 'leftWidth');
+  bind($('resizer-right'), right, 'rightWidth');
 }
 
 /* 快捷键的动作与标题使用同一份配置；不接管输入框、弹窗或画板自己的编辑按键。 */
@@ -2368,7 +2369,7 @@ function refreshShortcutHints() {
     hint.textContent = commandKeyLabel(hint.dataset.emptyShortcut);
     hint.hidden = !hint.textContent;
   }
-  for (const [element, command] of Object.entries({ 'btn-settings': 'settings', 'btn-new-note-2': 'newNote', 'btn-draw': 'draw', 'btn-toggle-left': 'leftSidebar', 'btn-toggle-right': 'rightSidebar' })) $(element).title = commandLabel(command);
+  for (const [element, command] of Object.entries({ 'btn-command': 'palette', 'btn-settings': 'settings', 'btn-new-note-2': 'newNote', 'btn-draw': 'draw', 'btn-toggle-left': 'leftSidebar', 'btn-toggle-right': 'rightSidebar' })) $(element).title = commandLabel(command);
   document.querySelector('.ribbon-btn[data-panel="search"]').title = commandLabel('search');
   for (const close of document.querySelectorAll('#tablist .tab-close')) close.title = commandLabel('closeTab');
 }
@@ -2519,6 +2520,7 @@ function bindGlobalEvents() {
 
   // 绘图
   $('btn-draw').onclick = () => openDrawPanel();
+  $('btn-command').onclick = openPalette;
   $('btn-mode').onclick = () => editor.toggleMode();
   $('btn-settings').onclick = () => { if (isCompact()) closeMobilePanels(); openSettings(); };
 
@@ -2646,7 +2648,7 @@ function onWsMessage(msg) {
   } else if (msg.type === 'settings' && msg.settings) {
     // 其他窗口改了设置：同步应用（幂等）
     const cur = getSettings();
-    if (JSON.stringify(cur) !== JSON.stringify(msg.settings)) initSettings(msg.settings);
+    if (JSON.stringify(cur) !== JSON.stringify(msg.settings)) receiveSettings(msg.settings);
   } else if (msg.type === 'sync-status' && msg.status) {
     onSyncStatus(msg.status);
   }

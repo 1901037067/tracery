@@ -344,14 +344,14 @@ body.electron .electron-only { display: inline-flex !important; }
 
 /* --- 侧栏 --- */
 .sidebar {
-  width: 272px;
+  width: min(var(--sidebar-left-width, 272px), max(190px, calc((100vw - 420px) / 2)));
   display: flex; flex-direction: column;
   min-height: 0; flex-shrink: 0;
   /* 背景透明：底色由 .layout 统一下发（见上方注释），避免半透明色叠两层 */
   background: transparent;
   transition: width var(--dur) var(--ease);
 }
-.sidebar-right { width: 296px; }
+.sidebar-right { width: min(var(--sidebar-right-width, 296px), max(190px, calc((100vw - 420px) / 2))); }
 /* !important：拖拽过栏宽后内联 style.width 会覆盖普通规则，折叠就失效了 */
 .sidebar.collapsed { width: 0 !important; overflow: hidden; }
 
@@ -667,7 +667,7 @@ body.electron .electron-only { display: inline-flex !important; }
   margin: 10px 0 10px 0;
   padding: 26px 48px 40vh;
   caret-color: var(--accent);
-  line-height: 1.78;
+  line-height: var(--editor-line-height, 1.78);
   font-size: var(--editor-font-size, 16px);
 }
 .editor > * { max-width: var(--editor-width, 720px); margin-left: auto; margin-right: auto; }

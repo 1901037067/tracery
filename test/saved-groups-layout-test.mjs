@@ -1,0 +1,137 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { launchBrowser } from './browser.mjs';
+
+const ROOT = path.resolve(import.meta.dirname, '..'), HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tracery-saved-groups-'));
+const VAULT = path.join(HOME, 'vault'), OTHER = path.join(HOME, 'other'), OUT = path.join(ROOT, 'dist/saved-groups-layout');
+for (const dir of [VAULT, OTHER, OUT]) fs.mkdirSync(dir, { recursive: true });
+for (const name of ['第一篇', '第二篇', '第三篇']) fs.writeFileSync(path.join(VAULT, name + '.md'), `# ${name}\n\n用于检查布局的正文。\n\n下一段内容。`);
+fs.writeFileSync(path.join(OTHER, '第一篇.md'), '# 另一个仓库');
+fs.writeFileSync(path.join(HOME, 'tracery.config.json'), JSON.stringify({ currentVault: VAULT, settings: { startup: 'empty', themeMode: 'light', accent: 'pink' } }));
+const PORT = 9639, BASE = `http://localhost:${PORT}`, sleep = ms => new Promise(r => setTimeout(r, ms));
+const server = spawn(process.execPath, [path.join(ROOT, 'server/server.js')], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME }, windowsHide: true, stdio: 'pipe' });
+let browser;
+try {
+  for (let i = 0; i < 80; i++) { try { if ((await fetch(BASE + '/api/state')).ok) break; } catch {} await sleep(200); }
+  browser = await launchBrowser({ width: 1440, height: 900 }); const page = await browser.newPage(), errors = [];
+  page.setDefaultTimeout(10000); page.on('pageerror', e => errors.push(e.message));
+  await page.goto(BASE, { waitUntil: 'networkidle0' });
+  // 旧宽度仅首次迁移；新布局设置存在后不再被旧键覆盖。
+  await page.evaluate(() => { localStorage.setItem('tracery.ui.sidebarW', '350'); localStorage.setItem('tracery.ui.rightW', '310'); });
+  await page.reload({ waitUntil: 'networkidle0' });
+  await page.waitForFunction(async () => (await (await fetch('/api/state')).json()).settings.layout?.leftWidth === 350);
+  assert.equal(await page.$eval('#sidebar', el => Math.round(el.getBoundingClientRect().width)), 350);
+  await page.click('#btn-command'); await page.waitForSelector('#palette:not([hidden])');
+  assert.equal(await page.$eval('.ribbon-btn[data-panel="files"]', el => el.classList.contains('active')), true);
+  await page.type('#palette-input', '打开设置'); await page.keyboard.press('Enter');
+  await page.waitForSelector('#settings:not([hidden])'); await page.click('#set-done');
+  console.log('PASS 命令按钮复用面板并可执行命令');
+  const open = name => page.evaluate(name => window.__tracery.openNote(name + '.md', null, { newTab: true }), name);
+  const menu = label => page.evaluate(label => { const el = [...document.querySelectorAll('.context-menu button')].find(el => el.textContent.trim() === label); if (!el) throw new Error('缺少菜单：' + label); el.click(); }, label);
+  const context = async name => { const index = await page.evaluate(name => window.__tracery.state.tabs.indexOf(name + '.md'), name); await page.click(`.tab[data-index="${index}"]`, { button: 'right' }); };
+  const groupMenu = async id => { await page.click(`.tab-group-header[data-group="${id}"]`, { button: 'right' }); await page.waitForSelector('.tab-group-editor input'); };
+  const snapshot = () => page.evaluate(() => JSON.parse(JSON.stringify({ tabs: window.__tracery.state.tabs, groups: window.__tracery.state.tabGroups })));
+  await open('第一篇'); await open('第二篇');
+  await context('第一篇'); await menu('添加到新分组');
+  await page.$eval('.tab-group-editor input', el => el.select()); await page.type('.tab-group-editor input', '课堂资料');
+  await page.click('[data-color="teal"]'); await page.click('.tab-group-editor input'); await page.keyboard.press('Enter');
+  const id = (await snapshot()).groups[0].id;
+  await context('第二篇'); await menu('移入「课堂资料」');
+  await groupMenu(id); await menu('保存分组');
+  await page.click('#tab-groups'); await page.click('.saved-group summary');
+  assert.equal(await page.$$eval('.saved-group-note', els => els.length), 2);
+  await page.screenshot({ path: path.join(OUT, 'saved-groups-light.png') });
+  await groupMenu(id); await menu('关闭分组');
+  await page.waitForFunction(() => window.__tracery.state.tabs.length === 0);
+  await page.click('.saved-group-open'); await page.waitForFunction(() => window.__tracery.state.tabs.length === 2 && window.__tracery.state.currentPath === '第一篇.md');
+  let s = await snapshot(); assert.equal(s.groups[0].color, 'teal'); assert.equal(s.groups[0].name, '课堂资料');
+  await page.click('.saved-group-open'); await sleep(150); assert.equal((await snapshot()).tabs.length, 2);
+  await page.click('.saved-group-note[data-path="第二篇.md"]'); await page.waitForFunction(() => window.__tracery.state.currentPath === '第二篇.md');
+  await page.reload({ waitUntil: 'networkidle0' });
+  assert.equal(await page.$eval('.saved-group-name', el => el.textContent), '课堂资料');
+  console.log('PASS 保存名称、颜色和笔记，关闭后恢复、单篇打开、刷新持久化且重复打开不复制标签');
+  // 不偷走另一组的标签；空白页不保存进快照。
+  await context('第二篇'); await menu('添加到新分组'); await page.keyboard.press('Enter');
+  const otherId = (await snapshot()).groups.find(g => g.id !== id).id;
+  await groupMenu(id); await menu('关闭分组'); await page.click('.saved-group-open');
+  await page.waitForFunction(() => window.__tracery.state.tabs.length === 2);
+  s = await snapshot(); assert.ok(s.groups.find(g => g.id === otherId).tabs.includes('第二篇.md'));
+  assert.ok(!s.groups.find(g => g.id === id).tabs.includes('第二篇.md'));
+  await page.click('#btn-tab-new');
+  const blankIndex = (await snapshot()).tabs.length - 1;
+  await page.click(`.tab[data-index="${blankIndex}"]`, { button: 'right' }); await menu('移入「课堂资料」');
+  await groupMenu(id); await menu('更新保存的分组');
+  assert.equal(await page.$$eval('.saved-group-note', els => els.length), 1);
+  // 手工重命名跟随新路径；外部删除留可识别的失效条目。
+  await page.click('#tab-library');
+  await page.click('#file-tree [data-path="第一篇.md"]', { button: 'right' }); await menu('重命名');
+  await page.waitForSelector('.dialog-input'); await page.$eval('.dialog-input', el => { el.value = '改名后'; }); await page.click('.dialog-ok');
+  await page.waitForFunction(() => window.__tracery.state.files.has('改名后.md'));
+  await page.click('#tab-groups');
+  assert.ok(await page.$('.saved-group-note[data-path="改名后.md"]'));
+  await page.evaluate(() => window.__tracery.Api.remove('改名后.md'));
+  await page.waitForFunction(() => document.querySelector('.saved-group-note')?.disabled === true);
+  console.log('PASS 分组快照更新、排除空白标签、保留其他组归属，重命名跟随与失效条目提示');
+  const switchVault = async root => {
+    await page.evaluate(root => window.__tracery.Api.openVault(root), root);
+    await page.waitForFunction(root => window.__tracery.state.vault.root === root, {}, root); await sleep(300);
+  };
+  await switchVault(OTHER); assert.equal(await page.$$('.saved-group').then(els => els.length), 0);
+  await switchVault(VAULT); assert.equal(await page.$$('.saved-group').then(els => els.length), 1);
+  console.log('PASS 已保存的分组按仓库隔离');
+  await page.evaluate(() => window.__tracery.Api.saveSettings({ startup: 'last' }));
+  await open('第三篇');
+  const original = await page.evaluate(() => window.__tracery.editor.getContent());
+  await page.click('#btn-settings'); await page.click('.settings-nav [data-pane="layout"]');
+  const range = (key, value) => page.$eval(`input[data-key="layout.${key}"]`, (el, value) => { el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); }, value);
+  // 第一项已经在提交时继续改其余项，旧广播不能覆盖新滑块值。
+  let delayed = false, signal;
+  const started = new Promise(resolve => { signal = resolve; });
+  await page.setRequestInterception(true);
+  const intercept = async request => {
+    if (!delayed && request.method() === 'POST' && request.url().endsWith('/api/settings')) { delayed = true; signal(); await sleep(650); }
+    await request.continue();
+  };
+  page.on('request', intercept);
+  await range('leftWidth', 380); await started;
+  await range('rightWidth', 320); await range('lineHeight', 2.1); await range('contentPadding', 45);
+  await page.waitForFunction(async () => { const s = (await (await fetch('/api/state')).json()).settings.layout; return s.leftWidth === 380 && s.rightWidth === 320 && s.lineHeight === 2.1 && s.contentPadding === 45; });
+  await page.setRequestInterception(false); page.off('request', intercept);
+  const metrics = await page.evaluate(() => ({ left: Math.round(document.getElementById('sidebar').getBoundingClientRect().width), right: Math.round(document.getElementById('sidebar-right').getBoundingClientRect().width), line: getComputedStyle(document.querySelector('.cm-scroller')).lineHeight, padding: getComputedStyle(document.querySelector('.cm-content')).paddingTop }));
+  assert.equal(metrics.left, 380); assert.equal(metrics.right, 320); assert.equal(metrics.padding, '45px'); assert.equal(metrics.line, '33.6px');
+  await page.screenshot({ path: path.join(OUT, 'layout-settings-light.png') });
+  await page.click('#set-done'); await page.reload({ waitUntil: 'networkidle0' });
+  assert.equal(await page.$eval('#sidebar', el => Math.round(el.getBoundingClientRect().width)), 380);
+  // 鼠标拖宽、折叠/展开和双击复位走同一份设置。
+  const handle = await page.$eval('#resizer-left', el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + 200 }; });
+  await page.mouse.move(handle.x, handle.y); await page.mouse.down(); await page.mouse.move(handle.x + 30, handle.y, { steps: 8 }); await page.mouse.up();
+  await page.waitForFunction(async () => (await (await fetch('/api/state')).json()).settings.layout.leftWidth === 410);
+  await page.click('#btn-toggle-left'); await sleep(250); assert.equal(await page.$eval('#sidebar', el => el.getBoundingClientRect().width), 0);
+  await page.click('#btn-toggle-left'); await sleep(250); assert.equal(await page.$eval('#sidebar', el => Math.round(el.getBoundingClientRect().width)), 410);
+  await page.click('#resizer-left', { clickCount: 2 }); await sleep(250);
+  await page.click('#btn-settings'); await page.click('.settings-nav [data-pane="layout"]');
+  assert.equal(await page.$eval('input[data-key="layout.leftWidth"]', el => el.value), '272');
+  await page.click('#set-reset-layout');
+  await page.waitForFunction(async () => (await (await fetch('/api/state')).json()).settings.layout.lineHeight === 1.78);
+  assert.equal((await (await fetch(BASE + '/api/state')).json()).settings.accent, 'pink');
+  assert.equal(await page.evaluate(() => window.__tracery.editor.getContent()), original);
+  console.log('PASS 布局即时生效、连续多项合并保存、刷新恢复、真实拖动同步、折叠与独立重置');
+  await page.click('#set-done');
+  await page.evaluate(() => window.__tracery.Api.saveSettings({ themeMode: 'dark', layout: { leftWidth: 9999, rightWidth: -1, lineHeight: 'bad', contentPadding: 999 } }));
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark'); await sleep(250);
+  const validated = (await (await fetch(BASE + '/api/state')).json()).settings.layout;
+  assert.deepEqual(validated, { leftWidth: 640, rightWidth: 190, lineHeight: 1.78, contentPadding: 80 });
+  await page.setViewport({ width: 901, height: 850 }); await sleep(250);
+  assert.ok(await page.$eval('.editor-area', el => el.getBoundingClientRect().width) > 300);
+  await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true }); await sleep(200);
+  await page.click('#btn-toggle-left'); await sleep(250); await page.click('#tab-groups'); await page.click('.saved-group summary');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
+  await page.screenshot({ path: path.join(OUT, 'saved-groups-mobile-dark.png') });
+  await page.click('#btn-command'); await page.waitForSelector('#palette:not([hidden])');
+  assert.equal(await page.evaluate(() => document.body.classList.contains('mobile-left-open')), false);
+  assert.deepEqual(errors, []);
+  console.log('PASS 服务端范围校验、窄桌面保留正文、手机抽屉及命令入口，无页面错误');
+} finally { if (browser) await browser.close(); server.kill(); }

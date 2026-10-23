@@ -44,7 +44,7 @@
 #editor-live { --cm-gutter-w: 0px; }
 #editor-live:has(.cm-gutters) { --cm-gutter-w: 46px; }
 #editor-live .cm-content {
-  padding-top: 26px;
+  padding-top: var(--editor-content-padding, 26px);
   padding-bottom: 40vh;
   padding-left: 16px;
   padding-right: 16px;

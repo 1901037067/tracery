@@ -16,6 +16,7 @@ import { buildWorker } from './pwa.js';
 import { phoneAccess } from './access.js';
 import { HOTKEY_COMMANDS, bindingFor, sanitizeHotkeys, validateShortcut } from '../public/js/hotkeys.js';
 import { Vault, IGNORED_DIRS } from './vault.js';
+import { normalizeLayout } from '../public/js/layout-settings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -154,6 +155,7 @@ const DEFAULT_SETTINGS = {
   radius: 'default',      // compact | default | large
   fontSize: 16,           // 编辑区字号 px
   editorWidth: 720,       // 正文最大宽度 px
+  layout: undefined,      // 旧配置首次在客户端迁移拖动栏宽，修改后才持久化
   autosave: 900,          // 自动保存防抖 ms
   lineNumbers: true,      // 行号：源码模式与实时预览共用
   startup: 'last',        // last | empty
@@ -176,6 +178,7 @@ function normalizeConfig(cfg) {
     ...(cfg.settings || {}),
     sync: { ...DEFAULT_SETTINGS.sync, ...(cfg.settings?.sync || {}) },
     hotkeys: sanitizeHotkeys(cfg.settings?.hotkeys),
+    layout: cfg.settings?.layout ? normalizeLayout(cfg.settings.layout) : undefined,
   };
   // 兼容旧版顶层 theme / themeName
   if (!cfg.settings && cfg.theme) settings.themeMode = cfg.theme === 'light' ? 'light' : 'dark';
@@ -210,6 +213,7 @@ function mergeSettings(patch = {}) {
   if (['compact', 'default', 'large'].includes(patch.radius)) s.radius = patch.radius;
   if (Number.isFinite(patch.fontSize)) s.fontSize = Math.min(20, Math.max(12, Math.round(patch.fontSize)));
   if (Number.isFinite(patch.editorWidth)) s.editorWidth = Math.min(1000, Math.max(560, Math.round(patch.editorWidth)));
+  if (patch.layout && typeof patch.layout === 'object' && !Array.isArray(patch.layout)) s.layout = normalizeLayout(patch.layout, s.layout);
   if (Number.isFinite(patch.autosave)) s.autosave = Math.min(3000, Math.max(0, Math.round(patch.autosave)));
   if (typeof patch.lineNumbers === 'boolean') s.lineNumbers = patch.lineNumbers;
   if (['last', 'empty'].includes(patch.startup)) s.startup = patch.startup;

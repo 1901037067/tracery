@@ -6,6 +6,7 @@
 import { Api, toast, debounce } from './api.js';
 import { initSyncPane } from './sync-ui.js';
 import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel, validateShortcut, sanitizeHotkeys } from './hotkeys.js';
+import { DEFAULT_LAYOUT, LAYOUT_FIELDS, normalizeLayout } from './layout-settings.js';
 
 export const DEFAULT_SETTINGS = {
   themeName: 'apple',
@@ -14,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   radius: 'default',
   fontSize: 16,
   editorWidth: 720,
+  layout: DEFAULT_LAYOUT,
   autosave: 900,
   lineNumbers: true,   // 行号：源码模式与实时预览共用同一个开关
   startup: 'last',
@@ -116,6 +118,10 @@ export function applySettings() {
   // 编辑器排版
   root.style.setProperty('--editor-font-size', `${settings.fontSize}px`);
   root.style.setProperty('--editor-width', `${settings.editorWidth}px`);
+  root.style.setProperty('--sidebar-left-width', `${settings.layout.leftWidth}px`);
+  root.style.setProperty('--sidebar-right-width', `${settings.layout.rightWidth}px`);
+  root.style.setProperty('--editor-line-height', settings.layout.lineHeight);
+  root.style.setProperty('--editor-content-padding', `${settings.layout.contentPadding}px`);
 
   // 系统主题联动
   if (mediaQuery) { mediaQuery.onchange = null; mediaQuery = null; }
@@ -127,8 +133,28 @@ export function applySettings() {
   onSettingsApplied?.(getSettings());
 }
 
-export function initSettings(initial) {
+const PENDING_LAYOUT_KEY = 'tracery.pendingLayout';
+export function initSettings(initial, { recoverPending = true } = {}) {
   settings = { ...DEFAULT_SETTINGS, ...(initial || {}) };
+  // 仅在尚未保存新布局时迁移旧的拖动宽度；之后以设置为准。
+  const legacy = {};
+  if (!initial?.layout) {
+    for (const [field, key] of [['leftWidth', 'sidebarW'], ['rightWidth', 'rightW']]) {
+      const raw = localStorage.getItem(`tracery.ui.${key}`) ?? localStorage.getItem(`evnote.ui.${key}`);
+      if (raw !== null && Number.isFinite(Number(raw))) legacy[field] = Number(raw);
+    }
+  }
+  settings.layout = normalizeLayout(initial?.layout || legacy);
+  if (Object.keys(legacy).length) persist({ layout: settings.layout });
+  if (recoverPending) {
+    try {
+      const journal = JSON.parse(localStorage.getItem(PENDING_LAYOUT_KEY) || 'null');
+      if (journal && typeof journal === 'object' && !Array.isArray(journal)) {
+        settings.layout = normalizeLayout(journal, settings.layout);
+        persist({ layout: settings.layout });
+      }
+    } catch { localStorage.removeItem(PENDING_LAYOUT_KEY); }
+  }
   settings.hotkeys = sanitizeHotkeys(settings.hotkeys);
   applySettings();
   renderActiveControls();
@@ -136,19 +162,38 @@ export function initSettings(initial) {
 
 /** 积攒多次改动，防抖后一次性落盘（避免连点时中间改动被丢弃） */
 let pendingPatch = {};
+let savingPatch = null;
+function mergePatch(base, patch) {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(patch || {})) {
+    result[key] = value && typeof value === 'object' && !Array.isArray(value)
+      ? { ...result[key], ...value } : value;
+  }
+  return result;
+}
+/** 服务端广播可先于请求响应到达；保留尚在提交/防抖队列中的本机修改。 */
+export function receiveSettings(initial) {
+  initSettings(mergePatch(mergePatch(initial, savingPatch), pendingPatch), { recoverPending: false });
+}
 const flushSettings = debounce(async () => {
+  if (savingPatch) return;
   const patch = pendingPatch;
   pendingPatch = {};
   if (!Object.keys(patch).length) return;
+  savingPatch = patch;
   try {
     const res = await Api.saveSettings(patch);
-    // 期间若又有新改动，别覆盖本地
-    if (res?.settings && !Object.keys(pendingPatch).length) settings = { ...settings, ...res.settings };
+    if (res?.settings) settings = mergePatch({ ...settings, ...res.settings }, pendingPatch);
+    if (patch.layout && !pendingPatch.layout) localStorage.removeItem(PENDING_LAYOUT_KEY);
   } catch { toast('设置保存失败'); }
+  finally { savingPatch = null; if (Object.keys(pendingPatch).length) flushSettings(); }
 }, 400);
 
 function persist(patch) {
-  pendingPatch = { ...pendingPatch, ...patch };
+  for (const [key, value] of Object.entries(patch)) {
+    pendingPatch[key] = value && typeof value === 'object' && !Array.isArray(value)
+      ? { ...pendingPatch[key], ...value } : value;
+  }
   flushSettings();
 }
 
@@ -165,6 +210,9 @@ function getByPath(key) {
 
 /** 修改设置：立即生效 + 防抖落盘（嵌套对象一层深合并，避免丢同组其他字段） */
 export function updateSettings(patch) {
+  if (patch.layout) patch = { ...patch, layout: normalizeLayout(patch.layout, settings.layout) };
+  // 宽度拖动结束后立刻刷新也能恢复；服务端确认后清掉这份待提交记录。
+  if (patch.layout) localStorage.setItem(PENDING_LAYOUT_KEY, JSON.stringify(patch.layout));
   const next = { ...settings };
   for (const [k, v] of Object.entries(patch)) {
     next[k] = (v && typeof v === 'object' && !Array.isArray(v) && settings[k] && typeof settings[k] === 'object')
@@ -210,6 +258,7 @@ function build() {
         <div class="settings-nav-title">设置</div>
         <button data-pane="appearance" class="active">外观</button>
         <button data-pane="editor">编辑器</button>
+        <button data-pane="layout">布局</button>
         <button data-pane="hotkeys">快捷键</button>
         <button data-pane="attachment">附件</button>
         <button data-pane="sync">同步</button>
@@ -236,6 +285,15 @@ function build() {
             `<input type="range" class="rng" data-key="editorWidth" min="560" max="1000" step="20" value="${settings.editorWidth}" />`)}
           ${ROW('自动保存', '停止输入后多久落盘', SEG('autosave', [[300, '0.3 秒'], [600, '0.6 秒'], [900, '0.9 秒'], [1500, '1.5 秒']], settings.autosave))}
           ${ROW('行号', '在正文左侧显示行号（源码模式与实时预览共用）', TOGGLE('lineNumbers', settings.lineNumbers !== false))}
+        </div>
+
+        <div class="settings-pane" data-pane="layout">
+          <h2>布局</h2>
+          <p class="set-note">拖动滑块即可预览，设置自动保存在本机。侧栏也可直接拖动边界；窄窗口会自动收窄，手机保留抽屉布局。</p>
+          ${Object.entries(LAYOUT_FIELDS).map(([key, rule]) => ROW(rule.label, `${settings.layout[key]} ${rule.unit}`,
+            `<input type="range" class="rng" data-key="layout.${key}" aria-label="${rule.label}" min="${rule.min}" max="${rule.max}" step="${rule.step}" value="${settings.layout[key]}" />`)).join('')}
+          <div class="set-actions"><button id="set-reset-layout" class="btn-ghost">恢复默认布局</button></div>
+          <p class="set-note">正文字号与正文宽度可在「编辑器」中调整。</p>
         </div>
 
         <div class="settings-pane" data-pane="hotkeys">
@@ -361,19 +419,18 @@ function bind(el) {
     rng.addEventListener('input', () => {
       const key = rng.dataset.key;
       const value = Number(rng.value);
-      const label = rng.closest('.set-row')?.querySelector('.set-label small');
-      if (label) label.textContent = `${value} px`;
-      updateSettings({ [key]: value });
+      updateSettings(patchByPath(key, value));
     });
   }
   // 底部按钮
   el.querySelector('#set-done').onclick = () => close();
+  el.querySelector('#set-reset-layout').onclick = () => {
+    updateSettings({ layout: { ...DEFAULT_LAYOUT } });
+    toast('已恢复默认布局');
+  };
   el.querySelector('#set-reset').onclick = () => {
     const hotkeys = settings.hotkeys;
-    settings = { ...DEFAULT_SETTINGS, hotkeys };
-    applySettings();
-    Api.saveSettings(settings).catch(() => {});
-    renderActiveControls();
+    updateSettings({ ...DEFAULT_SETTINGS, hotkeys });
     toast('已恢复默认外观');
   };
   el.querySelector('#set-copy-css').onclick = async () => {
@@ -505,7 +562,10 @@ function renderActiveControls() {
   }
   for (const rng of modalEl.querySelectorAll('.rng')) {
     const key = rng.dataset.key;
-    if (rng.value !== String(settings[key])) rng.value = String(settings[key]);
+    const value = getByPath(key);
+    if (rng.value !== String(value)) rng.value = String(value);
+    const label = rng.closest('.set-row')?.querySelector('.set-label small');
+    if (label) label.textContent = `${value} ${LAYOUT_FIELDS[key.split('.')[1]]?.unit || 'px'}`;
   }
   for (const tg of modalEl.querySelectorAll('.switch[data-toggle]')) {
     const on = getByPath(tg.dataset.toggle) !== false;

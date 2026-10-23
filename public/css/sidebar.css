@@ -13,6 +13,22 @@
 .icon-tab { width: 32px; padding: 0; }
 .icon-tab svg { width: 18px; height: 18px; }
 .library-tabs { gap: 2px; }
+
+.saved-groups { padding: 12px 10px; }
+.saved-group { margin-bottom: 12px; border: 1px solid var(--hairline); border-left: 3px solid var(--group-color); border-radius: var(--r-sm); overflow: hidden; background: var(--bg-sheet); }
+.saved-group summary { display: flex; align-items: center; gap: 8px; padding: 12px 10px; cursor: pointer; list-style: none; }
+.saved-group summary::before { content: '›'; color: var(--text-tertiary); transition: transform var(--dur); }
+.saved-group details[open] summary::before { transform: rotate(90deg); }
+.saved-group-name { font-size: 13px; font-weight: 600; color: var(--group-color); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-group summary small { color: var(--text-tertiary); font-size: 11px; flex-shrink: 0; }
+.saved-group-note { display: block; width: calc(100% - 12px); margin: 0 6px 3px; padding: 7px 10px; border-radius: 5px; text-align: left; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-group-note:hover { background: var(--bg-fill); color: var(--text-primary); }
+.saved-group-note:disabled { opacity: .5; cursor: default; }
+.saved-group-actions { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--hairline); padding: 6px 10px; font-size: 12px; }
+.saved-group-actions button { padding: 4px 0; }
+.saved-group-open { color: var(--group-color); }
+.saved-group-remove { color: var(--text-tertiary); }
+.saved-group-actions button:hover { text-decoration: underline; }
 .library-tabs .icon-tab { width: 30px; }
 .sidebar-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .library-header .panel-actions { gap: 1px; }
