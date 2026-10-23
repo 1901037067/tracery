@@ -66,7 +66,8 @@ export function createSavedGroups({ state, openNote, prepare, activate, changed 
       const detail = document.createElement('details'); detail.dataset.id = group.id; detail.open = expanded.has(group.id);
       const summary = document.createElement('summary'); summary.title = group.name;
       const name = document.createElement('span'); name.className = 'saved-group-name'; name.textContent = group.name;
-      const count = document.createElement('small'); count.textContent = `${group.tabs.length} 篇`; summary.append(name, count); detail.append(summary);
+      const dot = document.createElement('span'); dot.className = 'saved-group-dot'; dot.setAttribute('aria-hidden', 'true');
+      summary.setAttribute('aria-label', `${group.name}，${group.tabs.length} 篇笔记`); summary.append(name, dot); detail.append(summary);
       for (const path of group.tabs) {
         const exists = state.files.has(path);
         const item = button(path.split('/').pop().replace(/\.(md|markdown|txt)$/i, '') + (exists ? '' : '（已不存在）'), 'saved-group-note', () => openNote(path));

@@ -1,0 +1,16 @@
+/* CSS order 只改变桌面位置，DOM 与移动抽屉的身份不变。 */
+@media (min-width: 901px) {
+  .layout > .ribbon { order: 0; }
+  .layout > #sidebar { order: 1; }
+  .layout > #resizer-left { order: 2; }
+  .layout > .editor-area { order: 3; }
+  .layout > #resizer-right { order: 4; }
+  .layout > #sidebar-right { order: 5; }
+  :root[data-navigation-side="right"] .layout > #sidebar-right { order: 1; }
+  :root[data-navigation-side="right"] .layout > #resizer-right { order: 2; margin: 0 -15px 0 6px; }
+  :root[data-navigation-side="right"] .layout > #resizer-left { order: 4; margin: 0 6px 0 -15px; }
+  :root[data-navigation-side="right"] .layout > #sidebar { order: 5; }
+  :root[data-ribbon-visible="false"] .layout > .ribbon { display: none; }
+  :root[data-ribbon-visible="false"] .layout { --ribbon-width: 0px; }
+}
+:root[data-status-bar-visible="false"] .statusbar { display: none; }

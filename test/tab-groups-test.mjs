@@ -57,10 +57,16 @@ try {
     const members = [...document.querySelectorAll('.tab')].filter(node => node.dataset.group === id);
     const active = members.find(node => node.classList.contains('active'));
     return { right: rail.getBoundingClientRect().right, end: members.at(-1).getBoundingClientRect().right, gap: header.querySelector('.tab-group-label').getBoundingClientRect().top - rail.getBoundingClientRect().bottom,
-      underline: getComputedStyle(active, '::after').backgroundColor, group: getComputedStyle(rail).backgroundColor, radius: parseFloat(getComputedStyle(active).borderTopLeftRadius) };
+      underline: getComputedStyle(active, '::after').backgroundColor, group: getComputedStyle(rail).backgroundColor, radius: parseFloat(getComputedStyle(active).borderTopLeftRadius),
+      topBorder: getComputedStyle(active).borderTopColor,
+      centers: [header.querySelector('.tab-group-label'), ...document.querySelectorAll('#tablist .tab:not([hidden]) .tab-name')].map(el => { const r = document.createRange(); r.selectNodeContents(el); const box = r.getBoundingClientRect(); return box.top + box.height / 2; }),
+      tops: members.map(tab => tab.getBoundingClientRect().top), railBottom: rail.getBoundingClientRect().bottom };
   }, toolId);
   assert.ok(Math.abs(expandedLook.right - expandedLook.end) < 1); assert.ok(expandedLook.gap >= 6);
   assert.equal(expandedLook.underline, expandedLook.group); assert.ok(expandedLook.radius >= 10);
+  assert.notEqual(expandedLook.topBorder, expandedLook.group);
+  assert.ok(Math.max(...expandedLook.centers) - Math.min(...expandedLook.centers) <= 1.5, JSON.stringify(expandedLook.centers));
+  assert.ok(expandedLook.tops.every(top => top >= expandedLook.railBottom));
   await page.screenshot({ path: path.join(OUT, 'group-active-connected.png'), clip: { x: 140, y: 0, width: 1000, height: 52 } });
   await open(4);
   await page.click(`.tab-group-header[data-group="${toolId}"]`);

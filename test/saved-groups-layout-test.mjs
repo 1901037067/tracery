@@ -4,6 +4,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { launchBrowser } from './browser.mjs';
+import { DEFAULT_LAYOUT } from '../public/js/layout-settings.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..'), HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tracery-saved-groups-'));
 const VAULT = path.join(HOME, 'vault'), OTHER = path.join(HOME, 'other'), OUT = path.join(ROOT, 'dist/saved-groups-layout');
@@ -43,6 +44,9 @@ try {
   await groupMenu(id); await menu('保存分组');
   await page.click('#tab-groups'); await page.click('.saved-group summary');
   assert.equal(await page.$$eval('.saved-group-note', els => els.length), 2);
+  const card = await page.$eval('.saved-group', el => ({ left: getComputedStyle(el).borderLeftColor, right: getComputedStyle(el).borderRightColor,
+    count: el.querySelector('summary small'), dot: getComputedStyle(el.querySelector('.saved-group-dot')).backgroundColor, color: el.style.getPropertyValue('--group-color') }));
+  assert.equal(card.left, card.right); assert.equal(card.count, null); assert.equal(card.dot, 'rgb(0, 131, 143)');
   await page.screenshot({ path: path.join(OUT, 'saved-groups-light.png') });
   await groupMenu(id); await menu('关闭分组');
   await page.waitForFunction(() => window.__tracery.state.tabs.length === 0);
@@ -123,7 +127,7 @@ try {
   await page.evaluate(() => window.__tracery.Api.saveSettings({ themeMode: 'dark', layout: { leftWidth: 9999, rightWidth: -1, lineHeight: 'bad', contentPadding: 999 } }));
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark'); await sleep(250);
   const validated = (await (await fetch(BASE + '/api/state')).json()).settings.layout;
-  assert.deepEqual(validated, { leftWidth: 640, rightWidth: 190, lineHeight: 1.78, contentPadding: 80 });
+  assert.deepEqual(validated, { ...DEFAULT_LAYOUT, leftWidth: 640, rightWidth: 190, lineHeight: 1.78, contentPadding: 80 });
   await page.setViewport({ width: 901, height: 850 }); await sleep(250);
   assert.ok(await page.$eval('.editor-area', el => el.getBoundingClientRect().width) > 300);
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true }); await sleep(200);

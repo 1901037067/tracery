@@ -15,12 +15,12 @@
 .library-tabs { gap: 2px; }
 
 .saved-groups { padding: 12px 10px; }
-.saved-group { margin-bottom: 12px; border: 1px solid var(--hairline); border-left: 3px solid var(--group-color); border-radius: var(--r-sm); overflow: hidden; background: var(--bg-sheet); }
+.saved-group { margin-bottom: 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); overflow: hidden; background: var(--bg-sheet); }
 .saved-group summary { display: flex; align-items: center; gap: 8px; padding: 12px 10px; cursor: pointer; list-style: none; }
 .saved-group summary::before { content: '›'; color: var(--text-tertiary); transition: transform var(--dur); }
 .saved-group details[open] summary::before { transform: rotate(90deg); }
 .saved-group-name { font-size: 13px; font-weight: 600; color: var(--group-color); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.saved-group summary small { color: var(--text-tertiary); font-size: 11px; flex-shrink: 0; }
+.saved-group-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--group-color); flex-shrink: 0; }
 .saved-group-note { display: block; width: calc(100% - 12px); margin: 0 6px 3px; padding: 7px 10px; border-radius: 5px; text-align: left; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .saved-group-note:hover { background: var(--bg-fill); color: var(--text-primary); }
 .saved-group-note:disabled { opacity: .5; cursor: default; }

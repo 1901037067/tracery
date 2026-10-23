@@ -72,6 +72,9 @@ try {
   await page.waitForFunction(() => !!window.__tracery?.state.tree);
   await page.evaluate(() => window.__tracery.openNote('主笔记.md'));
   check('开关行号和手机窄屏时不留下宽屏空白或横向溢出');
+  // 本轮展开状态会持久化；宽屏检查收起的侧栏需主动恢复，后续才能从文件树点选。
+  await page.click('#btn-toggle-left'); await page.click('#btn-toggle-right');
+  await page.waitForFunction(() => !document.getElementById('sidebar').classList.contains('collapsed') && !document.getElementById('sidebar-right').classList.contains('collapsed'));
 
   async function pane() { await page.click('#btn-settings'); await page.click('.settings-nav [data-pane="hotkeys"]'); }
   async function chord(keys) {

@@ -1,5 +1,6 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['workspace-layout', 'workspace-layout-test.mjs', '区域显隐、左右互换与布局恢复'],
   ['saved-groups-layout', 'saved-groups-layout-test.mjs', '命令入口、分组快照与基础布局设置'],
   ['tab-groups', 'tab-groups-test.mjs', '压缩标签、空白新标签与彩色分组'],
   ['workspace-polish', 'workspace-polish-test.mjs', '空白页、网页链接、大纲悬浮与绘图角点'],

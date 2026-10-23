@@ -5,13 +5,13 @@
 .titlebar-right { flex: 0 0 auto; }
 .tab-strip { display: flex; align-items: center; min-width: 32px; flex: 0 1 32px; align-self: stretch; overflow: clip; }
 .tablist { position: relative; flex: 1; min-width: 0; gap: 4px; align-items: center; padding: 5px 0; overflow: clip; mask-image: none !important; -webkit-app-region: drag; }
-.tablist .tab { flex: 1 1 168px; min-width: 0; max-width: 168px; height: 34px; padding: 0 8px 0 12px; border: 1px solid transparent; border-radius: 8px; }
+.tablist .tab { flex: 1 1 168px; min-width: 0; max-width: 168px; height: 34px; padding: 0 8px 0 12px; border: 1px solid transparent; border-radius: 8px; transform: translateY(3px); }
 .tablist .tab:hover { background: var(--bg-fill); color: var(--text-primary); }
 .tablist .tab.active { background: var(--bg-sheet); border-color: var(--hairline); box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 .tablist .tab.active::after { left: 12px; right: 12px; bottom: 0; border-radius: 2px; }
 .tablist .tab[data-group] { border-radius: 8px; }
 .tab-group-rail { position: absolute; top: 5px; height: 2px; border-radius: 2px; background: var(--group-color); pointer-events: none; }
-.tablist .tab[data-group].active { align-self: stretch; height: auto; margin-bottom: -5px; border-top: 2px solid var(--group-color); border-radius: 12px 12px 0 0; color: var(--text-primary); }
+.tablist .tab[data-group].active { align-self: center; height: 38px; margin-bottom: 0; border-top: 1px solid var(--hairline); border-radius: 12px 12px 0 0; color: var(--text-primary); }
 .tablist .tab[data-group].active::after { background: var(--group-color); }
 .tablist.is-compact .tab { padding: 0 3px; gap: 2px; }
 .tablist.is-compact .tab.active { min-width: 56px; }
@@ -30,6 +30,7 @@
 .tab-group-label { display: block; min-width: 0; height: 24px; line-height: 24px; padding: 0 8px; border-radius: 5px; background: var(--group-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-group-header[aria-expanded="true"] .tab-group-label { transform: translateY(3px); }
 .tab-group-header[aria-expanded="false"] .tab-group-label { transform: translateY(1px); }
+.tab-group-header[aria-expanded="false"]:not(.is-current) .tab-group-label { transform: translateY(3px); }
 .tab-group-header.is-current { align-self: stretch; height: auto; margin-bottom: -5px; border: 1px solid var(--hairline); border-bottom: 0; border-radius: 12px 12px 0 0; background: var(--bg-sheet); }
 .tab-group-header:hover { filter: brightness(1.12); }
 .tab-group-header.dragging { opacity: .45; }

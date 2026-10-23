@@ -29,6 +29,7 @@ import { toggleBold, toggleItalic, toggleStrike, insertWikilink } from './cm/edi
 import { GROUP_COLORS, isBlankTab, newBlankKey, groupForTab, tidyTabGroups, moveTabToGroup, renameTabKeys } from './tab-workspace.js';
 import { createSavedGroups } from './saved-groups.js';
 import { DEFAULT_LAYOUT, LAYOUT_FIELDS } from './layout-settings.js';
+import { sidebarForSide, applyWorkspaceLayout } from './workspace-layout.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1929,6 +1930,9 @@ function switchPanel(name, { mobileOpen = true } = {}) {
     graphReturnPanel = document.querySelector('.ribbon-btn[data-panel].active')?.dataset.panel || 'files';
   }
   document.body.classList.toggle('graph-focus', name === 'graph');
+  // 图谱临时占用导航区域，不能被用户保存的收起状态挡住。
+  applyWorkspaceLayout(getSettings().layout);
+  if (!isCompact() && name !== 'graph' && mobileOpen && !getSettings().layout.navigationVisible) updateSettings({ layout: { navigationVisible: true } });
   if (name !== 'graph') graphView?.pause();
   for (const timer of graphFitTimers) clearTimeout(timer);
   graphFitTimers = [];
@@ -1962,6 +1966,7 @@ function switchPanel(name, { mobileOpen = true } = {}) {
 
 /** 命令入口切换当前笔记上下文。 */
 function switchRightPanel(name) {
+  if (!isCompact() && !getSettings().layout.contextVisible) updateSettings({ layout: { contextVisible: true } });
   sidebars?.reveal(name);
 }
 
@@ -2058,6 +2063,7 @@ function renderPalette(q) {
     { icon: '📄', name: '新建笔记', sub: '命令', action: () => createNoteIn('') },
     { icon: '🌗', name: '切换亮色 / 暗色主题', sub: '外观', action: toggleTheme },
     { icon: '⚙️', name: '打开设置', sub: '设置', action: () => openSettings() },
+    { icon: '☷', name: '布局设置', sub: '外观', action: () => openSettings('layout') },
     { icon: '↶', name: commandLabel('undo'), sub: '命令', action: () => editor.undo() },
     { icon: '↷', name: commandLabel('redo'), sub: '命令', action: () => editor.redo() },
     { icon: '🎨', name: '切换主题皮肤（Apple 风 / Obsidian 风）', sub: '外观', action: cycleThemeSkin },
@@ -2316,7 +2322,7 @@ function initResizers() {
       e.preventDefault();
       const startX = e.clientX;
       const startW = panel.getBoundingClientRect().width;
-      const sign = panel === right ? -1 : 1;
+      const sign = panel.getBoundingClientRect().left < $('editor-area').getBoundingClientRect().left ? 1 : -1;
       handle.classList.add('dragging');
       document.body.classList.add('resizing');
       const move = (ev) => {
@@ -2419,6 +2425,7 @@ function bindGlobalEvents() {
   $('btn-theme').onclick = toggleTheme;
   $('btn-toggle-left').onclick = () => toggleSidebar('left');
   $('btn-toggle-right').onclick = () => toggleSidebar('right');
+  $('btn-layout').onclick = () => { if (isCompact()) closeMobilePanels(); openSettings('layout'); };
   // 标签条最右侧的下拉：标签页列表 / 关闭全部 / 收藏全部
   $('btn-tab-more').onclick = (e) => {
     e.stopPropagation();
@@ -2426,15 +2433,6 @@ function bindGlobalEvents() {
     showTabMenu(e.currentTarget);
     e.currentTarget.setAttribute('aria-expanded', 'true');
   };
-  // 折叠状态要看得出来：右栏被折叠时（大纲「消失」了）按钮必须亮起提示，
-  // 否则用户会以为面板出 bug 了
-  const syncSidebarToggles = () => {
-    $('btn-toggle-left').classList.toggle('is-off', $('sidebar').classList.contains('collapsed'));
-    $('btn-toggle-right').classList.toggle('is-off', $('sidebar-right').classList.contains('collapsed'));
-  };
-  new MutationObserver(syncSidebarToggles).observe($('sidebar'), { attributes: true, attributeFilter: ['class'] });
-  new MutationObserver(syncSidebarToggles).observe($('sidebar-right'), { attributes: true, attributeFilter: ['class'] });
-  syncSidebarToggles();
   $('vault-name').onclick = async (e) => {
     e.stopPropagation();
     const anchor = e.currentTarget;
@@ -2658,7 +2656,11 @@ function toggleSidebar(side) {
   if (isCompact()) {
     if (side === 'left' && document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
     toggleMobilePanel(side);
-  } else $(side === 'left' ? 'sidebar' : 'sidebar-right').classList.toggle('collapsed');
+  } else {
+    const layout = getSettings().layout, region = sidebarForSide(side, layout);
+    if (region.id === 'sidebar' && document.body.classList.contains('graph-focus')) { toggleGraphFocus(false); return; }
+    updateSettings({ layout: { [region.key]: !layout[region.key] } });
+  }
 }
 libraryTabs = initLibraryTabs();
 sidebars = createSidebarContext({ state, editor, api: Api, navigate: openNote, createMissing: createMissingNote,

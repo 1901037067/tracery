@@ -7,6 +7,7 @@ import { Api, toast, debounce } from './api.js';
 import { initSyncPane } from './sync-ui.js';
 import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel, validateShortcut, sanitizeHotkeys } from './hotkeys.js';
 import { DEFAULT_LAYOUT, LAYOUT_FIELDS, normalizeLayout } from './layout-settings.js';
+import { applyWorkspaceLayout } from './workspace-layout.js';
 
 export const DEFAULT_SETTINGS = {
   themeName: 'apple',
@@ -122,6 +123,7 @@ export function applySettings() {
   root.style.setProperty('--sidebar-right-width', `${settings.layout.rightWidth}px`);
   root.style.setProperty('--editor-line-height', settings.layout.lineHeight);
   root.style.setProperty('--editor-content-padding', `${settings.layout.contentPadding}px`);
+  applyWorkspaceLayout(settings.layout);
 
   // 系统主题联动
   if (mediaQuery) { mediaQuery.onchange = null; mediaQuery = null; }
@@ -289,7 +291,14 @@ function build() {
 
         <div class="settings-pane" data-pane="layout">
           <h2>布局</h2>
-          <p class="set-note">拖动滑块即可预览，设置自动保存在本机。侧栏也可直接拖动边界；窄窗口会自动收窄，手机保留抽屉布局。</p>
+          <p class="set-note">修改即时预览并自动保存。桌面可交换侧栏位置、显示或收起区域；标题栏的「布局设置」按钮始终可用。手机保持导航在左、笔记上下文在右的抽屉。</p>
+          <div class="set-section-title">区域与位置</div>
+          ${ROW('侧栏位置', '笔记导航包含文件、收藏、最近与分组；笔记上下文包含大纲与关联', SEG('layout.navigationSide', [['left', '导航在左'], ['right', '导航在右']], settings.layout.navigationSide))}
+          ${ROW('笔记导航', '记住桌面的展开状态，也可通过标题栏按钮切换', TOGGLE('layout.navigationVisible', settings.layout.navigationVisible))}
+          ${ROW('笔记上下文', '大纲、关联与笔记信息，记住桌面的展开状态', TOGGLE('layout.contextVisible', settings.layout.contextVisible))}
+          ${ROW('左侧功能栏', '桌面的文件、搜索、绘图和命令等图标入口', TOGGLE('layout.ribbonVisible', settings.layout.ribbonVisible))}
+          ${ROW('底部状态栏', '字数、保存状态和编辑模式入口', TOGGLE('layout.statusBarVisible', settings.layout.statusBarVisible))}
+          <div class="set-section-title">尺寸与排版</div>
           ${Object.entries(LAYOUT_FIELDS).map(([key, rule]) => ROW(rule.label, `${settings.layout[key]} ${rule.unit}`,
             `<input type="range" class="rng" data-key="layout.${key}" aria-label="${rule.label}" min="${rule.min}" max="${rule.max}" step="${rule.step}" value="${settings.layout[key]}" />`)).join('')}
           <div class="set-actions"><button id="set-reset-layout" class="btn-ghost">恢复默认布局</button></div>
@@ -363,6 +372,9 @@ function build() {
       </section>
     </div>`;
   document.body.appendChild(el);
+  for (const toggle of el.querySelectorAll('[data-toggle]')) {
+    toggle.setAttribute('aria-label', toggle.closest('.set-row').querySelector('.set-label > span').textContent);
+  }
   bind(el);
   initSyncPane();
   return el;
@@ -578,11 +590,12 @@ function renderActiveControls() {
   renderHotkeyControls();
 }
 
-export function openSettings() {
+export function openSettings(pane) {
   if (!modalEl) modalEl = build();
   modalEl.hidden = false;
   open = true;
   renderActiveControls();
+  if (typeof pane === 'string') modalEl.querySelector(`.settings-nav button[data-pane="${pane}"]`)?.click();
   const first = modalEl.querySelector('.settings-nav button.active');
   first?.focus();
 }
