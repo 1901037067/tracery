@@ -19,6 +19,7 @@
  */
 import { parseMarkdown, codeTokens } from '../markdown.js';
 import { inlineMath } from '../math.js';
+import { externalLinks } from '../external-link.js';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import { Annotation, StateField } from '@codemirror/state';
 
@@ -30,6 +31,7 @@ import { Annotation, StateField } from '@codemirror/state';
  * 只给内容上样式）；marker=0 的（#标签）整段挂牌。 */
 const INLINE_PATTERNS = [
   { re: /`([^`\n]+)`/g, cls: 'cm-lp-code', marker: 1 },
+  { external: true },
   { re: /<u>([^\n]*?)<\/u>/gi, cls: 'cm-lp-underline', head: 3, tail: 4 },
   // `![[x]]` 的开闭标记长度不对称（`![[` = 3、`]]` = 2），不能用单一 marker：
   // 早先写成 marker:4 会把名字的首尾各吃掉一个字（实测 `![[常用代码]]` 只显示「用」）。
@@ -59,6 +61,16 @@ function scanInline(text, base, out, opts = {}) {
   const isImage = opts.isImage || isImageName;
   const resolveLink = opts.resolveLink;
   for (const p of INLINE_PATTERNS) {
+    if (p.external) {
+      for (const link of externalLinks(text)) {
+        if (overlaps(link.from, link.to)) continue;
+        consumed.push([link.from, link.to]);
+        out.push({ from: base + link.from, to: base + link.labelFrom, kind: 'hide' });
+        out.push({ from: base + link.labelTo, to: base + link.to, kind: 'hide' });
+        out.push({ from: base + link.labelFrom, to: base + link.labelTo, kind: 'mark', cls: 'cm-lp-external-link', tag: 'a', attrs: { href: link.href, title: link.title, target: '_blank', rel: 'noopener noreferrer' } });
+      }
+      continue;
+    }
     p.re.lastIndex = 0;
     let m;
     while ((m = p.re.exec(text))) {
@@ -305,7 +317,7 @@ export function createLivePreview(opts = {}) {
           // 光标行规则：mark/hide 在光标行一律不挂（显示原始语法）；行装饰（字号等）照常
           if (!d.always && d.kind !== 'line' && cursor.has(state.doc.lineAt(d.from).number)) continue;
           if (d.kind === 'line') spans.push(Decoration.line({ class: d.cls, attributes: d.attrs }).range(d.from));
-          else if (d.kind === 'mark') spans.push(Decoration.mark({ class: d.cls }).range(d.from, to));
+          else if (d.kind === 'mark') spans.push(Decoration.mark({ class: d.cls, tagName: d.tag, attributes: d.attrs }).range(d.from, to));
           // 带 widget 的替换（列表圆点）：把源码标记换成渲染后的样子
           else if (d.widget && d.from < to) spans.push(Decoration.replace({ widget: d.widget }).range(d.from, to));
           else if (d.from < to) spans.push(Decoration.replace({}).range(d.from, to));

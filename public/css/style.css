@@ -649,6 +649,16 @@ body.electron .electron-only { display: inline-flex !important; }
 .statusbar .mode-btn:hover { background: var(--bg-fill); color: var(--text-primary); }
 
 .editor-wrap { flex: 1; position: relative; min-height: 0; }
+.empty-note { position: absolute; inset: 0; display: grid; place-items: center; padding: 28px; overflow: auto; }
+.empty-note-content { width: min(100%, 300px); text-align: center; }
+.empty-note-symbol { color: var(--text-tertiary); width: 42px; height: 42px; margin-bottom: 16px; }
+.empty-note h1 { font-size: 20px; font-weight: 500; margin: 0 0 12px; }
+.empty-note p { color: var(--text-tertiary); font-size: 13px; margin: 0 0 28px; }
+.empty-note-actions { display: grid; gap: 10px; }
+.empty-note-actions button { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 18px; border: 1px solid var(--hairline); border-radius: 24px; color: var(--text-secondary); background: transparent; text-align: left; font-size: 14px; }
+.empty-note-actions button:hover { background: var(--bg-fill); color: var(--text-primary); }
+.empty-note-actions kbd { font-size: 11px; color: var(--text-tertiary); background: var(--bg-fill); padding: 3px 7px; border-radius: 8px; white-space: nowrap; }
+.editor-area.is-empty .statusbar { visibility: hidden; }
 .editor { position: absolute; inset: 0; overflow-y: auto; outline: none; }
 .editor {
   /* 上/右内缩 10/8px：Electron 的覆盖式滚动条浮在滚动区右缘，滚到顶部时

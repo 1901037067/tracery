@@ -192,6 +192,7 @@ async function openVault(path) {
   if (!suspendDraw()) return;
   try {
     $('vault-error').hidden = true;
+    if (!await editor.flush()) { toast('笔记尚未保存，请保存后再切换仓库'); return; }
     const res = await Api.openVault(path);
     $('welcome').hidden = true;
     $('app').hidden = false;
@@ -224,8 +225,9 @@ async function enterApp(vault) {
  */
 async function restoreTabsAfterVaultSwitch() {
   loadTabsState();
-  renderTabs();
   const startup = getSettings().startup;
+  if (startup === 'empty') state.activeTab = -1;
+  renderTabs();
   if (startup === 'empty') return;
   if (state.tabs.length) {
     state.activeTab = Math.min(state.activeTab < 0 ? 0 : state.activeTab, state.tabs.length - 1);
@@ -1269,16 +1271,10 @@ async function deleteNote(f) {
   });
   if (!ok) return;
   try {
+    if (state.currentPath === f.path) await editor.flush();
     await Api.remove(f.path);
     const ti = state.tabs.indexOf(f.path);
-    if (ti >= 0) state.tabs.splice(ti, 1);
-    if (state.currentPath === f.path) {
-      state.currentPath = null;
-      localStorage.removeItem('tracery.lastNote');
-      editor.load('', '');
-      $('note-path').textContent = '';
-      refreshRightPanels(null);
-    }
+    if (ti >= 0) await closeTab(ti);
     await refreshTree(); refreshGraph(); refreshTags();
     toast('已删除');
   } catch (e) { toast(e.message); }
@@ -1394,7 +1390,17 @@ function reorderTabs(from, to) {
   saveTabsState();
 }
 
+function updateEmptyNote() {
+  const empty = !state.currentPath;
+  $('empty-note').hidden = !empty;
+  $('editor-live').hidden = empty;
+  $('editor-live').inert = empty;
+  $('editor-area').classList.toggle('is-empty', empty);
+  $('btn-mode').disabled = empty;
+}
+
 function renderTabs() {
+  updateEmptyNote();
   clearTabDragPreview();
   // 标签栏已并入标题栏：标题栏永远可见（拖拽区 + 窗口按钮），
   // 无标签时只隐藏标签列表本身，不能再隐藏整个 bar
@@ -1620,6 +1626,9 @@ function pruneTabs() {
   if (!state.tabs.length) {
     state.activeTab = -1;
     state.currentPath = null;
+    editor.load('', '');
+    $('note-path').textContent = '';
+    localStorage.removeItem('tracery.lastNote');
     refreshRightPanels(null);
     renderTabs();
     saveTabsState();
@@ -1694,7 +1703,12 @@ async function openNote(path, heading, opts = {}) {
 }
 
 function refreshRightPanels(content) {
-  sidebars?.refresh(content);
+  updateEmptyNote();
+  if (!state.currentPath) {
+    editor?.load('', '');
+    $('note-path').textContent = '';
+  }
+  sidebars?.refresh(state.currentPath ? content : null);
 }
 
 function refreshBacklinks() { sidebars?.refreshLinks(); }
@@ -2164,6 +2178,10 @@ function commandKeyLabel(id) {
   return key ? shortcutLabel(key, /Mac/.test(navigator.platform)) : '';
 }
 function refreshShortcutHints() {
+  for (const hint of document.querySelectorAll('[data-empty-shortcut]')) {
+    hint.textContent = commandKeyLabel(hint.dataset.emptyShortcut);
+    hint.hidden = !hint.textContent;
+  }
   for (const [element, command] of Object.entries({ 'btn-settings': 'settings', 'btn-new-note-2': 'newNote', 'btn-draw': 'draw', 'btn-toggle-left': 'leftSidebar', 'btn-toggle-right': 'rightSidebar' })) $(element).title = commandLabel(command);
   document.querySelector('.ribbon-btn[data-panel="search"]').title = commandLabel('search');
   for (const close of document.querySelectorAll('#tablist .tab-close')) close.title = commandLabel('closeTab');
@@ -2275,6 +2293,8 @@ function bindGlobalEvents() {
     btn.onclick = () => switchPanel(btn.dataset.panel);
   }
   $('btn-new-note-2').onclick = () => createNoteIn('');
+  $('empty-new-note').onclick = () => createNoteIn('');
+  $('empty-open-note').onclick = openPalette;
   // 给整个笔记库背景提供根目录操作；行级事件仍由文件/文件夹自己的菜单接管。
   const rootFileActions = () => [
     { label: '新建笔记', icon: ICON.doc, action: () => createNoteIn('') },
@@ -2389,7 +2409,7 @@ function bindGlobalEvents() {
     const command = HOTKEY_COMMANDS.find(c => bindingFor(c, getSettings().hotkeys) === key && (!c.editorOnly || editing));
     if (command) {
       e.preventDefault(); e.stopImmediatePropagation();
-      if (command.editorOnly && editor.isRead) return;
+      if (command.editorOnly && (!state.currentPath || editor.isRead)) return;
       if (e.repeat && !command.editorOnly) return;
       Promise.resolve(hotkeyActions[command.id]?.()).catch(error => toast(error.message));
     } else if (editing && HOTKEY_COMMANDS.some(c => c.defaultKey === key)) {

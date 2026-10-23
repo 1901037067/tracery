@@ -11,6 +11,7 @@
  */
 
 import { mathHtml, inlineMath } from './math.js';
+import { externalUrl } from './external-link.js';
 const INLINE_TOKEN = '\u0001';
 
 /* ================= 代码高亮（轻量自研，够用的范围：注释/字符串/数字/关键字） =================
@@ -125,8 +126,10 @@ export function inlineToHtml(text, opts = {}) {
   });
 
   // 外链 [text](url)
-  s = s.replace(/\[([^\]]*)\]\(([^)\s]+?)(?:\s+&quot;[^&]*&quot;)?\)/g, (m, txt, url) =>
-    keep(`<a href="${url}" target="_blank" rel="noopener">${inlineToHtml(txt, opts)}</a>`));
+  s = s.replace(/\[([^\]]*)\]\(([^)\s]+?)(?:\s+&quot;[^&]*&quot;)?\)/g, (m, txt, url) => {
+    if (/^[a-z][\w+.-]*:/i.test(url) && !/^(https?|mailto|tel):/i.test(url)) return m;
+    return keep(`<a${externalUrl(url) ? ' class="external-link"' : ''} href="${url}" target="_blank" rel="noopener noreferrer">${inlineToHtml(txt, opts)}</a>`);
+  });
 
   // 裸 URL 自动链接
   s = s.replace(/(https?:\/\/[^\s<]+)/g, (m, url) =>

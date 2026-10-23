@@ -508,8 +508,8 @@ function drawGrid() {
 /** 四角缩放柄（屏幕坐标）。ang ≠ 0 时按元素中心把四个角一起转过去 */
 function handleRects(b, ang = 0) {
   const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-  const s = 8;
-  const corners = { nw: [b.x, b.y], ne: [b.x + b.w, b.y], se: [b.x + b.w, b.y + b.h], sw: [b.x, b.y + b.h] };
+  const s = 8, pad = 6 / view.zoom;
+  const corners = { nw: [b.x - pad, b.y - pad], ne: [b.x + b.w + pad, b.y - pad], se: [b.x + b.w + pad, b.y + b.h + pad], sw: [b.x - pad, b.y + b.h + pad] };
   return Object.entries(corners).map(([k, [wx, wy]]) => {
     const r = rotatePoint(wx, wy, cx, cy, ang);
     const p = worldToScreen(r.x, r.y);
@@ -557,7 +557,7 @@ function drawSelection() {
   if (single) {
     for (const h of handleRects(b, ang)) {
       ctx.beginPath();
-      ctx.rect(h.x, h.y, h.size, h.size);
+      ctx.roundRect(h.x, h.y, h.size, h.size, 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
       ctx.stroke();
@@ -735,7 +735,10 @@ function onPointerDown(e) {
         }
         for (const h of handleRects(b, ang)) {
           if (Math.abs(px - h.cx) <= 7 && Math.abs(py - h.cy) <= 7) {
-            drag = { mode: 'resize', k: h.k, id: el.id, orig: clone([el])[0], b: { ...b } };
+            const lp = rotatePoint(w.x, w.y, b.x + b.w / 2, b.y + b.h / 2, -ang);
+            // 手柄在外扩边框上；保留按下位置的偏移，拖动时形状不会先跳 6px。
+            const offset = { x: lp.x - (h.k.includes('w') ? b.x : b.x + b.w), y: lp.y - (h.k.includes('n') ? b.y : b.y + b.h) };
+            drag = { mode: 'resize', k: h.k, id: el.id, orig: clone([el])[0], b: { ...b }, offset };
             return;
           }
         }
@@ -897,6 +900,8 @@ function onPointerMove(e) {
     const c = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
     // 指针换算到元素「未旋转」的本地坐标：于是下面就是原样的轴对齐缩放
     const lp = rotatePoint(w.x, w.y, c.x, c.y, -ang);
+    lp.x -= drag.offset.x;
+    lp.y -= drag.offset.y;
     // 与拖动角对角的那一个角（本地坐标）：缩放时它在世界里必须钉住不动
     const A = {
       nw: { x: b.x + b.w, y: b.y + b.h },

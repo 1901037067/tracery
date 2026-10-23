@@ -22,6 +22,7 @@
  */
 import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
+import { externalUrl } from '../external-link.js';
 import { parseCached, refreshLivePreview } from './decorations.js';
 import { renderMarkdown } from '../markdown.js';
 import { wikiParts } from '../wiki-path.js';
@@ -642,13 +643,20 @@ export function linkEvents({ onOpenWikilink, onHoverWikilink, onTagClick } = {})
     mousedown(event) {
       if (event.button !== 0) return false;      // 右键交给菜单，不动
       const t = event.target;
-      if (t.closest?.('.cm-lp-wikilink') || t.closest?.('.cm-lp-tag')) {
+      if (t.closest?.('.cm-lp-wikilink, .cm-lp-tag, .cm-lp-external-link')) {
         event.preventDefault();
         return true;                              // 同时阻止 CM 把选区设到点击处
       }
       return false;
     },
     click(event) {
+      const external = event.target.closest?.('.cm-lp-external-link');
+      if (external) {
+        event.preventDefault();
+        const href = externalUrl(external.getAttribute('href'));
+        if (href) window.open(href, '_blank', 'noopener,noreferrer');
+        return true;
+      }
       const link = event.target.closest?.('.cm-lp-wikilink');
       if (link) { event.preventDefault(); onOpenWikilink?.(link.textContent, event); return true; }
       const tag = event.target.closest?.('.cm-lp-tag');

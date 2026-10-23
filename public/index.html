@@ -265,6 +265,17 @@
       <!-- 编辑区 -->
       <main class="editor-area" id="editor-area">
         <div class="editor-wrap">
+          <section id="empty-note" class="empty-note" aria-label="未打开笔记">
+            <div class="empty-note-content">
+              <svg class="empty-note-symbol" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h4"/></svg>
+              <h1>从这里开始</h1>
+              <p>打开一篇笔记，或记录新的想法。</p>
+              <div class="empty-note-actions">
+                <button id="empty-new-note"><span>新建笔记</span><kbd data-empty-shortcut="newNote"></kbd></button>
+                <button id="empty-open-note"><span>快速打开</span><kbd data-empty-shortcut="palette"></kbd></button>
+              </div>
+            </div>
+          </section>
           <div id="editor-live" class="editor markdown-body" contenteditable="true" spellcheck="false"></div>
         </div>
         <div class="statusbar">

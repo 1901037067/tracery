@@ -92,6 +92,8 @@
   transition: background var(--dur) var(--ease);
 }
 .cm-lp-wikilink:hover { background: var(--accent-soft); }
+.markdown-body a.cm-lp-external-link, .markdown-body a.external-link { color: var(--link); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.cm-lp-external-link::after, .external-link::after { content: ''; display: inline-block; width: .75em; height: .75em; margin-left: .15em; vertical-align: baseline; background: currentColor; opacity: .65; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 2h5v5M14 2 7 9M6 3H2v11h11v-4'/%3E%3C/svg%3E") center / contain no-repeat; }
 /* 未解析双链：与块级 `.wikilink.unresolved` 同视觉（灰字 + 虚线底边） */
 .cm-lp-wikilink.cm-lp-unresolved {
   color: var(--link-unresolved);
