@@ -15,11 +15,12 @@ import { askText, askConfirm } from './dialog.js';
 import { renderMarkdown } from './markdown.js';
 import { openLightbox } from './lightbox.js';
 import { openPdfViewer } from './pdf-viewer.js';
-import { openDraw } from './draw.js';
+import { openDraw, suspendDraw, isDrawOpen } from './draw.js';
 import { initMobile, isCompact, toggleMobilePanel, closeMobilePanels } from './mobile.js';
 import { initPwa } from './pwa.js';
 import { rememberDraft, clearSavedDraft, recoverDraft } from './recovery.js';
 import { VirtualTree, flattenTree } from './virtual-tree.js';
+import { FILE_SORTS, validSort, sortTree } from './file-sort.js';
 import { createSidebarContext, initLibraryTabs, initPhoneAccess, copyLocalText } from './sidebar.js';
 import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel } from './hotkeys.js';
 import { toggleBold, toggleItalic, toggleStrike, insertWikilink } from './cm/editing.js';
@@ -126,6 +127,7 @@ function closeWelcome() {
 
 /** 打开仓库选择浮层（标题栏仓库名 / 文件夹按钮 / 命令面板） */
 function openVaultPicker() {
+  if (!suspendDraw()) return;
   if (isCompact()) closeMobilePanels();
   $('vault-path').value = state.vault?.root || '';
   Api.state()
@@ -185,6 +187,7 @@ async function browseVault() {
 }
 
 async function openVault(path) {
+  if (!suspendDraw()) return;
   try {
     $('vault-error').hidden = true;
     const res = await Api.openVault(path);
@@ -376,8 +379,18 @@ function updateCollapseTreeIcon() {
 
 let virtualTree = null;
 let renderedTree = null;
+let fileSort = 'name-asc', sortedTree = null, sortedSource = null, sortedMode = null;
+function orderedTree() {
+  if (!state.tree) return null;
+  if (sortedSource !== state.tree || sortedMode !== fileSort || !sortedTree) {
+    sortedSource = state.tree; sortedMode = fileSort; sortedTree = sortTree(state.tree, fileSort);
+  }
+  return sortedTree;
+}
 function renderTree(rebuild = false) {
   const box = $('file-tree');
+  const ordered = orderedTree();
+  $('btn-file-sort').title = `排序：${FILE_SORTS.find(([key]) => key === fileSort)[1]}；文件夹优先`;
   renderShortcuts();
   if (state.tree && state.files.size > 400) {
     if (!virtualTree) virtualTree = new VirtualTree(box, (row) => {
@@ -387,8 +400,8 @@ function renderTree(rebuild = false) {
       if (row.kind === 'pinned') el.classList.add('pinned-item');
       return el;
     });
-    if (rebuild || renderedTree !== state.tree) virtualTree.setRows(flattenTree(state.tree, state.collapsed, new Set()));
-    virtualTree.select(state.currentPath); renderedTree = state.tree; updateCollapseTreeIcon(); return;
+    if (rebuild || renderedTree !== ordered) virtualTree.setRows(flattenTree(ordered, state.collapsed, new Set()));
+    virtualTree.select(state.currentPath); renderedTree = ordered; updateCollapseTreeIcon(); return;
   }
   if (virtualTree) { virtualTree.destroy(); virtualTree = null; }
   renderedTree = null;
@@ -398,13 +411,14 @@ function renderTree(rebuild = false) {
     box.innerHTML = '<div class="tree-empty">仓库是空的<br>点右上角 ＋ 新建第一篇笔记</div>';
     return;
   }
-  box.appendChild(renderTreeNode(state.tree, 0, true));
+  box.appendChild(renderTreeNode(ordered, 0, true));
   updateCollapseTreeIcon();
 }
 
 // 收藏与最近打开按仓库隔离；旧全局数据只迁移到第一次接续使用的仓库。
 function shortcutsKey() { return `tracery.shortcuts:${state.vault?.root || ''}`; }
 function loadShortcuts() {
+  fileSort = validSort(localStorage.getItem(`tracery.fileSort:${state.vault.root}`)); sortedTree = null;
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(shortcutsKey()) || 'null'); } catch { /* 损坏时使用空列表 */ }
   if (!saved && !localStorage.getItem('tracery.shortcutsMigrated')) {
@@ -531,20 +545,24 @@ function renderFile(f) {
 
 /* ================= 右键菜单 ================= */
 let ctxMenu = null;
+let contextTarget = null;
 let vaultMenuRequest = 0;
 function closeCtxMenu() {
   vaultMenuRequest++;
   $('vault-name')?.setAttribute('aria-expanded', 'false');
   $('btn-tab-more')?.setAttribute('aria-expanded', 'false');
   if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; }
+  contextTarget?.classList.remove('context-target'); contextTarget = null;
+  $('btn-file-sort')?.setAttribute('aria-expanded', 'false');
 }
 document.addEventListener('click', closeCtxMenu);
 
 /** 字型图标（H1 / B / I / ¶ 这类排版项用文字比画图形更清楚） */
 const T = (txt, cls = '') => `<span class="mi-txt ${cls}">${txt}</span>`;
 
-function showMenu(x, y, items) {
+function showMenu(x, y, items, target = null) {
   closeCtxMenu();
+  if (target) { contextTarget = target; target.classList.add('context-target'); }
   ctxMenu = document.createElement('div');
   ctxMenu.className = 'context-menu';
   for (const it of items) {
@@ -599,7 +617,7 @@ function showFileMenu(e, f) {
   }
   items.push({ label: '重命名', icon: ICON.pencil, action: () => renameNote(f) });
   items.push({ label: '删除', icon: ICON.trash, danger: true, action: () => deleteNote(f) });
-  showMenu(e.clientX, e.clientY, items);
+  showMenu(e.clientX, e.clientY, items, e.currentTarget);
 }
 
 /** 复制一份笔记（同名后加「副本」，自动避让重名） */
@@ -635,7 +653,7 @@ function showDirMenu(e, rel) {
   items.push('-');
   items.push({ label: '重命名', icon: ICON.pencil, action: () => renameFolder(rel) });
   items.push({ label: '删除', icon: ICON.trash, danger: true, action: () => deleteFolder(rel) });
-  showMenu(e.clientX, e.clientY, items);
+  showMenu(e.clientX, e.clientY, items, e.currentTarget);
 }
 
 /** 重命名文件夹：目录里的笔记路径整体前缀替换，打开中的标签/当前笔记跟着改 */
@@ -1434,6 +1452,7 @@ function showTabMenu(btn) {
 
 /** 关闭全部标签页（与逐一点 × 同口径：先 flush 再清空） */
 async function closeAllTabs() {
+  if (!suspendDraw()) return;
   if (!state.tabs.length) return;
   await editor.flush();
   state.tabs = [];
@@ -1499,6 +1518,7 @@ async function loadTab(path, heading) {
 }
 
 async function activateTab(i, heading) {
+  if (!suspendDraw()) return;
   if (i < 0 || i >= state.tabs.length) return;
   if (isCompact()) closeMobilePanels();
   if (document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
@@ -1513,6 +1533,7 @@ async function activateTab(i, heading) {
 }
 
 async function closeTab(i) {
+  if (!suspendDraw()) return;
   if (i < 0 || i >= state.tabs.length) return;
   const prevPath = state.currentPath;
   const wasActive = i === state.activeTab;
@@ -1599,6 +1620,7 @@ async function createMissingNote(raw, newTab = false) {
  * @param {{newTab?: boolean}} [opts] 默认在当前标签打开；newTab=true 时新开一个
  */
 async function openNote(path, heading, opts = {}) {
+  if (!suspendDraw()) return;
   if (!path) return;
   if (isCompact()) closeMobilePanels();
   const existing = state.tabs.indexOf(path);
@@ -1634,6 +1656,7 @@ function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 let graphReturnPanel = 'files';
 let graphFitTimers = [];
 function switchPanel(name, { mobileOpen = true } = {}) {
+  if (!suspendDraw()) return;
   if (isCompact()) {
     if (name === 'graph') closeMobilePanels();
     else if (mobileOpen && !document.body.classList.contains('mobile-left-open')) toggleMobilePanel('left');
@@ -1663,8 +1686,8 @@ function switchPanel(name, { mobileOpen = true } = {}) {
       graphView.setData(state.graph);
     }
     graphFitTimers = [
-      setTimeout(() => graphView?.fit({ reheat: true }), 240),
-      setTimeout(() => graphView?.fit(), 900),
+      setTimeout(() => graphView?.fit({ auto: true }), 240),
+      setTimeout(() => graphView?.fit({ auto: true }), 900),
     ];
   }
   if (name === 'search') {
@@ -1946,6 +1969,7 @@ let graphView = null;
 function initGraph() {
   graphView = new ForceGraph($('graph-canvas'), {
     activePath: state.currentPath,
+    onInteraction: () => { for (const timer of graphFitTimers) clearTimeout(timer); graphFitTimers = []; },
     onNodeClick: (path) => {
       toggleGraphFocus(false);
       openNote(path);
@@ -1974,6 +1998,7 @@ function drawingOptions() {
 }
 
 async function openDrawPanel() {
+  if (isDrawOpen()) return;
   if (!state.currentPath) { toast('先打开一篇笔记，绘图会插入到光标处'); return; }
   // 阅读模式是只读的，插不进去：先切回实时预览，避免「画完点了插入却什么也没发生」
   if (editor.isRead) editor.setMode('live');
@@ -2213,6 +2238,19 @@ function bindGlobalEvents() {
     const r = e.currentTarget.getBoundingClientRect();
     showMenu(r.left, r.bottom + 5, rootFileActions());
   };
+  $('btn-file-sort').onclick = e => {
+    e.stopPropagation();
+    if (e.currentTarget.getAttribute('aria-expanded') === 'true') { closeCtxMenu(); return; }
+    const r = e.currentTarget.getBoundingClientRect();
+    const items = [];
+    FILE_SORTS.forEach(([mode, label], i) => {
+      if (i === 2 || i === 4) items.push('-');
+      items.push({ label, checked: fileSort === mode, action: () => {
+        fileSort = mode; localStorage.setItem(`tracery.fileSort:${state.vault.root}`, mode); renderTree(true);
+      } });
+    });
+    showMenu(r.left, r.bottom + 5, items); e.currentTarget.setAttribute('aria-expanded', 'true');
+  };
   $('btn-collapse-tree').onclick = () => {
     const all = new Set();
     const walk = (node) => { for (const d of node.dirs || []) { all.add(d.name); walk(d); } };
@@ -2318,7 +2356,7 @@ function onWsMessage(msg) {
   if (msg.type === 'fs-change') {
     const paths = msg.paths || [];
     const affectsCurrent = state.currentPath && paths.some((p) => p === state.currentPath || p === '*' || p === state.currentPath + '.md');
-    if (msg.treeChanged !== false) refreshTree().then(() => pruneTabs());
+    if (msg.treeChanged !== false || !fileSort.startsWith('name')) refreshTree().then(() => pruneTabs());
     refreshGraph();
     refreshTags();
     if (affectsCurrent && !editor.dirty) {

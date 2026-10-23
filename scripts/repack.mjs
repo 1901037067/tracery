@@ -24,7 +24,9 @@ fs.rmSync(STAGE, { recursive: true, force: true });
 fs.mkdirSync(STAGE, { recursive: true });
 
 for (const item of ['electron', 'server', 'public', 'demo-vault', 'sync-server']) {
-  fs.cpSync(path.join(ROOT, item), path.join(STAGE, item), { recursive: true });
+  fs.cpSync(path.join(ROOT, item), path.join(STAGE, item), { recursive: true,
+    filter: file => !path.relative(ROOT, file).split(path.sep).some(part => part === '.tracery' || part === '.evnote'),
+  });
 }
 fs.copyFileSync(path.join(ROOT, 'package.json'), path.join(STAGE, 'package.json'));
 // 运行时依赖（ws、node-diff3…）必须一起进去，否则 asar 里 import 会失败

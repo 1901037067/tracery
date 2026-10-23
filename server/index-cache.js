@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 const VERSION = 1;
 export const sameStat = (a, b) => !!a && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs && a.size === b.size;
-export const fileStat = (st) => ({ mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, size: st.size });
+export const fileStat = (st) => ({ mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, birthtimeMs: st.birthtimeMs, size: st.size });
 export async function readIndex(root) {
   try {
     const data = JSON.parse(await fsp.readFile(path.join(root, '.tracery/index.json'), 'utf8'));

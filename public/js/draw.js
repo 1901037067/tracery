@@ -1009,6 +1009,8 @@ function editSelectedText() {
 /* ================= 键盘 ================= */
 function onKey(e) {
   if (!overlay || overlay.hidden) return;
+  if (document.querySelector('#settings:not([hidden]), #palette:not([hidden]), .dialog-backdrop, .phone-access:not([hidden]), .context-menu')) return;
+  if (e.target !== textEdit && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
   const mod = e.ctrlKey || e.metaKey;
   if (editing) {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); textEdit.blur(); }
@@ -1121,6 +1123,16 @@ function resetView() {
   scheduleDraw();
 }
 
+function syncWorkspaceBounds() {
+  if (!overlay || overlay.hidden) return;
+  const title = document.querySelector('.titlebar')?.getBoundingClientRect();
+  const nav = document.querySelector('.ribbon')?.getBoundingClientRect();
+  overlay.style.top = `${Math.max(0, title?.bottom || 0)}px`;
+  overlay.style.setProperty('--draw-top', `${Math.max(0, title?.bottom || 0)}px`);
+  overlay.style.left = `${nav && nav.width > 0 ? Math.max(0, nav.right) : 0}px`;
+  resizeCanvas();
+}
+
 function ensure() {
   if (overlay) return;
   overlay = document.createElement('div');
@@ -1144,6 +1156,7 @@ function ensure() {
       </div>
     </header>
     <div class="draw-mobile-switches"><button id="draw-toggle-library" aria-expanded="false">图片库</button><button id="draw-toggle-props" aria-expanded="false">颜色与样式</button></div>
+    <button id="draw-toggle-ui" class="draw-toggle-ui" title="收起功能区" aria-label="收起功能区" aria-expanded="true">⌃</button>
     <div class="draw-stage">
       <canvas id="draw-canvas"></canvas>
       <div class="draw-tools">
@@ -1164,7 +1177,7 @@ function ensure() {
         </button>
       </div>
       <aside class="draw-props">
-        <div class="draw-side-title">样式</div>
+        <div class="draw-side-title">样式<button id="draw-close-props" aria-label="收起样式">×</button></div>
         <div class="dp-group">
           <div class="dp-label">描边</div>
           <div class="dp-row">
@@ -1199,7 +1212,7 @@ function ensure() {
       </aside>
       <div class="draw-hint" id="draw-hint">拖拽画形状 · 空格拖动画布 · Ctrl+滚轮缩放 · Delete 删除 · Esc 取消</div>
       <aside class="draw-drafts" id="draw-drafts">
-        <div class="dd-head"><span>图片库</span><button class="dd-new" id="draw-draft-new" title="新建画板（已有草稿保留）">＋ 新建</button></div>
+        <div class="dd-head"><span>图片库</span><button class="dd-new" id="draw-draft-new" title="新建画板（已有草稿保留）">＋ 新建</button><button id="draw-close-library" aria-label="收起图片库">×</button></div>
         <div class="dd-tabs" role="tablist" aria-label="绘图状态">
           <button id="draw-drafts-btn" role="tab" data-library="drafts">未插入 <span></span></button>
           <button id="draw-inserted-btn" role="tab" data-library="inserted">已插入 <span></span></button>
@@ -1208,7 +1221,7 @@ function ensure() {
       </aside>
       <textarea class="draw-textedit" id="draw-textedit" spellcheck="false" hidden></textarea>
     </div>`;
-  // 侧栏与工具条参与正常布局，让画布始终只占中间可绘制的区域。
+  // 画布占满工作区；面板与工具只作为悬浮控件，不改变世界坐标与视图尺寸。
   const workspace = document.createElement('div');
   workspace.className = 'draw-workspace';
   const panelBackdrop = document.createElement('button');
@@ -1225,6 +1238,18 @@ function ensure() {
   overlay.querySelector('#draw-toggle-library').onclick = () => setDrawPanel(overlay.classList.contains('draw-show-library') ? null : 'library');
   overlay.querySelector('#draw-toggle-props').onclick = () => setDrawPanel(overlay.classList.contains('draw-show-props') ? null : 'props');
   overlay._closePanels = () => setDrawPanel(null);
+  overlay.querySelector('#draw-close-props').onclick = () => setDrawPanel(null);
+  overlay.querySelector('#draw-close-library').onclick = () => setDrawPanel(null);
+  const toggleUI = overlay.querySelector('#draw-toggle-ui');
+  let quiet = localStorage.getItem('tracery.draw.uiHidden') === 'true';
+  const setQuiet = value => {
+    quiet = value; overlay.classList.toggle('draw-ui-hidden', quiet);
+    toggleUI.textContent = quiet ? '⌄' : '⌃';
+    toggleUI.title = toggleUI.ariaLabel = quiet ? '显示功能区' : '收起功能区';
+    toggleUI.setAttribute('aria-expanded', String(!quiet));
+    localStorage.setItem('tracery.draw.uiHidden', String(quiet));
+  };
+  toggleUI.onclick = () => setQuiet(!quiet); setQuiet(quiet);
   const center = document.createElement('div');
   center.className = 'draw-center';
   const stageNode = overlay.querySelector('.draw-stage');
@@ -1234,7 +1259,10 @@ function ensure() {
   workspace.appendChild(panelBackdrop);
   center.append(toolsNode, stageNode, hintNode);
   overlay.appendChild(workspace);
+  overlay.appendChild(overlay.querySelector('.draw-zoom'));
   document.body.appendChild(overlay);
+  const boundsObserver = new ResizeObserver(syncWorkspaceBounds);
+  for (const node of document.querySelectorAll('.titlebar, .ribbon')) boundsObserver.observe(node);
   enableTouchControls(overlay);
 
   canvas = overlay.querySelector('#draw-canvas');
@@ -1323,7 +1351,7 @@ function ensure() {
 
   document.addEventListener('keydown', onKey, true);
   document.addEventListener('keyup', onKeyUp, true);
-  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('resize', syncWorkspaceBounds);
 }
 
 /* ================= 草稿箱（暂存 / 多开画板） =================
@@ -1695,6 +1723,7 @@ export function openDraw(options = {}) {
   style = defaultStyle();
   view = { x: 0, y: 0, zoom: 1 };
   overlay.hidden = false;
+  syncWorkspaceBounds();
   overlay._closePanels();
   savedDrawings = [];
   libraryError = '';
@@ -1721,6 +1750,20 @@ export function close() {
   editing = null;
   activeDraftId = null;
   if (draftPanel) draftPanel.hidden = true;
+}
+
+/** 保留可见主导航：离开画板时先在本设备保留草稿，存储失败则保持画板。 */
+export function suspendDraw() {
+  if (!isDrawOpen()) return true;
+  commitText();
+  if (elements.length) {
+    const drafts = readDrafts(), existing = drafts.find(d => d.id === activeDraftId);
+    const draft = { id: activeDraftId || newDraftId(), name: existing?.name || `未完成绘图 ${stamp()}`,
+      vaultRoot: opts.vaultRoot || '', updatedAt: Date.now(), elements: clone(elements) };
+    if (!writeDrafts([draft, ...drafts.filter(d => d.id !== draft.id)])) return false;
+    toast('绘图已保留到本机图片库');
+  }
+  close(); return true;
 }
 
 export function isDrawOpen() {

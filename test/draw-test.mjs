@@ -92,10 +92,10 @@ async function main() {
     const rect = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width }; };
     return { library: rect('.draw-drafts'), canvas: rect('#draw-canvas'), props: rect('.draw-props'), tools: rect('.draw-tools'), width: innerWidth };
   });
-  check('图片库固定在左，样式固定在右，工具条位于画布上方且互不遮挡',
-    regions.library.width >= 170 && regions.props.width >= 170
-    && regions.library.right <= regions.canvas.left && regions.props.left >= regions.canvas.right
-    && regions.tools.bottom <= regions.canvas.top && regions.props.right <= regions.width, JSON.stringify(regions));
+  check('画布铺满工作区，工具条悬浮且图片库与样式默认收起',
+    regions.library.width === 0 && regions.props.width === 0
+    && regions.tools.top > regions.canvas.top && regions.tools.bottom < regions.canvas.bottom
+    && regions.tools.right <= regions.canvas.right, JSON.stringify(regions));
 
   /* ---------- 2. 空画布保存应被拒绝 ---------- */
   await page.evaluate(() => document.getElementById('draw-save').click());
@@ -348,6 +348,7 @@ async function main() {
   /* ---------- 12. 固定图片库：旧图、草稿插入迁移与新画板隔离 ---------- */
   await page.click('#btn-draw');
   await sleep(800);
+  await page.click('#draw-toggle-library');
   check('未插入区显示草稿缩略图', await page.evaluate(() =>
     document.querySelectorAll('#draw-drafts .dd-preview canvas').length === 2));
   await page.click('#draw-inserted-btn');
@@ -376,6 +377,7 @@ async function main() {
 
   await page.click('#btn-draw');
   await sleep(800);
+  await page.click('#draw-toggle-library');
   await page.click('#draw-drafts .dd-open');
   await sleep(300);
   await page.click('#draw-save');

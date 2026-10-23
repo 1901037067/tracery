@@ -79,13 +79,13 @@ try {
   await page.tap('#btn-toggle-left');
   await page.tap('#btn-draw'); await page.waitForFunction(() => !document.querySelector('.draw-overlay').hidden);
   const canvas = await page.$eval('#draw-canvas', (el) => el.getBoundingClientRect().toJSON());
-  check('手机绘图默认保留完整画布', canvas.width > 360 && canvas.right < 390);
+  check('手机绘图默认保留完整画布', canvas.width > 360 && canvas.right <= 390 && canvas.bottom <= 844);
   await page.tap('#draw-toggle-props');
   check('颜色面板通过触屏按钮展开', await page.evaluate(() => document.querySelector('.draw-overlay').classList.contains('draw-show-props')));
   await page.screenshot({ path: path.join(OUT, 'mobile-draw.png') });
   await page.tap('#draw-toggle-props');
   await page.tap('.draw-tool[data-tool="rect"]');
-  const x = canvas.left + 60, y = canvas.top + 60;
+  const x = canvas.left + 60, y = canvas.top + 210;
   const touch = await page.touchscreen.touchStart(x, y);
   await touch.move(x + 90, y + 80);
   await touch.end();

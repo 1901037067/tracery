@@ -1,4 +1,5 @@
 /* Tracery 图谱视图（仿 Obsidian Graph View）— Canvas 力导向布局 */
+import { repel } from './graph-layout.js';
 export class ForceGraph {
   constructor(canvas, opts = {}) {
     this.canvas = canvas;
@@ -16,6 +17,7 @@ export class ForceGraph {
     this._bind();
     this._resize();
     new ResizeObserver(() => this._resize()).observe(canvas.parentElement);
+    new MutationObserver(() => { this._colors = null; this._requestDraw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style'] });
   }
 
   _resize() {
@@ -23,8 +25,9 @@ export class ForceGraph {
     const dpr = window.devicePixelRatio || 1;
     this._cssWidth = rect.width;
     this._cssHeight = rect.height;
-    this.canvas.width = Math.max(1, rect.width * dpr);
-    this.canvas.height = Math.max(1, rect.height * dpr);
+    if (this.canvas.width === Math.max(1, Math.round(rect.width * dpr)) && this.canvas.height === Math.max(1, Math.round(rect.height * dpr))) return;
+    this.canvas.width = Math.max(1, Math.round(rect.width * dpr));
+    this.canvas.height = Math.max(1, Math.round(rect.height * dpr));
     this.canvas.style.width = `${rect.width}px`;
     this.canvas.style.height = `${rect.height}px`;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -32,6 +35,7 @@ export class ForceGraph {
   }
 
   setData({ nodes, links }) {
+    const previous = new Map(this.nodes.map(n => [n.id, n]));
     const w = this._cssWidth || 300;
     const h = this._cssHeight || 300;
     const cx = w / 2, cy = h / 2;
@@ -41,8 +45,8 @@ export class ForceGraph {
       const r = radius * (0.4 + 0.6 * ((i * 2654435761) % 100) / 100);
       return {
         ...n,
-        x: cx + Math.cos(angle) * r,
-        y: cy + Math.sin(angle) * r,
+        x: previous.get(n.id)?.x ?? cx + Math.cos(angle) * r,
+        y: previous.get(n.id)?.y ?? cy + Math.sin(angle) * r,
         vx: 0, vy: 0,
         r: 4 + Math.min(7, Math.sqrt(n.degree || 0) * 1.6),
       };
@@ -59,13 +63,16 @@ export class ForceGraph {
     if (!this.raf) this._tick();
   }
 
-  pause() { cancelAnimationFrame(this.raf); this.raf = null; }
+  pause() { cancelAnimationFrame(this.raf); cancelAnimationFrame(this.drawRaf); this.drawRaf = null; this.raf = null; }
+  _requestDraw() { if (!this.drawRaf) this.drawRaf = requestAnimationFrame(() => { this.drawRaf = null; this._draw(); }); }
+  _interact() { this.opts.onInteraction?.(); }
 
-  zoomIn() { this.scale = Math.min(4, this.scale * 1.25); this._draw(); }
-  zoomOut() { this.scale = Math.max(0.2, this.scale / 1.25); this._draw(); }
+  zoomIn() { this._interact(); this.scale = Math.min(4, this.scale * 1.25); this._requestDraw(); }
+  zoomOut() { this._interact(); this.scale = Math.max(0.2, this.scale / 1.25); this._requestDraw(); }
 
   /** 适应窗口：按内容包围盒算缩放与平移，让所有节点完整可见 */
-  fit({ reheat = false } = {}) {
+  fit({ reheat = false, auto = false } = {}) {
+    if (!auto) this._interact();
     const w = this._cssWidth, h = this._cssHeight;
     if (!w || !h || !this.nodes.length) {
       this.scale = 1; this.panX = 0; this.panY = 0;
@@ -97,21 +104,7 @@ export class ForceGraph {
     const cx = this._cssWidth / 2, cy = this._cssHeight / 2;
     this.alpha = Math.max(0, (this.alpha || 1) - 0.012);
 
-    // 斥力
-    for (let i = 0; i < nodes.length; i++) {
-      const a = nodes[i];
-      for (let j = i + 1; j < nodes.length; j++) {
-        const b = nodes[j];
-        let dx = a.x - b.x, dy = a.y - b.y;
-        let d2 = dx * dx + dy * dy;
-        if (d2 < 1) { dx = (Math.random() - .5); dy = (Math.random() - .5); d2 = 1; }
-        if (d2 > 400000) continue;
-        const f = 900 / d2;
-        const fx = (dx / Math.sqrt(d2)) * f, fy = (dy / Math.sqrt(d2)) * f;
-        a.vx += fx; a.vy += fy;
-        b.vx -= fx; b.vy -= fy;
-      }
-    }
+    repel(nodes);
     // 弹簧
     for (const l of links) {
       const dx = l.target.x - l.source.x, dy = l.target.y - l.source.y;
@@ -142,11 +135,11 @@ export class ForceGraph {
     const ctx = this.ctx;
     const w = this._cssWidth, h = this._cssHeight;
     if (!w || !h) return;
-    const styles = getComputedStyle(document.documentElement);
-    const linkColor = styles.getPropertyValue('--border-light').trim() || '#444';
-    const nodeColor = styles.getPropertyValue('--text-muted').trim() || '#999';
-    const activeColor = '#8b5cf6';
-    const textColor = styles.getPropertyValue('--text-faint').trim() || '#777';
+    if (!this._colors) {
+      const styles = getComputedStyle(document.documentElement);
+      this._colors = ['--border-light', '--text-muted', '--accent', '--text-faint'].map((key, i) => styles.getPropertyValue(key).trim() || ['#444', '#999', '#8b5cf6', '#777'][i]);
+    }
+    const [linkColor, nodeColor, activeColor, textColor] = this._colors;
 
     ctx.clearRect(0, 0, w, h);
     ctx.save();
@@ -183,7 +176,7 @@ export class ForceGraph {
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
-      if (this.scale > 0.55 || isHover || n.degree >= 3) {
+      if (this.scale >= 0.65) {
         ctx.fillStyle = isHover || isActive ? activeColor : textColor;
         ctx.font = `${Math.max(9, 11 / this.scale)}px sans-serif`;
         ctx.textAlign = 'center';
@@ -217,6 +210,7 @@ export class ForceGraph {
     this.canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       if (!e.isPrimary) return;
+      this._interact();
       this.canvas.setPointerCapture(e.pointerId);
       const n = this._nodeAt(e);
       if (n) { this.dragNode = n; this._reheat(); }
@@ -234,7 +228,7 @@ export class ForceGraph {
         this.panX += e.clientX - lastX;
         this.panY += e.clientY - lastY;
         lastX = e.clientX; lastY = e.clientY;
-        this._draw();
+        this._requestDraw();
       } else {
         const n = this._nodeAt(e);
         if (n !== this.hoverNode) {
@@ -257,11 +251,17 @@ export class ForceGraph {
     this.canvas.addEventListener('pointercancel', () => { this.dragNode = null; panning = false; });
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.12 : 0.89;
-      this.scale = Math.min(4, Math.max(0.2, this.scale * factor));
-      this._draw();
+      this._interact();
+      const before = this._toWorld(e);
+      const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this._cssHeight : 1);
+      this.scale = Math.min(4, Math.max(0.2, this.scale * Math.exp(-Math.max(-120, Math.min(120, delta)) * .002)));
+      const rect = this.canvas.getBoundingClientRect();
+      this.panX = e.clientX - rect.left - this._cssWidth / 2 - (before.x - this._cssWidth / 2) * this.scale;
+      this.panY = e.clientY - rect.top - this._cssHeight / 2 - (before.y - this._cssHeight / 2) * this.scale;
+      this._requestDraw();
     }, { passive: false });
     this.canvas.addEventListener('dblclick', () => {
+      this._interact();
       this.scale = 1; this.panX = 0; this.panY = 0;
       this._draw();
     });

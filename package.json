@@ -85,6 +85,8 @@
       "server/**/*",
       "public/**/*",
       "demo-vault/**/*",
+      "!**/.tracery{,/**}",
+      "!**/.evnote{,/**}",
       "sync-server/**/*",
       "build/icon.png",
       "package.json"

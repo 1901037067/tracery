@@ -36,6 +36,7 @@ function createTabs(selector, attribute, storageKey, onChange = () => {}) {
 export function initLibraryTabs() {
   return createTabs('[data-library-view]', 'libraryView', 'tracery.libraryView', name => {
     $('btn-collapse-tree').hidden = name !== 'library';
+    $('btn-file-sort').hidden = name !== 'library';
   });
 }
 

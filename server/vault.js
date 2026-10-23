@@ -200,7 +200,8 @@ export class Vault {
       const parts = rel.split('/');
       let cur = root;
       for (let i = 0; i < parts.length - 1; i++) cur = cur.dirs.get(parts[i]) || root;
-      cur.files.push({ name: parts[parts.length - 1], path: rel });
+      const stat = this.files.get(rel);
+      cur.files.push({ name: parts[parts.length - 1], path: rel, mtimeMs: stat.mtimeMs, birthtimeMs: stat.birthtimeMs });
     }
     const build = (n) => ({
       name: n.name,
@@ -373,7 +374,7 @@ export class Vault {
       note.resolved = new Set(note.links.map((t) => this.resolve(t, rel)).filter((t) => t && t !== rel));
       for (const target of note.resolved) this.notes.get(target)?.backlinks.add(rel);
     }
-    if (structure) this._tree = null;
+    if (changed.length) this._tree = null;
     if (changed.length) this._schedulePersist();
     return { paths: changed, treeChanged: structure };
   }

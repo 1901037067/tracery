@@ -130,7 +130,7 @@ const drawingLayout = await page.evaluate(() => {
   const canvas = document.getElementById('draw-canvas').getBoundingClientRect();
   return { left: left.right, canvasLeft: canvas.left, canvasRight: canvas.right, right: right.left, tabs: document.querySelectorAll('.dd-tabs button').length };
 });
-check('打包版：图片库 / 画布 / 样式固定分栏且有两种状态分类', drawingLayout.left <= drawingLayout.canvasLeft && drawingLayout.canvasRight <= drawingLayout.right && drawingLayout.tabs === 2, JSON.stringify(drawingLayout));
+check('打包版：画布覆盖工作区，图片库与样式收起且保留两种状态分类', drawingLayout.left === 0 && drawingLayout.right === 0 && drawingLayout.canvasRight > drawingLayout.canvasLeft && drawingLayout.tabs === 2, JSON.stringify(drawingLayout));
 await page.click('#draw-cancel');
 await page.evaluate(async () => {
   await window.__tracery.openNote('欢迎使用 Tracery.md');
