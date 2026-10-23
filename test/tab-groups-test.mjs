@@ -15,7 +15,8 @@ tidyTabGroups(model); assert.deepEqual(model.tabs, ['a', 'c', 'b']); assert.equa
 moveTabToGroup(model, 'b', 'g'); assert.deepEqual(model.tabGroups[0].tabs, ['a', 'c', 'b']);
 renameTabKeys(model, key => key === 'b' ? 'renamed' : key); assert.ok(model.tabGroups[0].tabs.includes('renamed'));
 const PORT = 9638, BASE = `http://127.0.0.1:${PORT}`, sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const server = spawn(process.execPath, [path.join(ROOT, 'server/server.js')], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME }, windowsHide: true, stdio: 'pipe' });
+const packed = process.env.TRACERY_TEST_EXE, entry = packed ? path.join(path.dirname(packed), 'resources/app.asar/server/server.js') : path.join(ROOT, 'server/server.js');
+const server = spawn(packed || process.execPath, [entry], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME, ...(packed ? { ELECTRON_RUN_AS_NODE: '1' } : {}) }, windowsHide: true, stdio: 'pipe' });
 let browser, page;
 const errors = [];
 try {
