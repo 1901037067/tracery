@@ -80,8 +80,22 @@ try {
   await page.tap('#btn-draw'); await page.waitForFunction(() => !document.querySelector('.draw-overlay').hidden);
   const canvas = await page.$eval('#draw-canvas', (el) => el.getBoundingClientRect().toJSON());
   check('手机绘图默认保留完整画布', canvas.width > 360 && canvas.right <= 390 && canvas.bottom <= 844);
+    const handle = await page.$eval('.draw-tools-handle', el => el.getBoundingClientRect().toJSON());
+    const toolbarY = await page.$eval('.draw-tools', el => el.getBoundingClientRect().top);
+    const grip = await page.touchscreen.touchStart(handle.left + 10, handle.top + 18);
+    await grip.move(handle.left + 10, handle.top + 68); await grip.end();
+    check('手机可按住手柄拖动工具栏且不误画图形', await page.$eval('.draw-tools', (el, y) => el.getBoundingClientRect().top > y + 40, toolbarY)
+      && await page.$eval('#draw-canvas', el => el.dataset.strokes === '0'));
+    const movedHandle = await page.$eval('.draw-tools-handle', el => el.getBoundingClientRect().toJSON());
+    const back = await page.touchscreen.touchStart(movedHandle.left + 10, movedHandle.top + 18);
+    await back.move(movedHandle.left + 10, movedHandle.top - 32); await back.end();
   await page.tap('#draw-toggle-props');
   check('颜色面板通过触屏按钮展开', await page.evaluate(() => document.querySelector('.draw-overlay').classList.contains('draw-show-props')));
+    check('手机样式面板位于工具栏下方且保持在画板内', await page.evaluate(() => {
+      const panel = document.querySelector('.draw-props').getBoundingClientRect(), tools = document.querySelector('.draw-tools').getBoundingClientRect();
+      const canvas = document.querySelector('#draw-canvas').getBoundingClientRect();
+      return panel.top > tools.bottom && panel.left >= canvas.left && panel.right <= canvas.right && panel.bottom <= canvas.bottom;
+    }));
   await page.screenshot({ path: path.join(OUT, 'mobile-draw.png') });
   await page.tap('#draw-toggle-props');
   await page.tap('.draw-tool[data-tool="rect"]');

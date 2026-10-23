@@ -90,6 +90,19 @@ let savedDrawings = [];
 let libraryFilter = 'drafts';
 let libraryRequest = 0;
 let libraryError = '';
+let boardBackground = 'dots';
+let toolbarPosition = null;
+let toolbarDrag = null;
+let returnNav = [];
+
+function setBoardBackground(value) {
+  boardBackground = ['dots', 'lines', 'blank'].includes(value) ? value : 'dots';
+  overlay.querySelectorAll('[data-board-background]').forEach(button => {
+    button.setAttribute('aria-pressed', String(button.dataset.boardBackground === boardBackground));
+  });
+  canvas.dataset.background = boardBackground;
+  scheduleDraw();
+}
 
 function defaultStyle() {
   return {
@@ -405,13 +418,22 @@ function drawGrid() {
   // 点阵画在屏幕坐标系里（点大小不随缩放变化，跟 Excalidraw 一样）；
   // 缩得太小时直接不画——否则 24px 一格会变成几万个点，拖一下卡一下。
   const step = 24 * view.zoom;
-  if (step < 10) return;
+  if (boardBackground === 'blank' || step < 10) return;
   const offX = -(((view.x * view.zoom) % step) + step) % step;
   const offY = -(((view.y * view.zoom) % step) + step) % step;
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = 'rgba(0,0,0,0.085)';
+  ctx.strokeStyle = 'rgba(0,0,0,0.085)';
+  ctx.lineWidth = 1;
   ctx.beginPath();
+  if (boardBackground === 'lines') {
+    for (let x = offX; x < W; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = offY; y < H; y += step) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
   for (let x = offX; x < W; x += step) {
     for (let y = offY; y < H; y += step) {
       ctx.moveTo(x + 1, y);
@@ -1070,8 +1092,8 @@ function setTool(t, { keepSelection = false } = {}) {
   if (!keepSelection && t !== 'select') selected.clear();
   if (toolsEl) toolsEl.querySelectorAll('.draw-tool').forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
   if (canvas) canvas.style.cursor = cursorFor(t);
-  // 抓手/橡皮没有「样式」概念，属性面板才置灰；选择工具要能改选中图形的样式
-  if (propsEl) propsEl.classList.toggle('disabled', t === 'hand' || t === 'eraser');
+  // 抓手/橡皮只置灰图形样式，画板背景仍可切换。
+  propsEl?.querySelector('.draw-element-style').classList.toggle('disabled', t === 'hand' || t === 'eraser');
   scheduleDraw();
 }
 
@@ -1130,14 +1152,68 @@ function resetView() {
   scheduleDraw();
 }
 
+/** 默认与侧栏开关齐平；拖动后始终约束在画板内，缩窄窗口也能抓回手柄。 */
+function layoutToolbar() {
+  if (!toolsEl || overlay.hidden || !toolsEl.offsetWidth) return;
+  const compact = matchMedia('(max-width: 900px)').matches;
+  const left = compact ? 12 : overlay.querySelector('.draw-mobile-switches').offsetLeft + overlay.querySelector('.draw-mobile-switches').offsetWidth + 12;
+  const right = compact ? overlay.clientWidth - 12 : overlay.querySelector('.draw-top').offsetLeft - 12;
+  toolsEl.style.maxWidth = `${Math.max(48, toolbarPosition ? overlay.clientWidth - 24 : right - left)}px`;
+  const width = toolsEl.offsetWidth, height = toolsEl.offsetHeight;
+  const x = clamp(toolbarPosition?.x ?? (left + (right - left - width) / 2), 12, Math.max(12, overlay.clientWidth - width - 12));
+  const y = clamp(toolbarPosition?.y ?? (compact ? 120 : 12), 12, Math.max(12, overlay.clientHeight - height - 12));
+  toolsEl.style.transform = 'none';
+  toolsEl.style.left = `${x}px`;
+  toolsEl.style.top = `${y}px`;
+  if (toolbarPosition) toolbarPosition = { x, y };
+}
+
+function enableToolbarDrag() {
+  const handle = toolsEl.querySelector('.draw-tools-handle');
+  toolsEl.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || (event.target !== toolsEl && !handle.contains(event.target))) return;
+    event.preventDefault();
+    toolbarPosition = { x: toolsEl.offsetLeft, y: toolsEl.offsetTop };
+    layoutToolbar();
+    const capture = handle.contains(event.target) ? handle : toolsEl;
+    toolbarDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, capture, ...toolbarPosition };
+    capture.setPointerCapture(event.pointerId);
+    toolsEl.classList.add('dragging');
+  });
+  toolsEl.addEventListener('pointermove', event => {
+    if (toolbarDrag?.pointerId !== event.pointerId) return;
+    toolbarPosition = { x: toolbarDrag.x + event.clientX - toolbarDrag.startX, y: toolbarDrag.y + event.clientY - toolbarDrag.startY };
+    layoutToolbar();
+  });
+  const endDrag = event => {
+    if (toolbarDrag?.pointerId !== event.pointerId) return;
+    const capture = toolbarDrag.capture;
+    toolbarDrag = null;
+    toolsEl.classList.remove('dragging');
+    if (capture.hasPointerCapture(event.pointerId)) capture.releasePointerCapture(event.pointerId);
+  };
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) toolsEl.addEventListener(type, endDrag);
+  handle.ondblclick = () => { toolbarPosition = null; layoutToolbar(); };
+  handle.onkeydown = event => {
+    const delta = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, -10], ArrowDown: [0, 10] }[event.key];
+    if (!delta) return;
+    event.preventDefault(); event.stopPropagation();
+    toolbarPosition = { x: toolsEl.offsetLeft + delta[0], y: toolsEl.offsetTop + delta[1] };
+    layoutToolbar();
+  };
+}
+
 function syncWorkspaceBounds() {
   if (!overlay || overlay.hidden) return;
   const title = document.querySelector('.titlebar')?.getBoundingClientRect();
   const nav = document.querySelector('.ribbon')?.getBoundingClientRect();
-  overlay.style.top = `${Math.max(0, title?.bottom || 0)}px`;
-  overlay.style.setProperty('--draw-top', `${Math.max(0, title?.bottom || 0)}px`);
-  overlay.style.left = `${nav && nav.width > 0 ? Math.max(0, nav.right) : 0}px`;
+  const gap = parseFloat(getComputedStyle(overlay).getPropertyValue('--draw-gap')) || 0;
+  const top = Math.max(0, title?.bottom || 0) + gap;
+  overlay.style.top = `${top}px`;
+  overlay.style.setProperty('--draw-top', `${top}px`);
+  overlay.style.left = `${(nav && nav.width > 0 ? Math.max(0, nav.right) : 0) + gap}px`;
   resizeCanvas();
+  layoutToolbar();
 }
 
 function ensure() {
@@ -1167,6 +1243,7 @@ function ensure() {
     <div class="draw-stage">
       <canvas id="draw-canvas"></canvas>
       <div class="draw-tools">
+        <button class="draw-tools-handle" aria-label="拖动工具栏" title="拖动工具栏（双击复位，方向键微调）">⠿</button>
         ${TOOLS.map(([t, label, key]) => `
           <button class="draw-tool${t === 'select' ? ' active' : ''}" data-tool="${t}" title="${label} (${key})" aria-label="${label}">
             <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"
@@ -1185,6 +1262,15 @@ function ensure() {
       </div>
       <aside class="draw-props">
         <div class="draw-side-title">样式<button id="draw-close-props" aria-label="收起样式">×</button></div>
+        <div class="draw-board-background">
+          <div class="dp-label">画板背景</div>
+          <div class="dp-row" role="group" aria-label="画板背景">
+            <button data-board-background="dots" aria-pressed="true">点阵</button>
+            <button data-board-background="lines" aria-pressed="false">网格线</button>
+            <button data-board-background="blank" aria-pressed="false">空白</button>
+          </div>
+        </div>
+        <div class="draw-element-style">
         <div class="dp-group">
           <div class="dp-label">描边</div>
           <div class="dp-row">
@@ -1192,7 +1278,7 @@ function ensure() {
           </div>
         </div>
         <div class="dp-group">
-          <div class="dp-label">背景</div>
+          <div class="dp-label">图形背景</div>
           <div class="dp-row">
             <button class="draw-bg draw-bg-none active" data-color="transparent" title="透明"></button>
             ${BG_COLORS.map((c) => `<button class="draw-bg" data-color="${c}" title="${c}" style="--sw:${c}"></button>`).join('')}
@@ -1215,6 +1301,7 @@ function ensure() {
           <div class="dp-row">
             ${DASHES.map(([v, n]) => `<button class="draw-dash" data-dash="${v}" title="线型：${n}"><span class="dash-${v}"></span></button>`).join('')}
           </div>
+        </div>
         </div>
       </aside>
       <div class="draw-hint" id="draw-hint">拖拽画形状 · 空格拖动画布 · Ctrl+滚轮缩放 · Delete 删除 · Esc 取消</div>
@@ -1255,6 +1342,7 @@ function ensure() {
     toggleUI.title = toggleUI.ariaLabel = quiet ? '显示功能区' : '收起功能区';
     toggleUI.setAttribute('aria-expanded', String(!quiet));
     localStorage.setItem('tracery.draw.uiHidden', String(quiet));
+    layoutToolbar();
   };
   toggleUI.onclick = () => setQuiet(!quiet); setQuiet(quiet);
   const center = document.createElement('div');
@@ -1280,6 +1368,10 @@ function ensure() {
   textEdit = overlay.querySelector('#draw-textedit');
   hintEl = overlay.querySelector('#draw-hint');
   draftPanel = overlay.querySelector('#draw-drafts');
+  enableToolbarDrag();
+  overlay.querySelectorAll('[data-board-background]').forEach(button => {
+    button.onclick = () => setBoardBackground(button.dataset.boardBackground);
+  });
 
   toolsEl.querySelectorAll('.draw-tool[data-tool]').forEach((b) => {
     b.onclick = () => setTool(b.dataset.tool);
@@ -1397,7 +1489,8 @@ function draftTimeText(ts) {
 }
 
 /** 把一份场景装进画板（草稿重开 / 重新编辑共用） */
-function setScene(list) {
+function setScene(list, background = 'dots') {
+  setBoardBackground(background);
   elements = clone(Array.isArray(list) ? list : []);
   selected = new Set();
   history = [clone(elements)];
@@ -1532,7 +1625,7 @@ async function openSavedDrawing(drawing) {
     opts.insertOnSave = !drawing.inserted;
     overlay.querySelector('#draw-save').textContent = saveLabel();
     style = defaultStyle(); setTool('select'); syncStyleUI();
-    setScene(scene.elements);
+    setScene(scene.elements, scene.appState?.boardBackground);
     renderDrafts();
   } catch (error) { toast(`无法打开绘图：${error.message}`); }
 }
@@ -1545,7 +1638,7 @@ async function stashCurrent() {
     const drafts = readDrafts();
     const i = drafts.findIndex((d) => d.id === activeDraftId);
     if (i >= 0) {
-      drafts[i] = { ...drafts[i], updatedAt: Date.now(), elements: clone(elements) };
+      drafts[i] = { ...drafts[i], updatedAt: Date.now(), elements: clone(elements), boardBackground };
       if (writeDrafts(drafts)) { renderDrafts(); toast('草稿已更新'); }
       return;
     }
@@ -1560,7 +1653,7 @@ async function stashCurrent() {
   if (!name) return;
   const id = newDraftId();
   const drafts = readDrafts();
-  drafts.unshift({ id, name, vaultRoot: opts.vaultRoot || '', updatedAt: Date.now(), elements: clone(elements) });
+  drafts.unshift({ id, name, vaultRoot: opts.vaultRoot || '', updatedAt: Date.now(), elements: clone(elements), boardBackground });
   if (!writeDrafts(drafts)) return;
   activeDraftId = id;
   resetSaveTarget();
@@ -1585,7 +1678,7 @@ async function openDraft(id) {
   style = defaultStyle();
   setTool('select');
   syncStyleUI();
-  setScene(d.elements || []);
+  setScene(d.elements || [], d.boardBackground);
   renderDrafts();
   toast(`已打开草稿「${d.name}」`);
 }
@@ -1677,7 +1770,7 @@ async function save() {
     const dataUrl = exportPng(2);
     const drawing = JSON.stringify({
       v: 2,
-      appState: { viewBackgroundColor: '#ffffff' },
+      appState: { viewBackgroundColor: '#ffffff', boardBackground },
       elements,
     });
     const res = editingPath
@@ -1723,6 +1816,13 @@ function fitViewToContent() {
 
 export function openDraw(options = {}) {
   ensure();
+  if (!isDrawOpen()) {
+    returnNav = [...document.querySelectorAll('.ribbon-btn[data-panel].active')];
+    returnNav.forEach(button => button.classList.remove('active'));
+    const drawButton = document.querySelector('#btn-draw');
+    drawButton?.classList.add('active');
+    drawButton?.setAttribute('aria-pressed', 'true');
+  }
   opts = options || {};
   // elements：重新编辑时传入既有场景（draw.json 里的数组）；空数组 = 新画
   // draftId：从草稿箱重开某份草稿时传入（保存/再暂存都以它为准）
@@ -1741,13 +1841,19 @@ export function openDraw(options = {}) {
   setTool('select');
   syncStyleUI();
   updateZoomLabel();
-  setScene(Array.isArray(opts.elements) ? opts.elements : []);
+  setScene(Array.isArray(opts.elements) ? opts.elements : [], opts.boardBackground);
 }
 
 export function close() {
   if (!overlay || overlay.hidden) return;
   commitText();
   overlay.hidden = true;
+  document.querySelector('#btn-draw')?.classList.remove('active');
+  document.querySelector('#btn-draw')?.setAttribute('aria-pressed', 'false');
+  returnNav.forEach(button => button.classList.add('active'));
+  returnNav = [];
+  toolbarDrag = null;
+  toolsEl.classList.remove('dragging');
   libraryRequest++;
   elements = [];
   selected.clear();
@@ -1766,7 +1872,7 @@ export function suspendDraw() {
   if (elements.length) {
     const drafts = readDrafts(), existing = drafts.find(d => d.id === activeDraftId);
     const draft = { id: activeDraftId || newDraftId(), name: existing?.name || `未完成绘图 ${stamp()}`,
-      vaultRoot: opts.vaultRoot || '', updatedAt: Date.now(), elements: clone(elements) };
+      vaultRoot: opts.vaultRoot || '', updatedAt: Date.now(), elements: clone(elements), boardBackground };
     if (!writeDrafts([draft, ...drafts.filter(d => d.id !== draft.id)])) return false;
     toast('绘图已保留到本机图片库');
   }

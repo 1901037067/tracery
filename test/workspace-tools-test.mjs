@@ -104,18 +104,64 @@ try {
     return { canvas: r('#draw-canvas'), ribbon: r('.ribbon'), title: r('.titlebar'), tools: r('.draw-tools') };
   });
   const before = await bounds();
-  assert.equal(before.canvas.left, before.ribbon.right); assert.equal(before.canvas.top, before.title.bottom);
-  assert.equal(before.canvas.bottom, 900); assert.ok(before.tools.top > before.canvas.top);
+  assert.ok(before.canvas.left > before.ribbon.right); assert.ok(before.canvas.top > before.title.bottom);
+  assert.ok(before.canvas.bottom < 900); assert.ok(before.tools.top > before.canvas.top);
+  assert.deepEqual(await page.$$eval('.ribbon-btn.active', buttons => buttons.map(b => b.id)), ['btn-draw']);
+  const topRow = await page.evaluate(() => {
+    const rect = q => document.querySelector(q).getBoundingClientRect().toJSON();
+    const overlay = getComputedStyle(document.querySelector('.draw-overlay'));
+    return { switches: rect('.draw-mobile-switches'), tools: rect('.draw-tools'), actions: rect('.draw-top'), radius: overlay.borderTopLeftRadius, shadow: overlay.boxShadow };
+  });
+  assert.equal(topRow.tools.top, topRow.switches.top);
+  assert.ok(topRow.tools.left > topRow.switches.right && topRow.tools.right < topRow.actions.left);
+  assert.ok(parseFloat(topRow.radius) > 0 && topRow.shadow !== 'none');
+  const handle = await page.$eval('.draw-tools-handle', e => e.getBoundingClientRect().toJSON());
+  await page.mouse.move(handle.left + 10, handle.top + 18); await page.mouse.down();
+  await page.mouse.move(handle.left + 70, handle.top + 168, { steps: 10 }); await page.mouse.up();
+  const moved = (await bounds()).tools;
+  assert.ok(moved.top > before.tools.top + 100);
+  assert.equal(await page.$eval('#draw-canvas', e => e.dataset.strokes), '0');
+  await page.setViewport({ width: 1024, height: 700 }); await sleep(120);
+  const smaller = await bounds();
+  assert.ok(smaller.tools.left >= smaller.canvas.left && smaller.tools.right <= smaller.canvas.right);
+  assert.ok(smaller.tools.top >= smaller.canvas.top && smaller.tools.bottom <= smaller.canvas.bottom);
+  await page.setViewport({ width: 1360, height: 900 }); await sleep(120);
+  await page.click('.draw-tools-handle', { clickCount: 2 });
+  assert.equal((await bounds()).tools.top, before.tools.top);
+  // 手柄支持键盘微调，工具按钮仍保留自己的点击行为。
+  await page.focus('.draw-tools-handle'); await page.keyboard.press('ArrowDown');
+  assert.equal((await bounds()).tools.top, before.tools.top + 10);
+  await page.click('.draw-tools-handle', { clickCount: 2 });
+  console.log('PASS 绘图独占导航选中态、圆角与悬浮留白、工具栏同排无重叠、鼠标拖动/缩窄约束/复位/键盘微调');
   await page.click('#draw-toggle-props'); await page.waitForSelector('.draw-show-props');
   assert.deepEqual((await bounds()).canvas, before.canvas);
+  const ink = async value => {
+    await page.click(`[data-board-background="${value}"]`);
+    return page.$eval('#draw-canvas', async canvas => {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const d = devicePixelRatio, data = canvas.getContext('2d').getImageData(700*d, 400*d, 96*d, 96*d).data;
+      let count = 0; for (let i = 0; i < data.length; i += 4) if (data[i] < 255) count++;
+      return count;
+    });
+  };
+  const dots = await ink('dots'), lines = await ink('lines'), blank = await ink('blank');
+  assert.ok(dots > 0 && lines > dots && blank === 0, JSON.stringify({ dots, lines, blank }));
+  await page.click('.draw-tool[data-tool="hand"]');
+  await page.click('[data-board-background="lines"]');
+  assert.equal(await page.$eval('#draw-canvas', e => e.dataset.background), 'lines');
+  await page.click('.draw-tool[data-tool="select"]');
   await page.click('#draw-close-props'); await page.click('#draw-toggle-library');
   assert.deepEqual((await bounds()).canvas, before.canvas);
-  await page.click('#draw-close-library');
+  assert.ok(await page.$$eval('.dd-tabs button', buttons => buttons.every(button => {
+    const row = button.parentElement.getBoundingClientRect(), rect = button.getBoundingClientRect();
+    return Math.abs((rect.top - row.top) - (row.bottom - rect.bottom)) <= 1;
+  })));
   await page.click('#draw-toggle-ui');
   assert.equal(await page.$eval('.draw-tools', e => getComputedStyle(e).display), 'none');
+  assert.equal(await page.$eval('.draw-drafts', e => getComputedStyle(e).display), 'none');
   assert.deepEqual((await bounds()).canvas, before.canvas);
   await page.screenshot({ path: path.join(OUT, 'drawing-canvas.png') });
-  await page.click('#draw-toggle-ui'); await page.click('.draw-tool[data-tool="rect"]');
+  await page.click('#draw-toggle-ui'); await page.click('#draw-close-library'); await page.click('.draw-tool[data-tool="rect"]');
   const x = before.canvas.left + 330, y = before.canvas.top + 220;
   await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 110, y + 70, { steps: 8 }); await page.mouse.up();
   assert.equal(await page.$eval('#draw-canvas', e => e.dataset.strokes), '1');
@@ -133,7 +179,12 @@ try {
   assert.equal(await page.$eval('.draw-overlay', e => e.hidden), false);
   await page.click('.ribbon-btn[data-panel="search"]');
   assert.equal(await page.$eval('.draw-overlay', e => e.hidden), true);
+  assert.equal(await page.$eval('#btn-draw', e => e.classList.contains('active')), false);
+  assert.ok(await page.$eval('.ribbon-btn[data-panel="search"]', e => e.classList.contains('active')));
   assert.ok(await page.evaluate(() => JSON.parse(localStorage.getItem('tracery.drawDrafts')).some(d => d.elements.length === 1)));
+  assert.ok(await page.evaluate(() => JSON.parse(localStorage.getItem('tracery.drawDrafts')).some(d => d.boardBackground === 'lines')));
+  await page.click('#btn-draw'); await page.click('#draw-cancel');
+  assert.ok(await page.$eval('.ribbon-btn[data-panel="search"]', e => e.classList.contains('active')));
   assert.deepEqual(errors, []);
   console.log('PASS 画布避开主导航与顶栏、面板悬浮/收起不改变尺寸、真实鼠标绘图、主导航离开时保留草稿');
 } finally { await browser?.close(); server.kill(); }

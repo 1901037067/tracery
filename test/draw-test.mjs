@@ -97,6 +97,10 @@ async function main() {
     && regions.tools.top > regions.canvas.top && regions.tools.bottom < regions.canvas.bottom
     && regions.tools.right <= regions.canvas.right, JSON.stringify(regions));
 
+  await page.click('#draw-toggle-props');
+  await page.click('[data-board-background="lines"]');
+  await page.click('#draw-close-props');
+
   /* ---------- 2. 空画布保存应被拒绝 ---------- */
   await page.evaluate(() => document.getElementById('draw-save').click());
   await sleep(400);
@@ -261,6 +265,7 @@ async function main() {
     }));
     check('重新编辑时载入原场景（3 个元素）', reopened.open && reopened.strokes === 3, JSON.stringify(reopened));
     check('编辑模式的按钮是「更新绘图」', reopened.label === '更新绘图', reopened.label);
+    check('右键重开保留画板背景', await page.$eval('#draw-canvas', e => e.dataset.background === 'lines'));
 
     const cv2 = await page.evaluate(() => {
       const r = document.getElementById('draw-canvas').getBoundingClientRect();
@@ -281,6 +286,7 @@ async function main() {
     check('原 PNG 被覆盖（mtime 前进）', fs.statSync(imgPath).mtimeMs > beforeMtime);
     const scene2 = JSON.parse(fs.readFileSync(imgPath.replace(/\.png$/, '.draw.json'), 'utf8'));
     check('场景 JSON 同步更新（元素 3 → 4）', (scene2.elements || []).length === 4, `n=${(scene2.elements || []).length}`);
+    check('保存场景包含画板背景', scene2.appState?.boardBackground === 'lines');
   }
 
   /* ---------- 11. 草稿箱：暂存 / 草稿箱重开 / 多开画板（2026-10-19 新功能） ---------- */
@@ -290,6 +296,7 @@ async function main() {
   await page.evaluate(() => document.querySelector('.draw-tool[data-tool="ellipse"]').click());
   await sleep(80);
   await drag(P(260, 150), P(420, 260));
+  await page.click('#draw-toggle-props'); await page.click('[data-board-background="blank"]'); await page.click('#draw-close-props');
   await page.evaluate(() => document.getElementById('draw-stash').click());
   await sleep(500);
   const stashDialog = await page.evaluate(() => {
@@ -319,6 +326,7 @@ async function main() {
   await page.evaluate(() => document.querySelector('.dd-open').click());
   await sleep(700);
   check('从草稿箱重开后画板内容回来了', (await counts()).n === 1, JSON.stringify(await counts()));
+  check('草稿重开保留空白背景', await page.$eval('#draw-canvas', e => e.dataset.background === 'blank'));
 
   // 多开：草稿箱 → 新建画板 → 再暂存一份 → 两份共存
   await page.evaluate(() => document.getElementById('draw-drafts-btn').click());
@@ -362,6 +370,7 @@ async function main() {
   await page.click('#draw-drafts .dd-open');
   await sleep(400);
   check('图片库可重开既有场景并更新原图', (await counts()).n === 4 && await page.$eval('#draw-save', (el) => el.textContent === '更新绘图'));
+  check('图片库重开保留网格线背景', await page.$eval('#draw-canvas', e => e.dataset.background === 'lines'));
   const originalImage = fs.readFileSync(imgPath);
   await page.click('#draw-draft-new');
   await sleep(150);

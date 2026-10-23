@@ -2042,6 +2042,7 @@ async function editDrawing(rel) {
   openDraw({
     ...drawingOptions(),
     elements: scene.elements,
+    boardBackground: scene.appState?.boardBackground,
     editingPath: norm,
   });
 }
