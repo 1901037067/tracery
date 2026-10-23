@@ -89,7 +89,10 @@ try {
   assert.ok(await page.$('.katex-error'));
   const worker = await (await fetch(BASE + '/sw.js')).text();
   assert.ok(worker.includes('/vendor/katex/katex.mjs') && worker.includes('.woff2'));
-  await page.setOfflineMode(true); await scroll('数学公式：'); assert.ok(await page.$('.cm-math-block .katex')); await page.setOfflineMode(false);
+  // 在后台刷新已排队时断网，公式继续显示，文件树/标签请求失败也不应成为未处理异常。
+  await page.evaluate(() => window.__tracery.editor.flush());
+  await fetch(BASE + '/api/note', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '离线背景.md', content: '# 后台刷新' }) });
+  await page.setOfflineMode(true); await sleep(250); await scroll('数学公式：'); assert.ok(await page.$('.cm-math-block .katex')); await page.setOfflineMode(false);
   console.log('PASS 行内上下标与独立公式、矩阵、字体、点击编辑/撤销/三模式、非法公式回退及离线资源');
   const roundtrip = await page.evaluate(async () => {
     const { renderMarkdown, serializeHtml } = await import('/js/markdown.js');

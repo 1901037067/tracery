@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import { noteIndex, resolveNote } from '../public/js/wiki-path.js';
 import path from 'node:path';
 import { readIndex, writeIndex, snapshotIndex, sameStat, fileStat } from './index-cache.js';
+import { resolveInVault } from './path-guard.js';
 export const IGNORED_DIRS = new Set(['.tracery', '.evnote', '.obsidian', '.git', 'node_modules', '.trash']);
 const TEXT_EXT = new Set(['.md', '.markdown', '.txt']);
 
@@ -47,14 +48,15 @@ export class Vault {
       while (next < files.length) {
         const rel = files[next++];
         try {
-          const st = await fsp.stat(path.join(this.root, rel));
+          const abs = path.join(this.root, rel), st = await fsp.lstat(abs);
+          if (!st.isFile()) continue;
           this.files.set(rel, fileStat(st));
           if (!TEXT_EXT.has(path.extname(rel).toLowerCase())) continue;
           const e = cached.get(rel);
           if (sameStat(e, st)) {
             this.notes.set(rel, { name: e.name, links: e.links, tags: new Set(e.tags), headings: e.headings, mtimeMs: st.mtimeMs, backlinks: new Set() });
             this.contentCache.set(rel, e.content); this._addName(rel, e.name); this.stats.reused++;
-          } else await this._readNote(rel, st);
+          } else await this._readNote(rel, st, abs);
         } catch { /* 瞬时不可读的文件下次重试，缓存不冒充真实文件 */ }
       }
     }));
@@ -65,10 +67,12 @@ export class Vault {
     let entries;
     try { entries = await fsp.readdir(absDir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
+      if (e.isSymbolicLink()) continue;
       if (e.name.startsWith('.') && IGNORED_DIRS.has(e.name)) continue;
       const rel = relDir ? `${relDir}/${e.name}` : e.name;
       if (e.isDirectory()) {
         if (IGNORED_DIRS.has(e.name)) continue;
+        try { resolveInVault(this.root, rel); } catch { continue; }
         this.dirs.add(rel);
         await this.walk(path.join(absDir, e.name), rel, files);
       } else if (e.isFile()) {
@@ -84,8 +88,9 @@ export class Vault {
     const paths = this.byName.get(key);
     if (!paths.includes(rel)) paths.push(rel);
   }
-  async _readNote(rel, st) {
-    const abs = path.join(this.root, rel), content = await fsp.readFile(abs, 'utf8');
+  async _readNote(rel, st, scannedFile) {
+    // 批量扫描已验证父目录，lstat 也确认是普通文件；增量入口仍独立验证。
+    const abs = scannedFile || resolveInVault(this.root, rel), content = await fsp.readFile(abs, 'utf8');
     this.stats.reads++;
     this.indexNote(rel, content, st.mtimeMs);
     const after = await fsp.stat(abs);
@@ -325,8 +330,8 @@ export class Vault {
     for (const rel of new Set(rels)) {
       if (!rel || rel.split(/[\\/]/).some((s) => s === '..' || IGNORED_DIRS.has(s)) || path.isAbsolute(rel)) continue;
       let st;
-      try { st = await fsp.stat(path.join(this.root, rel)); }
-      catch (error) { if (!['ENOENT', 'ENOTDIR'].includes(error.code)) continue; }
+      try { st = await fsp.stat(resolveInVault(this.root, rel)); }
+      catch (error) { if (error.status !== 403 && !['ENOENT', 'ENOTDIR'].includes(error.code)) continue; }
       // 目录改动可能只发父目录事件，统一校验目录清单并复用未变笔记的索引。
       if (st?.isDirectory() || this.dirs.has(rel)) {
         await this._open();

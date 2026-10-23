@@ -324,8 +324,12 @@
         <div class="sidebar-context-label" id="note-context-title">当前笔记 · 未打开笔记</div>
         <div class="context-header">
           <div class="sidebar-tabs context-tabs" role="tablist" aria-label="当前笔记">
-            <button id="tab-outline" class="sidebar-tab" data-context-view="outline" role="tab" aria-selected="true" aria-controls="panel-outline">大纲</button>
-            <button id="tab-links" class="sidebar-tab" data-context-view="links" role="tab" aria-selected="false" aria-controls="panel-backlinks" tabindex="-1">关联</button>
+            <button id="tab-outline" class="sidebar-tab icon-tab" data-context-view="outline" role="tab" aria-selected="true" aria-controls="panel-outline" title="大纲" aria-label="大纲">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none"/></svg>
+            </button>
+            <button id="tab-links" class="sidebar-tab icon-tab" data-context-view="links" role="tab" aria-selected="false" aria-controls="panel-backlinks" tabindex="-1" title="关联" aria-label="关联">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4"/></svg>
+            </button>
             <button id="tab-info" class="sidebar-tab icon-tab" data-context-view="info" role="tab" aria-selected="false" aria-controls="panel-note-tags" tabindex="-1" title="笔记信息与历史版本" aria-label="笔记信息与历史版本">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.2v.1"/></svg>
             </button>

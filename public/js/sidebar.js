@@ -1,51 +1,26 @@
 /** 侧栏每次显示一种内容；异步关联结果必须核对仓库、路径和请求序号。 */
 import { parseCached } from './cm/decorations.js';
+import { panelDock } from './pane-docking.js';
 
 const $ = id => document.getElementById(id);
 const leaf = path => path.split('/').pop().replace(/\.(md|markdown|txt)$/i, '');
 const empty = (box, text) => { const el = document.createElement('div'); el.className = 'panel-empty'; el.textContent = text; box.replaceChildren(el); };
 
-/** 图标切换也支持键盘方向键；保留工具提示和可访问名称，不依赖用户猜图标。 */
-function createTabs(selector, attribute, storageKey, onChange = () => {}) {
-  const tabs = [...document.querySelectorAll(selector)];
-  let current;
-  function select(name, { focus = false } = {}) {
-    const selected = tabs.find(tab => tab.dataset[attribute] === name) || tabs[0];
-    current = selected.dataset[attribute];
-    for (const tab of tabs) {
-      const active = tab === selected;
-      tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1;
-      $(tab.getAttribute('aria-controls')).hidden = !active;
-    }
-    localStorage.setItem(storageKey, current);
-    onChange(current);
-    if (focus) selected.focus();
-  }
-  for (const [index, tab] of tabs.entries()) {
-    tab.onclick = () => select(tab.dataset[attribute]);
-    tab.onkeydown = event => {
-      const target = { ArrowLeft: (index + tabs.length - 1) % tabs.length, ArrowRight: (index + 1) % tabs.length, Home: 0, End: tabs.length - 1 }[event.key];
-      if (target === undefined) return;
-      event.preventDefault(); select(tabs[target].dataset[attribute], { focus: true });
-    };
-  }
-  select(localStorage.getItem(storageKey));
-  return { select, get current() { return current; } };
-}
-
-export function initLibraryTabs() {
-  return createTabs('[data-library-view]', 'libraryView', 'tracery.libraryView', name => {
-    $('btn-collapse-tree').hidden = name !== 'library';
-    $('btn-file-sort').hidden = name !== 'library';
+export function initLibraryTabs(options) {
+  const dock = panelDock(options);
+  dock.onSelect(() => {
+    $('btn-collapse-tree').hidden = !dock.isActive('library');
+    $('btn-file-sort').hidden = !dock.isActive('library');
   });
+  return { select: (name, options = {}) => dock.select(name, { reveal: true, ...options }), get current() { return dock.isActive('library') ? 'library' : null; } };
 }
 
 export function createSidebarContext({ state, editor, api, navigate, createMissing, searchTag, history, copy, compact, closeMobile }) {
   let current = '', signature = '', headings = [], linkRequest = 0, linkTimer, raf;
   const folded = new Set();
-  const contextTabs = createTabs('[data-context-view]', 'contextView', 'tracery.contextView', name => {
-    if (name === 'links') refreshLinks();
-  });
+  const dock = panelDock();
+  dock.onSelect(() => { if (dock.isActive('links')) refreshLinks(); });
+  const contextTabs = { select: (name, options) => dock.select(name, { ...options, reveal: true }) };
 
   $('note-info-path').onclick = () => { if (state.currentPath) copy(state.currentPath); };
   $('btn-note-history').onclick = history;

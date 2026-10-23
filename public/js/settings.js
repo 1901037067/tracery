@@ -8,6 +8,9 @@ import { initSyncPane } from './sync-ui.js';
 import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel, validateShortcut, sanitizeHotkeys } from './hotkeys.js';
 import { DEFAULT_LAYOUT, LAYOUT_FIELDS, normalizeLayout } from './layout-settings.js';
 import { applyWorkspaceLayout } from './workspace-layout.js';
+import { PANE_NAMES, movePane } from './pane-layout.js';
+import { readPresets, writePresets, encodePreset, decodePreset } from './layout-presets.js';
+import { askText } from './dialog.js';
 
 export const DEFAULT_SETTINGS = {
   themeName: 'apple',
@@ -291,13 +294,19 @@ function build() {
 
         <div class="settings-pane" data-pane="layout">
           <h2>布局</h2>
-          <p class="set-note">修改即时预览并自动保存。桌面可交换侧栏位置、显示或收起区域；标题栏的「布局设置」按钮始终可用。手机保持导航在左、笔记上下文在右的抽屉。</p>
+          <p class="set-note">修改即时预览并自动保存。拖动侧栏图标可换栏或排序，也可右键移动。Alt + 左右键排序，Alt + Shift + 左右键换栏。标题栏的「布局设置」按钮始终可用。</p>
+          <div class="set-section-title">布局预设</div>
+          <div class="layout-preset-toolbar"><select id="layout-preset-select" class="txt" aria-label="布局预设"></select><button id="layout-preset-apply" class="btn-ghost">应用</button><button id="layout-preset-save" class="btn-ghost">保存当前布局</button></div>
+          <div class="set-actions"><button id="layout-preset-import" class="btn-ghost">导入</button><button id="layout-preset-export" class="btn-ghost">导出</button><button id="layout-preset-remove" class="btn-ghost">移除预设</button></div>
+          <input id="layout-preset-file" type="file" accept=".json,application/json" hidden />
           <div class="set-section-title">区域与位置</div>
-          ${ROW('侧栏位置', '笔记导航包含文件、收藏、最近与分组；笔记上下文包含大纲与关联', SEG('layout.navigationSide', [['left', '导航在左'], ['right', '导航在右']], settings.layout.navigationSide))}
-          ${ROW('笔记导航', '记住桌面的展开状态，也可通过标题栏按钮切换', TOGGLE('layout.navigationVisible', settings.layout.navigationVisible))}
-          ${ROW('笔记上下文', '大纲、关联与笔记信息，记住桌面的展开状态', TOGGLE('layout.contextVisible', settings.layout.contextVisible))}
+          ${ROW('主侧栏位置', '交换完整侧栏；各个图标的位置可在下方单独调整', SEG('layout.navigationSide', [['left', '主栏在左'], ['right', '主栏在右']], settings.layout.navigationSide))}
+          ${ROW('主侧栏', '记住桌面的展开状态，也可通过标题栏按钮切换', TOGGLE('layout.navigationVisible', settings.layout.navigationVisible))}
+          ${ROW('辅助侧栏', '每侧可放置任意侧栏页签，记住桌面的展开状态', TOGGLE('layout.contextVisible', settings.layout.contextVisible))}
           ${ROW('左侧功能栏', '桌面的文件、搜索、绘图和命令等图标入口', TOGGLE('layout.ribbonVisible', settings.layout.ribbonVisible))}
           ${ROW('底部状态栏', '字数、保存状态和编辑模式入口', TOGGLE('layout.statusBarVisible', settings.layout.statusBarVisible))}
+          <div class="set-section-title">页签位置与顺序</div>
+          <div id="layout-pane-controls">${Object.entries(PANE_NAMES).map(([id, label]) => ROW(label, '', `<div class="pane-placement-controls" data-pane-control="${id}"><select class="txt" data-pane-place="${id}" aria-label="${label}所在侧栏"><option value="navigation">主侧栏</option><option value="context">辅助侧栏</option></select><small class="pane-order"></small><button class="mini-btn" data-pane-step="-1" aria-label="${label}向前移动">↑</button><button class="mini-btn" data-pane-step="1" aria-label="${label}向后移动">↓</button></div>`)).join('')}</div>
           <div class="set-section-title">尺寸与排版</div>
           ${Object.entries(LAYOUT_FIELDS).map(([key, rule]) => ROW(rule.label, `${settings.layout[key]} ${rule.unit}`,
             `<input type="range" class="rng" data-key="layout.${key}" aria-label="${rule.label}" min="${rule.min}" max="${rule.max}" step="${rule.step}" value="${settings.layout[key]}" />`)).join('')}
@@ -382,6 +391,15 @@ function build() {
 
 function bind(el) {
   bindHotkeys(el);
+  bindLayoutPresets(el);
+  for (const control of el.querySelectorAll('[data-pane-control]')) {
+    const id = control.dataset.paneControl;
+    control.querySelector('select').onchange = event => updateSettings({ layout: { panels: movePane(settings.layout.panels, id, event.target.value, settings.layout.panels[event.target.value].length) } });
+    for (const button of control.querySelectorAll('[data-pane-step]')) button.onclick = () => {
+      const panels = settings.layout.panels, host = panels.navigation.includes(id) ? 'navigation' : 'context';
+      updateSettings({ layout: { panels: movePane(panels, id, host, panels[host].indexOf(id) + Number(button.dataset.paneStep)) } });
+    };
+  }
   // 左侧导航
   for (const btn of el.querySelectorAll('.settings-nav button')) {
     btn.onclick = () => {
@@ -459,6 +477,46 @@ function bind(el) {
   };
   // 点击遮罩关闭
   el.addEventListener('click', (e) => { if (e.target === el) close(); });
+}
+
+function bindLayoutPresets(el) {
+  const select = el.querySelector('#layout-preset-select'), file = el.querySelector('#layout-preset-file');
+  const selected = () => readPresets().find(item => item.id === select.value);
+  const refresh = id => {
+    select.replaceChildren(); const custom = document.createElement('option'); custom.value = ''; custom.textContent = '选择布局预设'; select.append(custom);
+    for (const item of readPresets()) { const option = document.createElement('option'); option.value = item.id; option.textContent = item.name; select.append(option); }
+    select.value = id || '';
+    el.querySelector('#layout-preset-apply').disabled = !selected(); el.querySelector('#layout-preset-remove').disabled = !selected();
+  };
+  select.onchange = () => { el.querySelector('#layout-preset-apply').disabled = !selected(); el.querySelector('#layout-preset-remove').disabled = !selected(); };
+  el.querySelector('#layout-preset-save').onclick = async () => {
+    const name = await askText({ title: '保存布局预设', value: selected()?.name || '', placeholder: '例如：阅读、复习、写作', okText: '保存' });
+    if (!name?.trim()) return;
+    try {
+      const items = readPresets(), label = name.trim().slice(0, 40), existing = items.find(item => item.name === label);
+      const item = { id: existing?.id || crypto.randomUUID(), name: label, layout: normalizeLayout(settings.layout) };
+      if (existing) items[items.indexOf(existing)] = item; else items.push(item);
+      writePresets(items); refresh(item.id); toast('布局预设已保存到此设备');
+    } catch { toast('布局预设保存失败'); }
+  };
+  el.querySelector('#layout-preset-apply').onclick = () => { const item = selected(); if (item) { updateSettings({ layout: item.layout }); toast(`已应用布局：${item.name}`); } };
+  el.querySelector('#layout-preset-remove').onclick = () => { writePresets(readPresets().filter(item => item.id !== select.value)); refresh(); toast('已移除预设，当前布局保持不变'); };
+  el.querySelector('#layout-preset-export').onclick = () => {
+    const item = selected() || { name: '当前布局', layout: settings.layout };
+    const url = URL.createObjectURL(new Blob([encodePreset(item)], { type: 'application/json' }));
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'Tracery-layout.json'; document.body.append(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  el.querySelector('#layout-preset-import').onclick = () => file.click();
+  file.onchange = async () => {
+    const input = file.files[0]; file.value = ''; if (!input) return;
+    try {
+      if (input.size > 256 * 1024) throw Error('布局文件过大');
+      const item = decodePreset(await input.text()), items = readPresets(), baseName = item.name;
+      let suffix = 2; while (items.some(old => old.name === item.name)) item.name = `${baseName.slice(0, 32)} (${suffix++})`;
+      items.push(item); writePresets(items); refresh(item.id); toast('已导入布局，点击「应用」查看');
+    } catch (error) { toast(error.message || '布局文件无法读取'); }
+  };
+  refresh();
 }
 
 let recordingHotkey = null;
@@ -561,6 +619,15 @@ export function exportCurrentTheme() {
 /** 刷新控件选中态（不重建 DOM） */
 function renderActiveControls() {
   if (!modalEl) return;
+  for (const control of modalEl.querySelectorAll('[data-pane-control]')) {
+    const id = control.dataset.paneControl, panels = settings.layout.panels, host = panels.navigation.includes(id) ? 'navigation' : 'context';
+    const select = control.querySelector('select'), index = panels[host].indexOf(id);
+    select.value = host;
+    for (const option of select.options) option.textContent = `${option.value === 'navigation' ? '主侧栏' : '辅助侧栏'}（${(option.value === 'navigation') === (settings.layout.navigationSide === 'left') ? '左' : '右'}）`;
+    control.querySelector('.pane-order').textContent = `${index + 1} / ${panels[host].length}`;
+    control.querySelector('[data-pane-step="-1"]').disabled = index === 0;
+    control.querySelector('[data-pane-step="1"]').disabled = index === panels[host].length - 1;
+  }
   for (const seg of modalEl.querySelectorAll('.seg')) {
     const current = getByPath(seg.dataset.key);
     for (const b of seg.querySelectorAll('button[data-value]')) {

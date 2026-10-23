@@ -156,6 +156,7 @@ try {
   await page.reload({ waitUntil: 'networkidle0' });
   console.log('PASS 手机访问实际端口、权限说明、焦点返回和移动端抽屉');
   async function switchVault(root, count) {
+    await page.waitForFunction(() => window.__tracery?.state.tree && typeof document.getElementById('vault-name').onclick === 'function');
     await page.click('#vault-name');
     await page.waitForSelector('.context-menu button:last-child');
     await page.click('.context-menu button:last-child');

@@ -1,5 +1,7 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['pane-docking', 'pane-docking-test.mjs', '侧栏页签跨栏拖放、排序与布局预设'],
+  ['security', 'security-test.mjs', '仓库路径边界、Host、同源与 WebSocket 防护'],
   ['workspace-layout', 'workspace-layout-test.mjs', '区域显隐、左右互换与布局恢复'],
   ['saved-groups-layout', 'saved-groups-layout-test.mjs', '命令入口、分组快照与基础布局设置'],
   ['tab-groups', 'tab-groups-test.mjs', '压缩标签、空白新标签与彩色分组'],

@@ -14,3 +14,8 @@
   :root[data-ribbon-visible="false"] .layout { --ribbon-width: 0px; }
 }
 :root[data-status-bar-visible="false"] .statusbar { display: none; }
+.layout-preset-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.layout-preset-toolbar select { flex: 1; min-width: 120px; max-width: 100%; }
+.pane-placement-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.pane-placement-controls select { max-width: 180px; }
+.pane-order { min-width: 28px; text-align: center; color: var(--text-tertiary); }

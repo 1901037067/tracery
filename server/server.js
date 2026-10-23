@@ -17,6 +17,8 @@ import { phoneAccess } from './access.js';
 import { HOTKEY_COMMANDS, bindingFor, sanitizeHotkeys, validateShortcut } from '../public/js/hotkeys.js';
 import { Vault, IGNORED_DIRS } from './vault.js';
 import { normalizeLayout } from '../public/js/layout-settings.js';
+import { resolveInVault, resolveInDirectory } from './path-guard.js';
+import { validateRequest, isLocalClient } from './request-guard.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -28,9 +30,10 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
  * 每个文件最多留 20 个快照（按时间滚动删除）。
  */
 function historyDir(root, rel) {
+  resolveInVault(root, rel);
   const h = crypto.createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 12);
   const safe = rel.split('/').map((s) => s.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_')).join('/');
-  return path.join(HOME, 'history', h, safe);
+  return resolveInDirectory(HOME, `history/${h}/${safe}`);
 }
 async function snapshotHistory(root, rel, prevContent) {
   if (prevContent == null) return;
@@ -101,7 +104,7 @@ async function restoreFromTrash(root, id) {
   const item = items[i];
   const src = path.join(dir, `${item.id}__${item.name}`);
   if (!fs.existsSync(src)) { items.splice(i, 1); writeTrashIndex(dir, items); return null; }
-  const dest = path.join(root, item.path);
+  const dest = resolveInVault(root, item.path);
   let target = dest;
   let n = 1;
   while (fs.existsSync(target)) {
@@ -342,6 +345,9 @@ const server = http.createServer(async (req, res) => {
   const p = u.pathname;
 
   try {
+    validateRequest(req);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
     if (p === '/sw.js') {
       const source = buildWorker(PUBLIC_DIR);
       res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' });
@@ -371,6 +377,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, settings });
     }
     if (p === '/api/vault/open' && req.method === 'POST') {
+      if (!isLocalClient(req)) return sendJson(res, 403, { error: '请在电脑本机切换仓库；手机仅访问当前仓库' });
       const { path: vaultPath } = await readBody(req);
       if (!vaultPath || !fs.existsSync(vaultPath) || !fs.statSync(vaultPath).isDirectory()) {
         return sendJson(res, 400, { error: '目录不存在或不是文件夹' });
@@ -470,6 +477,7 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/note' && req.method === 'GET') {
       const rel = u.searchParams.get('path');
+      if (rel) resolveInVault(vault.root, rel);
       if (!rel || !vault.notes.has(rel)) return sendJson(res, 404, { error: '笔记不存在' });
       const content = vault.contentCache.get(rel) ?? '';
       const { mtimeMs, size } = vault.files.get(rel) || {};
@@ -478,7 +486,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/note' && req.method === 'PUT') {
       const { path: rel, content } = await readBody(req);
       if (!rel) return sendJson(res, 400, { error: '缺少 path' });
-      const abs = path.join(vault.root, rel);
+      const abs = resolveInVault(vault.root, rel);
       await fsp.mkdir(path.dirname(abs), { recursive: true });
       // 覆盖前先快照旧内容（内容没变就不留）
       let prev = null;
@@ -518,7 +526,7 @@ const server = http.createServer(async (req, res) => {
       const dir = historyDir(vault.root, rel || '');
       const file = path.join(dir, `${id}.md`);
       if (!rel || !/^\d+$/.test(String(id || '')) || !fs.existsSync(file)) return sendJson(res, 404, { error: '版本不存在' });
-      const abs = path.join(vault.root, rel);
+      const abs = resolveInVault(vault.root, rel);
       let cur = null;
       try { cur = await fsp.readFile(abs, 'utf8'); } catch { /* 可能已被删 */ }
       if (cur !== null) await snapshotHistory(vault.root, rel, cur);   // 恢复前也留一份当前内容
@@ -534,7 +542,7 @@ const server = http.createServer(async (req, res) => {
       const touched = [];
       let count = 0;
       for (const rel of vault.notes.keys()) {
-        const abs = path.join(vault.root, rel);
+        const abs = resolveInVault(vault.root, rel);
         let text;
         try { text = await fsp.readFile(abs, 'utf8'); } catch { continue; }
         if (!text.includes(query)) continue;
@@ -572,24 +580,24 @@ const server = http.createServer(async (req, res) => {
       // 安全口径与其它接口一致：只允许仓库内已存在的普通文件，不接受 ../ 或绝对路径。
       const overwrite = typeof body.overwrite === 'string' ? body.overwrite.replace(/\\/g, '/') : '';
       if (overwrite) {
-        const absTarget = path.join(vault.root, overwrite);
-        if (!absTarget.startsWith(vault.root) || !fs.existsSync(absTarget) || !fs.statSync(absTarget).isFile()) {
+        const absTarget = resolveInVault(vault.root, overwrite);
+        if (!fs.existsSync(absTarget) || !fs.statSync(absTarget).isFile()) {
           return sendJson(res, 404, { error: '要覆盖的文件不存在' });
         }
         rel = overwrite;
       } else {
         rel = dir ? `${dir}/${raw}.${ext}` : `${raw}.${ext}`;
         let n = 2;
-        while (fs.existsSync(path.join(vault.root, rel))) rel = `${dir}/${raw}-${n++}.${ext}`;
-        if (dir) await fsp.mkdir(path.join(vault.root, dir), { recursive: true });
+        while (fs.existsSync(resolveInVault(vault.root, rel))) rel = `${dir ? dir + '/' : ''}${raw}-${n++}.${ext}`;
+        if (dir) await fsp.mkdir(resolveInVault(vault.root, dir), { recursive: true });
       }
-      await fsp.writeFile(path.join(vault.root, rel), buf);
+      await fsp.writeFile(resolveInVault(vault.root, rel), buf);
       const touched = [rel];
       // 绘图的笔画数据另存一份（便于以后重新编辑；不参与正文）
       if (body.drawing) {
         const jsonDir = path.posix.dirname(rel);
         const jsonRel = `${jsonDir === '.' ? '' : jsonDir + '/'}${path.basename(rel, '.' + ext)}.draw.json`;
-        await fsp.writeFile(path.join(vault.root, jsonRel), String(body.drawing), 'utf8');
+        await fsp.writeFile(resolveInVault(vault.root, jsonRel), String(body.drawing), 'utf8');
         touched.push(jsonRel);
       }
       await vault.applyChanges(touched);
@@ -598,7 +606,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/note/create' && req.method === 'POST') {      const { path: rel, content = '' } = await readBody(req);
-      const abs = path.join(vault.root, rel);
+      const abs = resolveInVault(vault.root, rel);
       if (fs.existsSync(abs)) return sendJson(res, 409, { error: '文件已存在' });
       await fsp.mkdir(path.dirname(abs), { recursive: true });
       await fsp.writeFile(abs, content, 'utf8');
@@ -609,8 +617,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/rename' && req.method === 'POST') {
       const { path: rel, newPath } = await readBody(req);
       if (!rel || !newPath) return sendJson(res, 400, { error: '参数缺失' });
-      const abs = path.join(vault.root, rel);
-      const newAbs = path.join(vault.root, newPath);
+      const abs = resolveInVault(vault.root, rel);
+      const newAbs = resolveInVault(vault.root, newPath);
       if (!fs.existsSync(abs)) return sendJson(res, 404, { error: '文件不存在' });
       // 目录重命名：不参与双链自动更新（目录名不是 [[链接]] 的目标；
       // 否则「日记」这种同名目录会把指向 日记.md 的双链一起改掉）
@@ -624,7 +632,7 @@ const server = http.createServer(async (req, res) => {
       if (!isDir && oldName !== newName) {
         for (const [srcRel, note] of vault.notes) {
           if (srcRel === rel || !note.links.includes(oldName)) continue;
-          const srcAbs = path.join(vault.root, srcRel);
+          const srcAbs = resolveInVault(vault.root, srcRel);
           const c = vault.contentCache.get(srcRel) || '';
           const updated = c.replace(new RegExp(`\\[\\[${escapeRe(oldName)}(\\|[^\\]]*)?\\]\\]`, 'g'), `[[${newName}$1]]`);
           if (updated !== c) { await fsp.writeFile(srcAbs, updated, 'utf8'); touched.add(srcRel); }
@@ -636,7 +644,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/delete' && req.method === 'POST') {
       const { path: rel } = await readBody(req);
-      const abs = path.join(vault.root, rel);
+      const abs = resolveInVault(vault.root, rel);
       if (!fs.existsSync(abs)) return sendJson(res, 404, { error: '文件不存在' });
       const isDir = fs.statSync(abs).isDirectory();
       // 不再直接 unlink：先进回收站，可以恢复（回收站目录在 TRACERY_HOME 下，
@@ -685,8 +693,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/file') {
       // 仓库内任意文件（笔记里的图片等）
       const rel = u.searchParams.get('path');
-      const abs = path.join(vault.root, rel || '');
-      if (!abs.startsWith(vault.root) || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      const abs = resolveInVault(vault.root, rel);
+      if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
         return sendJson(res, 404, { error: '文件不存在' });
       }
       const mime = MIME[path.extname(abs).toLowerCase()] || 'application/octet-stream';
@@ -703,8 +711,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- 静态资源 ----
-    let filePath = path.join(PUBLIC_DIR, p === '/' ? 'index.html' : p);
-    if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end(); }
+    let filePath = resolveInDirectory(PUBLIC_DIR, p === '/' ? 'index.html' : decodeURIComponent(p).slice(1));
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       // SPA 回退
       filePath = path.join(PUBLIC_DIR, 'index.html');
@@ -715,14 +722,16 @@ const server = http.createServer(async (req, res) => {
     fs.createReadStream(filePath).pipe(res);
   } catch (err) {
     console.error('[api error]', p, err);
-    sendJson(res, 500, { error: String(err.message || err) });
+    sendJson(res, err.status || 500, { error: String(err.message || err) });
   }
 });
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /* ---------------- WebSocket ---------------- */
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server, path: '/ws', verifyClient(info, done) {
+  try { validateRequest(info.req); done(true); } catch (error) { done(false, error.status || 403, error.message); }
+} });
 function broadcast(msg) {
   const data = JSON.stringify(msg);
   for (const c of wss.clients) if (c.readyState === 1) c.send(data);

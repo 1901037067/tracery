@@ -133,7 +133,7 @@ try {
   await page.waitForFunction(() => window.__tracery.state.vault.name === 'second' && window.__tracery.state.tabs.length === 0);
   assert.equal((await snapshot()).groups.length, 0);
   await page.evaluate(vault => window.__tracery.Api.openVault(vault), VAULT);
-  await page.waitForFunction(() => window.__tracery.state.vault.name === 'vault' && window.__tracery.state.tabGroups.length === 2);
+  await page.waitForFunction(path => window.__tracery.state.vault.name === 'vault' && window.__tracery.state.tabGroups.length === 2 && window.__tracery.state.currentPath === path, {}, beforeSwitch.path);
   assert.deepEqual((await snapshot()).groups, beforeSwitch.groups);
   // 关闭/取消分组不删除磁盘笔记；切换仓库后不带入分组。
   await page.click(`.tab-group-header[data-group="${classId}"]`, { button: 'right' }); await menu('关闭分组');

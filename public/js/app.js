@@ -30,6 +30,7 @@ import { GROUP_COLORS, isBlankTab, newBlankKey, groupForTab, tidyTabGroups, move
 import { createSavedGroups } from './saved-groups.js';
 import { DEFAULT_LAYOUT, LAYOUT_FIELDS } from './layout-settings.js';
 import { sidebarForSide, applyWorkspaceLayout } from './workspace-layout.js';
+import { panelDock } from './pane-docking.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -93,6 +94,7 @@ async function boot() {
   const st = await Api.state();
   state.settings = st.settings || null;
   initSettings(st.settings || {});
+  state.settings = getSettings();
   state.themeName = getSettings().themeName;
   onApplied((s) => {
     state.settings = s;
@@ -322,7 +324,7 @@ async function refreshTree() {
 const refreshGraph = debounce(async () => {
   // 双链名称索引来自文件清单；隐藏图谱不传输全仓节点，也不在后台重启力导向计算。
   if (!document.body.classList.contains('graph-focus')) { state.graph = null; return; }
-  const g = await Api.graph();
+  let g; try { g = await Api.graph(); } catch { return; } // 连接状态由 API 层提示，保留已有图谱。
   state.graph = g;
   // 双链的「解析得到 / 解析不到」直接取决于这份索引 → 通知装饰重算 unresolved 类
   editor?.refreshDecorations?.();
@@ -333,7 +335,8 @@ const refreshGraph = debounce(async () => {
 }, 150);
 
 const refreshTags = debounce(async () => {
-  const { tags } = await Api.tags();
+  let response; try { response = await Api.tags(); } catch { return; }
+  const { tags } = response;
   const box = $('tag-list');
   box.innerHTML = '';
   if (!tags.length) {
@@ -1919,7 +1922,7 @@ function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 /* ================= 面板切换 ================= */
 let graphReturnPanel = 'files';
 let graphFitTimers = [];
-function switchPanel(name, { mobileOpen = true } = {}) {
+function switchPanel(name, { mobileOpen = true, pane = 'library' } = {}) {
   if (!suspendDraw()) return;
   if (isCompact()) {
     if (name === 'graph') closeMobilePanels();
@@ -1944,6 +1947,7 @@ function switchPanel(name, { mobileOpen = true } = {}) {
   for (const panel of document.querySelectorAll('#sidebar .panel')) {
     panel.classList.toggle('active', panel.id === `panel-${name}`);
   }
+  if (name === 'files') panelDock().select(pane, { reveal: mobileOpen });
   if (name === 'graph') {
     // 入口统一进入大画布；保留侧栏原有折叠状态，退出时直接还原。
     if (!graphView) initGraph();
@@ -1966,7 +1970,6 @@ function switchPanel(name, { mobileOpen = true } = {}) {
 
 /** 命令入口切换当前笔记上下文。 */
 function switchRightPanel(name) {
-  if (!isCompact() && !getSettings().layout.contextVisible) updateSettings({ layout: { contextVisible: true } });
   sidebars?.reveal(name);
 }
 
@@ -2170,7 +2173,7 @@ editor = new CmEditor({
     } catch (e) { toast(`附件保存失败：${e.message}`); return { ok: false }; }
   },
   onImageClick: (src, alt) => openLightbox(src, alt),
-  onAssetSaved: () => { refreshTree(); },   // 粘贴/拖入的附件立即出现在文件树
+  onAssetSaved: () => { refreshTree().catch(() => {}); },   // 断线时保留旧树，连接提示由 API 层处理。
   confirmCreate: (name) => askConfirm({
     title: `创建「${name}」？`,
     desc: '这个链接指向的笔记还不存在，现在创建它。',
@@ -2479,7 +2482,7 @@ function bindGlobalEvents() {
     { label: '在文件树定位当前笔记', icon: ICON.tree, disabled: !state.currentPath, action: () => revealInTree(state.currentPath) },
     { label: '回收站', icon: ICON.trash, action: () => openTrash() },
   ];
-  $('panel-files').oncontextmenu = e => {
+  $('section-library').oncontextmenu = e => {
     if (!state.vault || libraryTabs.current !== 'library' || e.target.closest('.tree-item, button, input, textarea, [role="tablist"]')) return;
     e.preventDefault(); e.stopPropagation(); showMenu(e.clientX, e.clientY, rootFileActions());
   };
@@ -2608,7 +2611,7 @@ function onWsMessage(msg) {
     editor.refreshDecorations();
     const paths = msg.paths || [];
     const affectsCurrent = state.currentPath && paths.some((p) => p === state.currentPath || p === '*' || p === state.currentPath + '.md');
-    if (msg.treeChanged !== false || !fileSort.startsWith('name')) refreshTree().then(() => pruneTabs());
+    if (msg.treeChanged !== false || !fileSort.startsWith('name')) refreshTree().then(() => pruneTabs()).catch(() => {});
     refreshGraph();
     refreshTags();
     if (affectsCurrent && !editor.dirty) {
@@ -2642,7 +2645,7 @@ function onWsMessage(msg) {
       await refreshTree();
       refreshGraph(); refreshTags();
       await restoreTabsAfterVaultSwitch();
-    }).catch(() => { refreshTree(); refreshGraph(); refreshTags(); });
+    }).catch(() => { refreshTree().catch(() => {}); refreshGraph(); refreshTags(); });
   } else if (msg.type === 'settings' && msg.settings) {
     // 其他窗口改了设置：同步应用（幂等）
     const cur = getSettings();
@@ -2662,7 +2665,19 @@ function toggleSidebar(side) {
     updateSettings({ layout: { [region.key]: !layout[region.key] } });
   }
 }
-libraryTabs = initLibraryTabs();
+libraryTabs = initLibraryTabs({
+  onChange: patch => updateSettings({ layout: patch }),
+  onReveal(host, pane) {
+    if (host === 'navigation' && !$('panel-files').classList.contains('active')) switchPanel('files', { mobileOpen: false, pane });
+    if (isCompact()) {
+      const side = host === 'navigation' ? 'left' : 'right';
+      if (!document.body.classList.contains(`mobile-${side}-open`)) toggleMobilePanel(side);
+    } else {
+      const key = host === 'navigation' ? 'navigationVisible' : 'contextVisible';
+      if (!getSettings().layout[key]) updateSettings({ layout: { [key]: true } });
+    }
+  },
+});
 sidebars = createSidebarContext({ state, editor, api: Api, navigate: openNote, createMissing: createMissingNote,
   searchTag: tag => { switchPanel('search'); $('search-input').value = `#${tag}`; runSearch(`#${tag}`); },
   history: openHistory, copy: copyText, compact: isCompact, closeMobile: closeMobilePanels });
