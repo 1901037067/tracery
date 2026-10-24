@@ -61,3 +61,33 @@ export function renameTabKeys(workspace, map) {
   workspace.tabs = workspace.tabs.map(map);
   for (const group of workspace.tabGroups) group.tabs = group.tabs.map(map);
 }
+
+/** 预览与松手提交使用同一份投影，不在拖动期间改动实际工作区。 */
+export function planTabDrop(workspace, drag, drop) {
+  if (!drop) return null;
+  const next = { tabs: [...workspace.tabs], activeTab: workspace.activeTab, tabGroups: workspace.tabGroups.map(g => ({ ...g, tabs: [...g.tabs] })) };
+  const active = next.tabs[next.activeTab];
+  const targetGroup = drop.groupId ? next.tabGroups.find(g => g.id === drop.groupId) : groupForTab(next, drop.key);
+  if (drag.kind === 'group') {
+    const group = next.tabGroups.find(g => g.id === drag.groupId);
+    if (!group || targetGroup?.id === group.id) return null;
+    const target = targetGroup ? (drop.after ? targetGroup.tabs.at(-1) : targetGroup.tabs[0]) : drop.key;
+    if (!next.tabs.includes(target)) return null;
+    next.tabs = next.tabs.filter(key => !group.tabs.includes(key));
+    next.tabs.splice(next.tabs.indexOf(target) + (drop.after ? 1 : 0), 0, ...group.tabs);
+  } else {
+    const from = next.tabs.indexOf(drag.key);
+    if (from < 0) return null;
+    if (drop.kind === 'group') {
+      if (!targetGroup || targetGroup.id === groupForTab(next, drag.key)?.id) return null;
+      moveTabToGroup(next, drag.key, targetGroup.id);
+    } else {
+      const target = next.tabs.indexOf(drop.key); if (target < 0 || target === from) return null;
+      const to = target + (drop.after ? 1 : 0);
+      next.tabs.splice(from, 1); next.tabs.splice(from < to ? to - 1 : to, 0, drag.key);
+      for (const group of next.tabGroups) group.tabs = group.tabs.filter(key => key !== drag.key);
+      targetGroup?.tabs.push(drag.key);
+    }
+  }
+  next.activeTab = next.tabs.indexOf(active); tidyTabGroups(next); return next;
+}

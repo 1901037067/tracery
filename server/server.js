@@ -19,6 +19,7 @@ import { Vault, IGNORED_DIRS } from './vault.js';
 import { normalizeLayout } from '../public/js/layout-settings.js';
 import { resolveInVault, resolveInDirectory } from './path-guard.js';
 import { validateRequest, isLocalClient } from './request-guard.js';
+import { readDiskNote, saveDiskNote, revisionOf } from './note-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -35,11 +36,13 @@ function historyDir(root, rel) {
   const safe = rel.split('/').map((s) => s.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_')).join('/');
   return resolveInDirectory(HOME, `history/${h}/${safe}`);
 }
+let lastHistoryId = 0;
 async function snapshotHistory(root, rel, prevContent) {
   if (prevContent == null) return;
   const dir = historyDir(root, rel);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, `${Date.now()}.md`), prevContent, 'utf8');
+  const id = lastHistoryId = Math.max(Date.now(), lastHistoryId + 1);
+  fs.writeFileSync(path.join(dir, `${id}.md`), prevContent, { encoding: 'utf8', flag: 'wx' });
   const files = fs.readdirSync(dir).filter((f) => /^\d+\.md$/.test(f)).sort();
   for (const f of files.slice(0, Math.max(0, files.length - 20))) {
     try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignore */ }
@@ -329,12 +332,14 @@ function sendJson(res, code, obj) {
 
 function readBody(req, limit = 32 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
-    let data = '';
+    const chunks = []; let bytes = 0;
     req.on('data', (c) => {
-      data += c;
-      if (data.length > limit) { req.destroy(); reject(new Error('请求体过大')); }
+      bytes += c.length;
+      if (bytes > limit) { req.destroy(); reject(new Error('请求体过大')); return; }
+      chunks.push(c);
     });
-    req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); } });
+    req.on('end', () => { try { const data = Buffer.concat(chunks).toString('utf8'); resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); } });
+    req.on('aborted', () => reject(new Error('请求已中断')));
     req.on('error', reject);
   });
 }
@@ -479,24 +484,23 @@ const server = http.createServer(async (req, res) => {
       const rel = u.searchParams.get('path');
       if (rel) resolveInVault(vault.root, rel);
       if (!rel || !vault.notes.has(rel)) return sendJson(res, 404, { error: '笔记不存在' });
-      const content = vault.contentCache.get(rel) ?? '';
+      const raw = await readDiskNote(vault.root, rel);
+      if (raw === null) return sendJson(res, 404, { error: '笔记已从磁盘删除' });
+      const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
       const { mtimeMs, size } = vault.files.get(rel) || {};
-      return sendJson(res, 200, { path: rel, name: vault.notes.get(rel).name, content, mtimeMs, size });
+      return sendJson(res, 200, { path: rel, name: vault.notes.get(rel)?.name, content, mtimeMs, size, revision: revisionOf(raw) });
     }
     if (p === '/api/note' && req.method === 'PUT') {
-      const { path: rel, content } = await readBody(req);
+      const { path: rel, content, expectedRevision, vaultRoot } = await readBody(req);
       if (!rel) return sendJson(res, 400, { error: '缺少 path' });
-      const abs = resolveInVault(vault.root, rel);
-      await fsp.mkdir(path.dirname(abs), { recursive: true });
-      // 覆盖前先快照旧内容（内容没变就不留）
-      let prev = null;
-      try { prev = await fsp.readFile(abs, 'utf8'); } catch { /* 新文件 */ }
-      if (prev !== null && prev !== content) await snapshotHistory(vault.root, rel, prev);
-      await fsp.writeFile(abs, content, 'utf8');
-      const change = await vault.applyChange(rel);
-      broadcast({ type: 'fs-change', paths: [rel], treeChanged: change.treeChanged });
-      const { mtimeMs, size } = vault.files.get(rel) || {};
-      return sendJson(res, 200, { ok: true, mtimeMs, size });
+      const target = vault;
+      if (vaultRoot !== undefined && vaultRoot !== target.root) return sendJson(res, 409, { error: '仓库已切换，原仓库的草稿已保留，请重新打开原仓库' });
+      const revision = await saveDiskNote(target.root, rel, content, { expectedRevision,
+        beforeCommit: previous => previous === null ? undefined : snapshotHistory(target.root, rel, previous) });
+      const change = await target.applyChange(rel);
+      if (target === vault) broadcast({ type: 'fs-change', paths: [rel], treeChanged: change.treeChanged });
+      const { mtimeMs, size } = target.files.get(rel) || {};
+      return sendJson(res, 200, { ok: true, mtimeMs, size, revision });
     }
     if (p === '/api/history' && req.method === 'GET') {
       const rel = u.searchParams.get('path');
@@ -529,8 +533,8 @@ const server = http.createServer(async (req, res) => {
       const abs = resolveInVault(vault.root, rel);
       let cur = null;
       try { cur = await fsp.readFile(abs, 'utf8'); } catch { /* 可能已被删 */ }
-      if (cur !== null) await snapshotHistory(vault.root, rel, cur);   // 恢复前也留一份当前内容
-      await fsp.writeFile(abs, await fsp.readFile(file, 'utf8'), 'utf8');
+      await saveDiskNote(vault.root, rel, await fsp.readFile(file, 'utf8'), { expectedRevision: revisionOf(cur),
+        beforeCommit: previous => previous === null ? undefined : snapshotHistory(vault.root, rel, previous) });
       await vault.applyChange(rel);
       broadcast({ type: 'fs-change', paths: [rel] });
       return sendJson(res, 200, { ok: true });
@@ -548,8 +552,8 @@ const server = http.createServer(async (req, res) => {
         if (!text.includes(query)) continue;
         const parts = text.split(query);
         count += parts.length - 1;
-        await snapshotHistory(vault.root, rel, text);   // 替换前留快照，可回滚
-        await fsp.writeFile(abs, parts.join(rep), 'utf8');
+        await saveDiskNote(vault.root, rel, parts.join(rep), { expectedRevision: revisionOf(text),
+          beforeCommit: previous => snapshotHistory(vault.root, rel, previous) });
         touched.push(rel);
       }
       if (touched.length) {
@@ -562,6 +566,8 @@ const server = http.createServer(async (req, res) => {
     // dir 由客户端按「附件设置」算好；服务端独立清洗——API 调用方永远不可信
     if (p === '/api/asset' && req.method === 'POST') {
       const body = await readBody(req, 64 * 1024 * 1024);
+      const target = vault;
+      if (body.vaultRoot !== undefined && body.vaultRoot !== target.root) return sendJson(res, 409, { error: '仓库已切换，请回到原笔记重新插入附件' });
       const MIME_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'application/pdf': 'pdf' };
       const m = /^data:([^;,]+);base64,([\s\S]+)$/i.exec(String(body.data || ''));
       const ext = m ? MIME_EXT[m[1].toLowerCase()] : null;
@@ -580,7 +586,7 @@ const server = http.createServer(async (req, res) => {
       // 安全口径与其它接口一致：只允许仓库内已存在的普通文件，不接受 ../ 或绝对路径。
       const overwrite = typeof body.overwrite === 'string' ? body.overwrite.replace(/\\/g, '/') : '';
       if (overwrite) {
-        const absTarget = resolveInVault(vault.root, overwrite);
+        const absTarget = resolveInVault(target.root, overwrite);
         if (!fs.existsSync(absTarget) || !fs.statSync(absTarget).isFile()) {
           return sendJson(res, 404, { error: '要覆盖的文件不存在' });
         }
@@ -588,30 +594,31 @@ const server = http.createServer(async (req, res) => {
       } else {
         rel = dir ? `${dir}/${raw}.${ext}` : `${raw}.${ext}`;
         let n = 2;
-        while (fs.existsSync(resolveInVault(vault.root, rel))) rel = `${dir ? dir + '/' : ''}${raw}-${n++}.${ext}`;
-        if (dir) await fsp.mkdir(resolveInVault(vault.root, dir), { recursive: true });
+        while (fs.existsSync(resolveInVault(target.root, rel))) rel = `${dir ? dir + '/' : ''}${raw}-${n++}.${ext}`;
+        if (dir) await fsp.mkdir(resolveInVault(target.root, dir), { recursive: true });
       }
-      await fsp.writeFile(resolveInVault(vault.root, rel), buf);
+      await fsp.writeFile(resolveInVault(target.root, rel), buf);
       const touched = [rel];
       // 绘图的笔画数据另存一份（便于以后重新编辑；不参与正文）
       if (body.drawing) {
         const jsonDir = path.posix.dirname(rel);
         const jsonRel = `${jsonDir === '.' ? '' : jsonDir + '/'}${path.basename(rel, '.' + ext)}.draw.json`;
-        await fsp.writeFile(resolveInVault(vault.root, jsonRel), String(body.drawing), 'utf8');
+        await fsp.writeFile(resolveInVault(target.root, jsonRel), String(body.drawing), 'utf8');
         touched.push(jsonRel);
       }
-      await vault.applyChanges(touched);
-      broadcast({ type: 'fs-change', paths: touched });
+      await target.applyChanges(touched);
+      if (target === vault) broadcast({ type: 'fs-change', paths: touched });
       return sendJson(res, 200, { ok: true, path: rel, size: buf.length });
     }
 
-    if (p === '/api/note/create' && req.method === 'POST') {      const { path: rel, content = '' } = await readBody(req);
-      const abs = resolveInVault(vault.root, rel);
+    if (p === '/api/note/create' && req.method === 'POST') {      const { path: rel, content = '', vaultRoot } = await readBody(req);
+      const target = vault;
+      if (vaultRoot !== undefined && vaultRoot !== target.root) return sendJson(res, 409, { error: '仓库已切换，请在原仓库另存副本' });
+      const abs = resolveInVault(target.root, rel);
       if (fs.existsSync(abs)) return sendJson(res, 409, { error: '文件已存在' });
-      await fsp.mkdir(path.dirname(abs), { recursive: true });
-      await fsp.writeFile(abs, content, 'utf8');
-      await vault.applyChange(rel);
-      broadcast({ type: 'fs-change', paths: [rel] });
+      await saveDiskNote(target.root, rel, content, { expectedRevision: null });
+      await target.applyChange(rel);
+      if (target === vault) broadcast({ type: 'fs-change', paths: [rel] });
       return sendJson(res, 200, { ok: true, path: rel });
     }
     if (p === '/api/rename' && req.method === 'POST') {

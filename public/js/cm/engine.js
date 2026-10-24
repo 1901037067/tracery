@@ -29,7 +29,9 @@ import { mathPreview } from './math.js';
 /** 极简防抖（与 api.js 同语义，避免引擎依赖 api） */
 function debounce(fn, ms) {
   let t = null;
-  return () => { clearTimeout(t); t = setTimeout(fn, ms); };
+  const run = () => { clearTimeout(t); t = setTimeout(fn, ms); };
+  run.cancel = () => { clearTimeout(t); t = null; };
+  return run;
 }
 
 const LINE_MARKUP_RE = /^(\s*)(#{1,6}\s+|[-*+]\s+(?:\[[ x]\]\s+)?|>\s?|\d+\.\s+)/;
@@ -52,6 +54,9 @@ export class CmEditor {
     this.path = null;
     this.mode = 'live';            // live | source | read（同一份 doc，切扩展集）
     this.md = '';                  // 与 view.state.doc 同步的权威文本
+    this._generation = 0;
+    this.revision = undefined;
+    this.vaultRoot = undefined;
     this.dirty = false;
     this.showLineNumbers = true;
     this.autosaveMs = 900;
@@ -179,9 +184,11 @@ export class CmEditor {
 
   /* ---------- 附件拦截回调（P2 domEventHandlers 递出来的 File） ---------- */
   async _onAssetFile(file) {
+    const generation = this._generation;
     try {
-      const res = this.opts.saveAsset ? await this.opts.saveAsset(file) : null;
+      const res = this.opts.saveAsset ? await this.opts.saveAsset(file, { path: this.path, vaultRoot: this.vaultRoot }) : null;
       if (res?.ok && res.path) {
+        if (generation !== this._generation) { this.opts.onAssetSaved?.(res.path); this.opts.onAssetDeferred?.(res.path); return; }
         this.insertSnippet(`![[${res.path}]]`);
         this.opts.onAssetSaved?.(res.path);
       } else {
@@ -195,13 +202,19 @@ export class CmEditor {
   /* ---------- 对外方法（app.js 与测试都按这套调用） ---------- */
 
   setAutosave(ms) {
+    this.autosave.cancel();
     this.autosaveMs = Math.max(0, Number(ms) || 0);
     this.autosave = debounce(() => this._doSave(), this.autosaveMs);
+    if (this.dirty) this.autosave();
   }
 
-  load(path, content, { keepMode = false } = {}) {
-    if (path === this.path && content === this.md) return;
-    this._flushSave();
+  load(path, content, { keepMode = false, revision, vaultRoot, discardChanges = false } = {}) {
+    if (!discardChanges && path === this.path && content === this.md && vaultRoot === this.vaultRoot) { this.revision = revision; return; }
+    if (!discardChanges) this._flushSave();
+    this.autosave.cancel();
+    this._generation++;
+    this.revision = revision;
+    this.vaultRoot = vaultRoot;
     this._loading = true;
     this.path = path;
     this.md = content;
@@ -223,21 +236,29 @@ export class CmEditor {
     }
     if (!this.path || !this.dirty) return true;
     const path = this.path, content = this.md;
+    const generation = this._generation;
+    const context = { expectedRevision: this.revision, vaultRoot: this.vaultRoot };
+    this.opts.onSaveState?.('saving');
     // 只有服务端确认后才能清掉 dirty；保存期间又输入的文字属于下一次保存。
-    this._saving = Promise.resolve().then(() => this.opts.onSave?.(path, content)).then((result) => {
+    this._saving = Promise.resolve().then(() => this.opts.onSave?.(path, content, context)).then((result) => {
       const ok = result !== false;
-      if (ok && this.path === path && this.md === content) {
+      if (generation === this._generation && ok && result?.revision !== undefined) this.revision = result.revision;
+      if (ok && generation === this._generation && this.path === path && this.md === content) {
         this.dirty = false;
         this.opts.onDirtyChange?.(false);
       }
+      if (generation === this._generation) this.opts.onSaveState?.(ok ? (this.dirty ? 'dirty' : 'saved') : 'error');
       return ok;
-    }).catch(() => false).finally(() => { this._saving = null; });
+    }).catch(() => { if (generation === this._generation) this.opts.onSaveState?.('error'); return false; }).finally(() => { this._saving = null; });
     return this._saving;
   }
 
   _flushSave() { if (this.dirty) this._doSave(); }
 
-  async flush() { return await this._doSave(); }
+  async flush() {
+    if (this.view.composing) return false;
+    return await this._doSave();
+  }
 
   /* ---------- 模式 ---------- */
   get isRead() { return this.mode === 'read'; }

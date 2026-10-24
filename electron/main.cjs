@@ -92,6 +92,26 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.loadURL(`http://localhost:${PORT}`);
 
+  // 系统关闭、标题栏关闭和应用退出都先等待渲染进程确认落盘。
+  let closePending = false;
+  mainWindow.on('close', (event) => {
+    const win = mainWindow;
+    if (win.traceryCloseApproved) return;
+    event.preventDefault();
+    if (closePending) return;
+    closePending = true;
+    let timer;
+    Promise.race([
+      win.webContents.executeJavaScript('window.__tracery?.prepareClose ? window.__tracery.prepareClose() : true'),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('等待保存超时')), 35000); }),
+    ]).then(ok => {
+      if (ok && !win.isDestroyed()) { win.traceryCloseApproved = true; win.close(); }
+    }).catch(error => {
+      if (!win.isDestroyed()) dialog.showMessageBox(win, { type: 'warning', title: '尚未退出', message: '未能确认笔记保存完成，窗口保持打开。', detail: `${error.message}。请重试保存，或先复制、导出未保存的文字。` });
+    }).finally(() => { clearTimeout(timer); closePending = false; });
+  });
+  mainWindow.on('closed', () => { mainWindow = null; });
+
   // 外链交给系统浏览器，不在应用内开新窗
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
@@ -168,7 +188,10 @@ app.whenReady().then(() => {
 });
 
 // 退出时确保服务端子进程一起退（否则端口被占）
-app.on('before-quit', () => {
+app.on('before-quit', event => {
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.traceryCloseApproved) {
+    event.preventDefault(); mainWindow.close(); return;
+  }
   if (serverProc && !serverProc.killed) {
     serverProc.kill();
     serverProc = null;

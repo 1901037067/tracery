@@ -65,6 +65,7 @@ try {
   s = await snapshot(); assert.ok(s.groups.find(g => g.id === otherId).tabs.includes('第二篇.md'));
   assert.ok(!s.groups.find(g => g.id === id).tabs.includes('第二篇.md'));
   await page.click('#btn-tab-new');
+  await page.waitForFunction(() => window.__tracery.state.tabs[window.__tracery.state.activeTab]?.startsWith('tracery:blank:') && !document.getElementById('empty-note').hidden);
   const blankIndex = (await snapshot()).tabs.length - 1;
   await page.click(`.tab[data-index="${blankIndex}"]`, { button: 'right' }); await menu('移入「课堂资料」');
   await groupMenu(id); await menu('更新保存的分组');

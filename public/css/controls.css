@@ -1,0 +1,26 @@
+/* 与主题共用颜色、圆角和字号，选单在视口浮层中打开，避免被设置滚动区裁切。 */
+.settings-nav button { display: flex; align-items: center; gap: 10px; }
+.settings-nav button svg { width: 18px; height: 18px; flex: 0 0 18px; }
+.select-control { display: inline-flex; min-width: 0; vertical-align: middle; }
+.select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; min-height: 36px; padding: 8px 11px; border: 1px solid var(--hairline); border-radius: 10px; background: var(--bg-fill); color: var(--text-primary); text-align: left; font: inherit; font-size: 12px; transition: background 140ms, box-shadow 140ms; }
+.select-trigger:hover { background: var(--bg-hover, var(--accent-soft)); }
+.select-trigger:focus-visible, .select-trigger[aria-expanded="true"] { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); border-color: var(--accent); }
+.select-trigger:disabled { opacity: .45; cursor: default; }
+.select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-chevron { display: flex; color: var(--text-secondary); flex-shrink: 0; }
+.select-chevron svg { width: 15px; height: 15px; transition: transform 140ms; }
+[aria-expanded="true"] > .select-chevron svg { transform: rotate(180deg); }
+.select-popover { position: fixed; z-index: 820; padding: 5px; overflow-y: auto; overscroll-behavior: contain; background: var(--bg-sheet); color: var(--text-primary); border: 1px solid var(--hairline); border-radius: 12px; box-shadow: var(--shadow-float); font: inherit; font-size: 12px; }
+.select-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 34px; border-radius: 7px; padding: 8px 10px; cursor: pointer; }
+.select-option > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.select-option[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); }
+.select-option.is-active { box-shadow: inset 0 0 0 1px var(--accent); }
+.select-option[aria-disabled="true"] { opacity: .4; cursor: default; }
+.select-option-check { display: flex; flex: 0 0 15px; }
+.select-option-check svg { width: 15px; height: 15px; }
+.layout-preset-toolbar > .select-control { flex: 1 1 180px; }
+.pane-placement-controls .select-control { width: 156px; max-width: 100%; }
+.pane-placement-controls .mini-btn { display: grid; place-items: center; width: 28px; height: 30px; border-radius: 8px; }
+.pane-placement-controls .mini-btn svg { width: 15px; height: 15px; }
+.pane-placement-controls .mini-btn:hover:not(:disabled) { color: var(--accent); background: var(--accent-soft); }
+.pane-order { border-radius: 6px; padding: 3px 4px; font-size: 10px; font-variant-numeric: tabular-nums; }

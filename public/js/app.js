@@ -8,7 +8,7 @@ import { CmEditor } from './cm/engine.js';
 import { ForceGraph } from './graph.js';
 import {
   initSettings, receiveSettings, updateSettings, getSettings, openSettings, close as closeSettings,
-  isOpen as settingsIsOpen, onApplied, ACCENTS, resolveAssetDir,
+  isOpen as settingsIsOpen, onApplied, ACCENTS, resolveAssetDir, configureWorkspaces,
 } from './settings.js';
 import { onSyncStatus } from './sync-ui.js';
 import { askText, askConfirm } from './dialog.js';
@@ -18,7 +18,7 @@ import { openPdfViewer } from './pdf-viewer.js';
 import { openDraw, suspendDraw, isDrawOpen } from './draw.js';
 import { initMobile, isCompact, toggleMobilePanel, closeMobilePanels } from './mobile.js';
 import { initPwa } from './pwa.js';
-import { rememberDraft, clearSavedDraft, recoverDraft } from './recovery.js';
+import { rememberDraft, clearSavedDraft, recoverDraft, archiveDraft, showRecovery } from './recovery.js';
 import { VirtualTree, flattenTree } from './virtual-tree.js';
 import { FILE_SORTS, validSort, sortTree } from './file-sort.js';
 import { noteIndex, resolveNote, missingNotePath, normalizeNotePath, wikiParts } from './wiki-path.js';
@@ -29,8 +29,11 @@ import { toggleBold, toggleItalic, toggleStrike, insertWikilink } from './cm/edi
 import { GROUP_COLORS, isBlankTab, newBlankKey, groupForTab, tidyTabGroups, moveTabToGroup, renameTabKeys } from './tab-workspace.js';
 import { createSavedGroups } from './saved-groups.js';
 import { DEFAULT_LAYOUT, LAYOUT_FIELDS } from './layout-settings.js';
+import { createTabDrag } from './tab-drag.js';
+import { uiIcon } from './ui-icons.js';
 import { sidebarForSide, applyWorkspaceLayout } from './workspace-layout.js';
 import { panelDock } from './pane-docking.js';
+import { setWorkspaceRoot, readPresets, normalizeSession } from './layout-presets.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -67,6 +70,7 @@ const state = {
   tabs: [],                 // 打开的笔记（标签页）
   activeTab: -1,
   tabGroups: [],
+  readingPositions: {},
   nameIndex: new Map(),      // 笔记名(小写) -> path，供 resolveLink 用
   collapsed: new Set(JSON.parse(lsGet('tracery.collapsed') || '[]')),
   pinned: new Set(JSON.parse(lsGet('tracery.pinned') || '[]')),   // 星标笔记（仓库相对路径）
@@ -82,6 +86,8 @@ const state = {
 let editor = null;
 let sidebars = null;
 let libraryTabs = null;
+setWorkspaceRoot(() => state.vault?.root || '');
+configureWorkspaces({ capture: captureWorkspaceSession, apply: item => navigate(() => applyWorkspaceNow(item)) });
 const savedGroups = createSavedGroups({ state, openNote,
   prepare: async () => suspendDraw() && await editor.flush(), activate: activateTab,
   changed: () => { renderTabs(); saveTabsState(); },
@@ -90,7 +96,7 @@ const savedGroups = createSavedGroups({ state, openNote,
 /* ================= 启动 ================= */
 async function boot() {
   // 调试/测试钩子
-  window.__tracery = { editor, state, Api, openNote, switchPanel, switchRightPanel, exportHtml, exportPdf, togglePin, openTrash, revealInTree };
+  window.__tracery = { editor, state, Api, openNote, switchPanel, switchRightPanel, exportHtml, exportPdf, togglePin, openTrash, revealInTree, prepareClose, openRecoveryCenter };
   const st = await Api.state();
   state.settings = st.settings || null;
   initSettings(st.settings || {});
@@ -741,6 +747,7 @@ async function renameFolder(rel) {
   const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
   const newRel = dir + clean;
   try {
+    if (!await editor.flush()) return;
     await Api.rename(rel, newRel);
     renameShortcuts(rel, newRel);
     const prefix = rel + '/';
@@ -750,6 +757,7 @@ async function renameFolder(rel) {
     if (state.currentPath && under(state.currentPath)) {
       const np = mapped(state.currentPath);
       state.currentPath = np;
+      editor.path = np;
       localStorage.setItem('tracery.lastNote', np);
       $('note-path').textContent = np;
     }
@@ -773,7 +781,7 @@ async function deleteFolder(rel) {
   const prefix = rel + '/';
   const under = (p) => p === rel || p.startsWith(prefix);
   try {
-    if (state.currentPath && under(state.currentPath)) await editor.flush();
+    if (state.currentPath && under(state.currentPath) && !await editor.flush()) return;
     await Api.remove(rel);
     // 关掉该文件夹下打开的所有标签（含子目录）
     const prevActive = state.tabs[state.activeTab] || '';   // activeTab=-1 时别拿到 undefined
@@ -880,8 +888,11 @@ function closeHistory() {
 async function reloadCurrentNote() {
   if (!state.currentPath) return;
   try {
-    const { content } = await Api.note(state.currentPath);
-    editor.load(state.currentPath, content);
+    const path = state.currentPath, root = state.vault?.root;
+    const before = editor.getContent(), generation = editor._generation, previousRevision = editor.revision;
+    const { content, revision } = await Api.note(path);
+    if (editor.dirty || root !== state.vault?.root || path !== state.currentPath || before !== editor.getContent() || generation !== editor._generation || previousRevision !== editor.revision) return;
+    editor.load(path, content, { revision, vaultRoot: root });
   } catch { /* 文件可能已不在 */ }
 }
 
@@ -949,6 +960,7 @@ async function openHistory() {
       });
       if (!ok) return;
       try {
+        if (!await editor.flush()) return;
         await Api.historyRestore(notePath, it.id);
         await reloadCurrentNote();
         await refreshTree();
@@ -1264,11 +1276,13 @@ async function renameNote(f) {
   const bare = input.replace(/\.[^.]+$/, '');
   const newPath = dir + bare + ext;
   try {
+    if (!await editor.flush()) return;
     await Api.rename(f.path, newPath);
     renameShortcuts(f.path, newPath);
     renameTabKeys(state, p => p === f.path ? newPath : p);
     if (state.currentPath === f.path) {
       state.currentPath = newPath;
+      editor.path = newPath;
       localStorage.setItem('tracery.lastNote', newPath);
       $('note-path').textContent = newPath;
     }
@@ -1287,7 +1301,7 @@ async function deleteNote(f) {
   });
   if (!ok) return;
   try {
-    if (state.currentPath === f.path) await editor.flush();
+    if (state.currentPath === f.path && !await editor.flush()) return;
     await Api.remove(f.path);
     const ti = state.tabs.indexOf(f.path);
     if (ti >= 0) await closeTab(ti);
@@ -1338,7 +1352,8 @@ function hasNotePath(p) {
 function saveTabsState() {
   try {
     tidyTabGroups(state);
-    localStorage.setItem(tabsKey(), JSON.stringify({ tabs: state.tabs, active: state.activeTab, groups: state.tabGroups }));
+    state.readingPositions = Object.fromEntries(state.tabs.filter(p => state.readingPositions[p]).map(p => [p, state.readingPositions[p]]));
+    localStorage.setItem(tabsKey(), JSON.stringify({ tabs: state.tabs, active: state.activeTab, groups: state.tabGroups, positions: state.readingPositions }));
     if (state.currentPath) localStorage.setItem('tracery.lastNote', state.currentPath);
   } catch { /* 隐私模式下忽略 */ }
 }
@@ -1348,6 +1363,7 @@ function loadTabsState() {
     const raw = JSON.parse(lsGet(tabsKey()) || '{}');
     state.tabs = [...new Set((Array.isArray(raw.tabs) ? raw.tabs : []).filter(p => typeof p === 'string' && (isBlankTab(p) || hasNotePath(p))))];
     state.tabGroups = Array.isArray(raw.groups) ? raw.groups : [];
+    state.readingPositions = normalizeSession({ tabs: state.tabs, positions: raw.positions })?.positions || {};
     state.activeTab = Number.isInteger(raw.active)
       ? Math.min(Math.max(raw.active, 0), state.tabs.length - 1)
       : state.tabs.length - 1;
@@ -1355,6 +1371,7 @@ function loadTabsState() {
   } catch {
     state.tabs = [];
     state.tabGroups = [];
+    state.readingPositions = {};
     state.activeTab = -1;
   }
 }
@@ -1363,55 +1380,13 @@ function loadTabsState() {
  * 用 pointer 事件而不是 HTML5 drag&drop：标题栏整体是 `-webkit-app-region: drag`，
  * HTML5 拖放在 Electron 里时灵时不灵；pointer 还能被 puppeteer 的鼠标事件直接驱动（可测）。
  * 约定：移动超过 5px 才算拖拽（否则当点击）；落点按「指针在中线左/右」决定插前还是插后。 */
-let tabDrag = null;            // { from, startX, moved }
-let suppressTabClick = false;  // 拖完会补一个 click，别把它当成切标签
-let tabDragPreview = null;
-
-function clearTabDragPreview() {
-  tabDragPreview?.remove();
-  tabDragPreview = null;
-}
-window.addEventListener('blur', () => {
-  tabDrag = null;
-  clearTabDragPreview();
-  clearTabDropMarks();
-  document.querySelectorAll('#tablist .dragging').forEach((el) => el.classList.remove('dragging'));
-});
-
-function moveTabDragPreview(e, path) {
-  if (!tabDragPreview) {
-    tabDragPreview = document.createElement('div');
-    tabDragPreview.className = 'tab-drag-preview';
-    tabDragPreview.textContent = tabLabel(path);
-    document.body.appendChild(tabDragPreview);
-  }
-  const box = tabDragPreview.getBoundingClientRect();
-  const x = e.clientX + box.width + 16 < innerWidth ? e.clientX + 14 : e.clientX - box.width - 14;
-  tabDragPreview.style.left = `${Math.max(4, x)}px`;
-  tabDragPreview.style.top = `${Math.max(4, Math.min(e.clientY + 12, innerHeight - box.height - 4))}px`;
-}
-
-function clearTabDropMarks() {
-  document.querySelectorAll('#tablist .drop-before, #tablist .drop-after, #tablist .drop-target')
-    .forEach((el) => el.classList.remove('drop-before', 'drop-after', 'drop-target'));
-}
-
-/** 把 from 位置的标签挪到插入位 to（to 是「原数组里的插入下标」） */
-function reorderTabs(from, to, groupId) {
-  if (from < 0 || from >= state.tabs.length || to < 0) return;
-  const activePath = state.tabs[state.activeTab];
-  const [item] = state.tabs.splice(from, 1);
-  const insert = Math.max(0, Math.min(from < to ? to - 1 : to, state.tabs.length));
-  state.tabs.splice(insert, 0, item);
-  if (groupId !== undefined) {
-    for (const group of state.tabGroups) group.tabs = group.tabs.filter(key => key !== item);
-    state.tabGroups.find(group => group.id === groupId)?.tabs.push(item);
-  }
-  // 活跃标签跟着「那篇笔记」走，不能跟着下标走
-  state.activeTab = state.tabs.indexOf(activePath);
-  renderTabs();
-  saveTabsState();
-}
+let suppressTabClick = false;
+const tabDragUI = createTabDrag({ state, label: tabLabel, color: groupColor, commit(plan) {
+  suppressTabClick = true; setTimeout(() => { suppressTabClick = false; }, 0);
+  if (!plan) return;
+  state.tabs = plan.tabs; state.activeTab = plan.activeTab; state.tabGroups = plan.tabGroups;
+  renderTabs(); saveTabsState();
+} });
 
 function updateEmptyNote() {
   const empty = !state.currentPath;
@@ -1424,20 +1399,20 @@ function updateEmptyNote() {
 
 function tabLabel(key) { return isBlankTab(key) ? '新标签页' : basename(key); }
 
-async function openBlankTab() {
+async function openBlankTabNow() {
   if (!suspendDraw() || !await editor.flush()) return;
   if (document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
   const key = newBlankKey();
   state.tabs.push(key);
   state.activeTab = state.tabs.length - 1;
-  await loadTab(key);
+  if (await loadTab(key) === false) return false;
   $('empty-open-note').focus();
 }
 
 function renderTabs() {
   tidyTabGroups(state);
   updateEmptyNote();
-  clearTabDragPreview();
+  tabDragUI.cancel();
   // 标签栏已并入标题栏：标题栏永远可见（拖拽区 + 窗口按钮），
   // 无标签时只隐藏标签列表本身，不能再隐藏整个 bar
   const list = $('tablist');
@@ -1466,49 +1441,7 @@ function renderTabs() {
     close.innerHTML = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.2 3.2l5.6 5.6M8.8 3.2l-5.6 5.6"/></svg>';
     close.onclick = (e) => { e.stopPropagation(); closeTab(i); };
 
-    // 拖拽换序（pointer 实现，见上）
-    tab.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || e.target.closest('.tab-close')) return;
-      tabDrag = { from: i, startX: e.clientX, startY: e.clientY, moved: false };
-      try { tab.setPointerCapture(e.pointerId); } catch { /* 老内核忽略 */ }
-    });
-    tab.addEventListener('pointermove', (e) => {
-      if (!tabDrag || tabDrag.from !== i) return;
-      if (!tabDrag.moved) {
-        if (Math.hypot(e.clientX - tabDrag.startX, e.clientY - tabDrag.startY) < 5) return;
-        tabDrag.moved = true;
-        tab.classList.add('dragging');
-      }
-      moveTabDragPreview(e, p);
-      const over = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.tab, .tab-group-header');
-      clearTabDropMarks();
-      if (!over || over === tab) return;
-      if (over.classList.contains('tab-group-header')) { over.classList.add('drop-target'); return; }
-      const r = over.getBoundingClientRect();
-      over.classList.add(e.clientX > r.left + r.width / 2 ? 'drop-after' : 'drop-before');
-    });
-    const endDrag = (e, commit) => {
-      if (!tabDrag || tabDrag.from !== i) return;
-      const { moved } = tabDrag;
-      const over = moved ? document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.tab, .tab-group-header') : null;
-      tabDrag = null;
-      clearTabDragPreview();
-      tab.classList.remove('dragging');
-      clearTabDropMarks();
-      if (!moved || !commit || !over) return;
-      suppressTabClick = true;
-      setTimeout(() => { suppressTabClick = false; }, 0);
-      if (over.classList.contains('tab-group-header')) {
-        moveTabToGroup(state, p, over.dataset.group); renderTabs(); saveTabsState(); return;
-      }
-      const target = Number(over.dataset.index);
-      if (!Number.isFinite(target) || target === i) return;
-      const r = over.getBoundingClientRect();
-      reorderTabs(i, target + (e.clientX > r.left + r.width / 2 ? 1 : 0), groupForTab(state, state.tabs[target])?.id || null);
-    };
-    tab.addEventListener('pointerup', (e) => endDrag(e, true));
-    tab.addEventListener('pointercancel', (e) => endDrag(e, false));
-    tab.addEventListener('lostpointercapture', (e) => endDrag(e, false));
+    tabDragUI.bind(tab, { kind: 'tab', key: p });
 
     tab.append(name, close);
     tab.onclick = () => { if (suppressTabClick) return; activateTab(i); };
@@ -1555,14 +1488,18 @@ function showTabMenu(btn) {
     disabled: !noteCount,
     action: () => pinAllTabs(),
   });
+  items.push('-', { label: '打开设置', icon: uiIcon('general'), action: () => { if (isCompact()) closeMobilePanels(); openSettings(); } });
+  const workspaces = readPresets();
+  if (workspaces.length) items.push('-');
+  for (const item of workspaces) items.push({ label: `工作区：${item.name}`, icon: uiIcon('layout'), action: () => navigate(() => applyWorkspaceNow(item)) });
   showMenu(r.left, r.bottom + 6, items);
 }
 
 /** 关闭全部标签页（与逐一点 × 同口径：先 flush 再清空） */
-async function closeAllTabs() {
+async function closeAllTabsNow() {
   if (!suspendDraw()) return;
   if (!state.tabs.length) return;
-  await editor.flush();
+  if (!await editor.flush()) return false;
   state.tabs = [];
   state.activeTab = -1;
   state.currentPath = null;
@@ -1624,41 +1561,6 @@ function layoutTabs() {
 
 function groupColor(group) { return GROUP_COLORS.find(([key]) => key === group.color)?.[2] || GROUP_COLORS[0][2]; }
 
-function bindGroupDrag(header, group) {
-  let gesture = null;
-  header.onpointerdown = event => {
-    if (event.button !== 0) return;
-    gesture = { x: event.clientX, y: event.clientY, moved: false };
-    header.setPointerCapture(event.pointerId);
-  };
-  header.onpointermove = event => {
-    if (!gesture) return;
-    if (!gesture.moved && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) < 5) return;
-    gesture.moved = true; header.classList.add('dragging');
-    moveTabDragPreview(event, group.name);
-    clearTabDropMarks();
-    const over = document.elementFromPoint(event.clientX, event.clientY)?.closest('.tab, .tab-group-header');
-    if (over && over.dataset.group !== group.id) over.classList.add('drop-target');
-  };
-  const end = (event, commit) => {
-    if (!gesture) return;
-    const moved = gesture.moved; gesture = null; clearTabDragPreview(); clearTabDropMarks(); header.classList.remove('dragging');
-    if (!moved) return;
-    suppressTabClick = true; setTimeout(() => { suppressTabClick = false; }, 0);
-    if (!commit) return;
-    const over = document.elementFromPoint(event.clientX, event.clientY)?.closest('.tab, .tab-group-header');
-    if (!over || over.dataset.group === group.id) return;
-    const active = state.tabs[state.activeTab], box = over.getBoundingClientRect(), after = event.clientX > box.left + box.width / 2;
-    const targetGroup = state.tabGroups.find(item => item.id === over.dataset.group);
-    const targetKey = targetGroup ? (after ? targetGroup.tabs.at(-1) : targetGroup.tabs[0]) : state.tabs[Number(over.dataset.index)];
-    state.tabs = state.tabs.filter(key => !group.tabs.includes(key));
-    state.tabs.splice(state.tabs.indexOf(targetKey) + (after ? 1 : 0), 0, ...group.tabs);
-    state.activeTab = state.tabs.indexOf(active); renderTabs(); saveTabsState();
-  };
-  header.onpointerup = event => end(event, true);
-  header.onpointercancel = header.onlostpointercapture = event => end(event, false);
-}
-
 function makeGroupHeader(group) {
   const header = document.createElement('button');
   header.className = 'tab-group-header';
@@ -1672,7 +1574,7 @@ function makeGroupHeader(group) {
   header.append(label);
   header.onclick = () => { if (suppressTabClick) return; group.collapsed = !group.collapsed; renderTabs(); saveTabsState(); };
   header.oncontextmenu = e => { e.preventDefault(); showGroupEditor(group, e.clientX, e.clientY); };
-  bindGroupDrag(header, group);
+  tabDragUI.bind(header, { kind: 'group', groupId: group.id });
   return header;
 }
 
@@ -1727,17 +1629,93 @@ function showGroupEditor(group, x, y) {
   requestAnimationFrame(() => { input.focus(); input.select(); });
 }
 
-async function closeTabGroup(group) {
+async function closeTabGroupNow(group) {
   if (!suspendDraw() || !await editor.flush()) return;
   const active = state.tabs[state.activeTab], index = state.activeTab;
   state.tabs = state.tabs.filter(key => !group.tabs.includes(key));
   state.activeTab = state.tabs.includes(active) ? state.tabs.indexOf(active) : Math.min(index, state.tabs.length - 1);
-  if (state.activeTab >= 0) await loadTab(state.tabs[state.activeTab]);
+  if (state.activeTab >= 0) return await loadTab(state.tabs[state.activeTab]);
   else { state.currentPath = null; localStorage.removeItem('tracery.lastNote'); editor.load('', ''); refreshRightPanels(null); renderTree(); renderTabs(); saveTabsState(); }
 }
 
+let navigationTail = Promise.resolve(), noteLoadToken = 0;
+let restoringReading = false;
+const persistReadingPosition = debounce(() => { rememberReadingPosition(); saveTabsState(); }, 200);
+function rememberReadingPosition() {
+  if (restoringReading || !state.currentPath || editor.path !== state.currentPath) return;
+  const main = editor.view.state.selection.main, scroller = editor.view.scrollDOM;
+  state.readingPositions[state.currentPath] = { top: scroller.scrollTop, left: scroller.scrollLeft, anchor: main.anchor, head: main.head, mode: editor.mode };
+}
+function captureWorkspaceSession() {
+  rememberReadingPosition();
+  return normalizeSession({ tabs: state.tabs, active: state.tabs[state.activeTab], groups: state.tabGroups, positions: state.readingPositions, dock: panelDock().snapshot() });
+}
+async function restoreReadingPosition(position, valid) {
+  if (!position) return;
+  restoringReading = true;
+  try {
+    editor.setMode(position.mode);
+    const end = editor.view.state.doc.length;
+    editor.view.dispatch({ selection: { anchor: Math.min(end, position.anchor), head: Math.min(end, position.head) } });
+    // 装饰、字体及侧栏宽度会触发重新测量；待布局完成再恢复滚动，避免光标定位覆盖阅读位置。
+    for (const delay of [0, 60]) {
+      await new Promise(resolve => delay ? setTimeout(resolve, delay) : requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (!valid()) return;
+      editor.view.scrollDOM.scrollTop = position.top; editor.view.scrollDOM.scrollLeft = position.left;
+    }
+  } finally { restoringReading = false; }
+}
+async function applyWorkspaceNow(item) {
+  if (!state.vault || !suspendDraw() || !await editor.flush()) { toast('笔记尚未保存，暂未切换工作区'); return false; }
+  const root = state.vault.root, session = normalizeSession(item.session);
+  if (!session) { updateSettings({ layout: item.layout }); toast(`已切换仅布局工作区：${item.name}`); return true; }
+  rememberReadingPosition();
+  const missing = session.tabs.filter(p => !isBlankTab(p) && !hasNotePath(p));
+  const tabs = session.tabs.filter(p => isBlankTab(p) || hasNotePath(p));
+  const active = tabs.includes(session.active) ? session.active : tabs[0];
+  // 先验证活动笔记可读且草稿已处理，成功后再替换标签与布局。
+  if (active && await loadTab(active, null, { restore: false }) === false) return false;
+  if (root !== state.vault?.root) return false;
+  state.tabs = tabs; state.activeTab = tabs.indexOf(active); state.tabGroups = session.groups;
+  state.readingPositions = session.positions;
+  tidyTabGroups(state);
+  updateSettings({ layout: item.layout });
+  if (!active) {
+    state.currentPath = null; editor.load('', ''); $('note-path').textContent = ''; localStorage.removeItem('tracery.lastNote'); refreshRightPanels(null);
+  }
+  if (document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
+  switchPanel('files', { mobileOpen: false }); panelDock().restore(session.dock); if (isCompact()) closeMobilePanels();
+  renderTree(); renderTabs(); saveTabsState();
+  if (active) await restoreReadingPosition(session.positions[active], () => root === state.vault?.root && state.currentPath === active);
+  toast(`已切换工作区：${item.name}${missing.length ? `（跳过 ${missing.length} 篇缺失笔记）` : ''}`);
+  return true;
+}
+function navigate(job) {
+  const run = navigationTail.then(async () => {
+    const root = state.vault?.root;
+    const before = { tabs: [...state.tabs], activeTab: state.activeTab, groups: JSON.parse(JSON.stringify(state.tabGroups)) };
+    const ok = await job();
+    if (ok === false && root === state.vault?.root) {
+      state.tabs = before.tabs; state.activeTab = before.activeTab; state.tabGroups = before.groups;
+      renderTabs(); saveTabsState();
+    }
+    return ok;
+  });
+  navigationTail = run.catch(() => {}); return run;
+}
+function openNote(...args) { return navigate(() => openNoteNow(...args)); }
+function activateTab(i, heading) { const key = state.tabs[i]; return navigate(() => activateTabNow(state.tabs.indexOf(key), heading)); }
+function closeTab(i) { const key = state.tabs[i]; return navigate(() => closeTabNow(state.tabs.indexOf(key))); }
+function closeAllTabs() { return navigate(closeAllTabsNow); }
+function openBlankTab() { return navigate(openBlankTabNow); }
+function closeTabGroup(group) { return navigate(() => closeTabGroupNow(group)); }
+
 /** 把某篇笔记加载进当前标签（不改变标签列表） */
-async function loadTab(path, heading) {
+async function loadTab(path, heading, { restore = true } = {}) {
+  rememberReadingPosition();
+  const keepReadMode = editor.isRead;
+  const ticket = ++noteLoadToken, root = state.vault?.root;
+  const current = () => ticket === noteLoadToken && root === state.vault?.root;
   if (isBlankTab(path)) {
     state.currentPath = null;
     editor.load('', '');
@@ -1748,12 +1726,17 @@ async function loadTab(path, heading) {
   }
   try {
     const { content, ...metadata } = await Api.note(path);
-    const recovered = await recoverDraft(state.vault?.root, path, content);
+    if (!current() || !await editor.flush() || !current()) return false;
+    const recovered = await recoverDraft(root, path, content);
+    if (!current() || recovered === false) return false;
+    // 等待恢复确认时旧笔记也可能继续输入，切换前再次确认已落盘。
+    if (!await editor.flush() || !current()) return false;
     state.currentPath = path;
     $('note-path').textContent = path;
     // 阅读模式要跨笔记保持：在阅读视图里点双链跳到别的笔记，仍应停在阅读模式
     // （live / source 保持老行为：换笔记回到实时预览）
-    editor.load(path, content, { keepMode: editor.isRead });
+    editor.load(path, content, { keepMode: editor.isRead, revision: metadata.revision, vaultRoot: root });
+    $('save-notice').hidden = true;
     if (recovered !== null) editor.view.dispatch({ changes: { from: 0, to: editor.view.state.doc.length, insert: recovered } });
     renderTree(); // 高亮
     pushRecent(path);
@@ -1763,13 +1746,15 @@ async function loadTab(path, heading) {
     if (heading) setTimeout(() => editor.scrollToHeading(heading), 60);
     renderTabs();
     saveTabsState();
+    if (restore && !heading && state.readingPositions[path]) await restoreReadingPosition({ ...state.readingPositions[path], mode: keepReadMode ? 'read' : state.readingPositions[path].mode }, current);
+    return true;
   } catch (e) {
     toast(e.message);
-    await closeTab(state.activeTab);
+    return false;
   }
 }
 
-async function activateTab(i, heading) {
+async function activateTabNow(i, heading) {
   if (!suspendDraw()) return;
   if (i < 0 || i >= state.tabs.length) return;
   if (isCompact()) closeMobilePanels();
@@ -1782,17 +1767,17 @@ async function activateTab(i, heading) {
     renderTabs(); saveTabsState();
     return;
   }
-  await editor.flush();
+  if (!await editor.flush()) return false;
   state.activeTab = i;
-  await loadTab(path, heading);
+  return await loadTab(path, heading);
 }
 
-async function closeTab(i) {
+async function closeTabNow(i) {
   if (!suspendDraw()) return;
   if (i < 0 || i >= state.tabs.length) return;
   const prevPath = state.currentPath;
   const wasActive = i === state.activeTab;
-  if (wasActive) await editor.flush();
+  if (wasActive && !await editor.flush()) return false;
   state.tabs.splice(i, 1);
 
   if (!state.tabs.length) {
@@ -1811,7 +1796,7 @@ async function closeTab(i) {
   else if (wasActive) state.activeTab = Math.min(i, state.tabs.length - 1);
 
   renderTabs();
-  if (state.activeTab >= 0 && state.tabs[state.activeTab] !== prevPath) await loadTab(state.tabs[state.activeTab]);
+  if (state.activeTab >= 0 && state.tabs[state.activeTab] !== prevPath) return await loadTab(state.tabs[state.activeTab]);
   else saveTabsState();
 }
 
@@ -1819,7 +1804,7 @@ async function closeTab(i) {
 function pruneTabs() {
   const before = state.tabs.length;
   const prevPath = state.tabs[state.activeTab];
-  state.tabs = state.tabs.filter((p) => isBlankTab(p) || hasNotePath(p));
+  state.tabs = state.tabs.filter((p) => isBlankTab(p) || hasNotePath(p) || (editor.dirty && p === editor.path));
   if (state.tabs.length === before) return;
   if (!state.tabs.length) {
     state.activeTab = -1;
@@ -1879,17 +1864,17 @@ async function createMissingNote(raw, newTab = false) {
  * @param {string} [heading]
  * @param {{newTab?: boolean}} [opts] 默认在当前标签打开；newTab=true 时新开一个
  */
-async function openNote(path, heading, opts = {}) {
+async function openNoteNow(path, heading, opts = {}) {
   if (!suspendDraw()) return;
   if (!path) return;
   if (isCompact()) closeMobilePanels();
   const existing = state.tabs.indexOf(path);
-  if (existing >= 0) { await activateTab(existing, heading); return; }
+  if (existing >= 0) return await activateTabNow(existing, heading);
   if (state.currentPath === path) {
     if (heading) editor.scrollToHeading(heading);
     return;
   }
-  await editor.flush();
+  if (!await editor.flush()) return false;
   const newTab = (opts.newTab === true && !isBlankTab(state.tabs[state.activeTab])) || state.activeTab < 0 || state.tabs.length === 0;
   if (newTab) {
     const at = state.activeTab < 0 ? 0 : state.activeTab + 1;
@@ -1900,7 +1885,7 @@ async function openNote(path, heading, opts = {}) {
     for (const group of state.tabGroups) group.tabs = group.tabs.map(key => key === previous ? path : key);
     state.tabs[state.activeTab] = path;
   }
-  await loadTab(path, heading);
+  return await loadTab(path, heading);
 }
 
 function refreshRightPanels(content) {
@@ -1910,6 +1895,41 @@ function refreshRightPanels(content) {
     $('note-path').textContent = '';
   }
   sidebars?.refresh(state.currentPath ? content : null);
+}
+
+async function saveRecoveryCopy(item) {
+  const root = state.vault?.root;
+  if (!root || item.root !== root) return false;
+  const stem = item.path.replace(/\.[^/.]+$/, '');
+  const path = `${stem}（恢复副本 ${Date.now()}-${Math.random().toString(36).slice(2, 6)}）.md`;
+  try {
+    await Api.createNote(path, item.content, { vaultRoot: root });
+    await refreshTree();
+    toast(`已保存副本：${path}`, 4500);
+    return true;
+  } catch (error) { toast(`另存失败：${error.message}`); return false; }
+}
+function openRecoveryCenter() { showRecovery(state.vault?.root, saveRecoveryCopy); }
+async function viewDiskVersion() {
+  if (!editor.path) return;
+  const root = state.vault?.root, path = editor.path;
+  if (editor.dirty && !await askConfirm({ title: '查看磁盘版本？', desc: '当前编辑内容会保留在恢复中心，然后显示磁盘上的内容。', okText: '保留草稿并查看' })) return;
+  try {
+    if (editor._saving) await editor._saving;
+    const disk = await Api.note(path);
+    if (root !== state.vault?.root || path !== editor.path) return;
+    if (editor.dirty && !archiveDraft(root, path, editor.getContent())) return;
+    clearSavedDraft(root, path, editor.getContent());
+    editor.load(path, disk.content, { keepMode: true, revision: disk.revision, vaultRoot: root, discardChanges: true });
+    $('save-notice').hidden = true; refreshRightPanels(disk.content);
+  } catch (error) { toast(error.message); }
+}
+async function prepareClose() {
+  document.activeElement?.blur();
+  await navigationTail;
+  if (!suspendDraw()) return false;
+  if (editor.dirty) rememberDraft(editor.vaultRoot || state.vault?.root, editor.path, editor.getContent());
+  return await editor.flush();
 }
 
 function refreshBacklinks() { sidebars?.refreshLinks(); }
@@ -2076,6 +2096,7 @@ function renderPalette(q) {
     { icon: '📤', name: '导出为 HTML', sub: '命令', action: () => exportHtml() },
     { icon: '📄', name: '导出为 PDF', sub: '命令', action: () => exportPdf() },
     { icon: '🕘', name: '查看历史版本', sub: '命令', action: () => openHistory() },
+    { icon: '↩', name: '打开恢复中心（未保存草稿）', sub: '命令', action: openRecoveryCenter },
     { icon: '🏷️', name: '查看所有标签', sub: '命令', action: () => switchPanel('tags') },
     { icon: '📂', name: '切换 / 管理仓库…', sub: '命令', action: openVaultPicker },
     { icon: '✏️', name: '新建绘图并插入笔记', sub: '命令', action: openDrawPanel },
@@ -2147,7 +2168,9 @@ editor = new CmEditor({
   openEmbedLink: openEmbeddedLink,
   openEmbedNote: (raw, result) => result?.path ? openNote(result.path, wikiParts(raw).heading, { newTab: true }) : openEmbeddedLink(raw),
   // 附件落盘（与 editor.js 的 _saveAssetFile 同口径；CM 内核把 File 递出来，这里存好后回插）
-  saveAsset: async (file) => {
+  saveAsset: async (file, context) => {
+    const root = context.vaultRoot || state.vault?.root, notePath = context.path;
+    const directory = resolveAssetDir(getSettings(), notePath);
     if (file.size > 30 * 1024 * 1024) { toast('文件超过 30MB，无法作为附件存入'); return { ok: false }; }
     let dataUrl;
     try {
@@ -2167,13 +2190,14 @@ editor = new CmEditor({
       name = `粘贴的图片 ${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.${ext}`;
     }
     try {
-      const res = await Api.saveAsset({ data: dataUrl, name, dir: resolveAssetDir(getSettings(), editor.path) });
+      const res = await Api.saveAsset({ data: dataUrl, name, dir: directory, vaultRoot: root });
       if (!res?.ok) toast(res?.error || '附件保存失败');
       return res || { ok: false };
     } catch (e) { toast(`附件保存失败：${e.message}`); return { ok: false }; }
   },
   onImageClick: (src, alt) => openLightbox(src, alt),
   onAssetSaved: () => { refreshTree().catch(() => {}); },   // 断线时保留旧树，连接提示由 API 层处理。
+  onAssetDeferred: path => toast(`附件已保存：${path}；笔记已切换，请从文档库插入。`, 4500),
   confirmCreate: (name) => askConfirm({
     title: `创建「${name}」？`,
     desc: '这个链接指向的笔记还不存在，现在创建它。',
@@ -2188,20 +2212,29 @@ editor = new CmEditor({
     }).catch((e) => toast(e.message));
   },
   onTagClick: (tag) => { switchPanel('search'); $('search-input').value = `#${tag}`; runSearch(`#${tag}`); },
-  onSave: async (path, content) => {
-    const root = state.vault?.root;
+  onSave: async (path, content, context) => {
+    const root = context.vaultRoot ?? state.vault?.root;
     try {
-      const metadata = await Api.saveNote(path, content);
+      const metadata = await Api.saveNote(path, content, { ...context, vaultRoot: root });
       if (root === state.vault?.root) sidebars?.setMetadata(path, metadata);
       clearSavedDraft(root, path, content);
       refreshGraph(); refreshTags();
       refreshBacklinks();
-      return true;
-    } catch (e) { toast(`保存失败，内容已保留在此设备：${e.message}`); return false; }
+      if (root === state.vault?.root && path === editor.path) $('save-notice').hidden = true;
+      return metadata;
+    } catch (e) {
+      const kept = rememberDraft(root, path, content);
+      if (root === state.vault?.root && path === editor.path) {
+        $('save-notice').hidden = false;
+        $('save-notice-text').textContent = `${e.status === 409 ? '版本冲突，已停止覆盖磁盘。' : '保存失败。'}${kept ? '此设备已保留草稿。' : '设备草稿也未能保存，请立即复制或另存。'} ${e.message}`;
+      }
+      toast(`保存未完成：${e.message}`); return false;
+    }
   },
   onDirtyChange: (dirty) => {
     $('status-saved').textContent = dirty ? '未保存…' : `已保存 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
   },
+  onSaveState: value => { $('status-saved').textContent = ({ saving: '保存中…', dirty: '未保存…', error: '保存失败，点击重试' })[value] || $('status-saved').textContent; },
   onChange: (content) => {
     if (editor?.dirty) rememberDraft(state.vault?.root, editor.path, content);
     const words = countWords(content);
@@ -2428,7 +2461,6 @@ function bindGlobalEvents() {
   $('btn-theme').onclick = toggleTheme;
   $('btn-toggle-left').onclick = () => toggleSidebar('left');
   $('btn-toggle-right').onclick = () => toggleSidebar('right');
-  $('btn-layout').onclick = () => { if (isCompact()) closeMobilePanels(); openSettings('layout'); };
   // 标签条最右侧的下拉：标签页列表 / 关闭全部 / 收藏全部
   $('btn-tab-more').onclick = (e) => {
     e.stopPropagation();
@@ -2599,6 +2631,8 @@ function bindGlobalEvents() {
 
   // 编辑器区域滚动时关闭链接预览（capture：cm 内核的滚动发生在内部 `.cm-scroller`，scroll 不冒泡）
   $('editor-live').addEventListener('scroll', () => {
+    rememberReadingPosition();
+    persistReadingPosition();
     const pop = $('link-preview');
     if (pop) pop.hidden = true;
   }, true);
@@ -2616,9 +2650,11 @@ function onWsMessage(msg) {
     refreshTags();
     if (affectsCurrent && !editor.dirty) {
       const path = state.currentPath, root = state.vault?.root;
+      const generation = editor._generation, before = editor.getContent(), revision = editor.revision;
       Api.note(path).then(({ content, ...metadata }) => {
-        if (path !== state.currentPath || root !== state.vault?.root || editor.dirty) return;
-        editor.load(path, content, { keepMode: true });
+        if (path !== state.currentPath || root !== state.vault?.root || editor.dirty || generation !== editor._generation || before !== editor.getContent() || revision !== editor.revision) return;
+        if (editor.getContent() === content) { editor.revision = metadata.revision; return; }
+        editor.load(path, content, { keepMode: true, revision: metadata.revision, vaultRoot: root });
         refreshRightPanels(content);
         sidebars.setMetadata(path, metadata);
       }).catch(() => {});
@@ -2630,6 +2666,8 @@ function onWsMessage(msg) {
     Api.state().then(async (s) => {
       if (s.vault) {
         const changed = state.vault?.root !== s.vault.root;
+        if (changed && editor.dirty) rememberDraft(editor.vaultRoot || state.vault?.root, editor.path, editor.getContent());
+        ++noteLoadToken;
         state.vault = s.vault;
         state.currentPath = null;
         if (changed) loadShortcuts();
@@ -2685,8 +2723,17 @@ sidebars.refresh(null);
 initPhoneAccess({ api: Api, toast, closeMobile: closeMobilePanels });
 initMobile();
 initPwa({ beforeReload: async () => { await editor.flush(); return !editor.dirty; } });
+$('save-retry').onclick = () => editor.flush();
+$('status-saved').onclick = () => editor.dirty ? editor.flush() : openRecoveryCenter();
+$('save-disk').onclick = viewDiskVersion;
+$('save-copy').onclick = () => saveRecoveryCopy({ root: editor.vaultRoot || state.vault?.root, path: editor.path, content: editor.getContent() });
+$('save-recovery').onclick = openRecoveryCenter;
+const checkpointDraft = () => { if (editor.dirty) rememberDraft(editor.vaultRoot || state.vault?.root, editor.path, editor.getContent()); };
+window.addEventListener('pagehide', checkpointDraft);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { checkpointDraft(); editor.flush(); } });
 window.addEventListener('beforeunload', (event) => {
   if (!editor.dirty) return;
+  checkpointDraft();
   event.preventDefault(); event.returnValue = '';
 });
 boot().catch(() => { $('app').hidden = true; $('boot-error').hidden = false; });

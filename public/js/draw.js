@@ -1230,14 +1230,18 @@ function layoutToolbar() {
   const compact = matchMedia('(max-width: 900px)').matches;
   const left = compact ? 12 : overlay.querySelector('.draw-mobile-switches').offsetLeft + overlay.querySelector('.draw-mobile-switches').offsetWidth + 12;
   const right = compact ? overlay.clientWidth - 12 : overlay.querySelector('.draw-top').offsetLeft - 12;
-  toolsEl.style.maxWidth = `${Math.max(48, toolbarPosition ? overlay.clientWidth - 24 : right - left)}px`;
+  toolsEl.style.maxWidth = 'none';
+  const naturalWidth = toolsEl.offsetWidth, fits = naturalWidth <= right - left;
+  toolsEl.style.maxWidth = `${Math.max(48, toolbarPosition || compact || !fits ? overlay.clientWidth - 24 : right - left)}px`;
   const width = toolsEl.offsetWidth, height = toolsEl.offsetHeight;
   const x = clamp(toolbarPosition?.x ?? (left + (right - left - width) / 2), 12, Math.max(12, overlay.clientWidth - width - 12));
-  const y = clamp(toolbarPosition?.y ?? (compact ? 120 : 12), 12, Math.max(12, overlay.clientHeight - height - 12));
+  const y = clamp(toolbarPosition?.y ?? (compact ? 120 : fits ? 12 : 70), 12, Math.max(12, overlay.clientHeight - height - 12));
   toolsEl.style.transform = 'none';
   toolsEl.style.left = `${x}px`;
   toolsEl.style.top = `${y}px`;
   if (toolbarPosition) toolbarPosition = { x, y };
+  const panelTop = toolbarPosition && !compact ? 120 : Math.min(Math.max(compact ? 196 : 120, y + height + 16), Math.max(12, overlay.clientHeight - 180));
+  overlay.style.setProperty('--draw-panels-top', `${panelTop}px`);
 }
 
 function enableToolbarDrag() {

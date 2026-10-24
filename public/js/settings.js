@@ -11,6 +11,8 @@ import { applyWorkspaceLayout } from './workspace-layout.js';
 import { PANE_NAMES, movePane } from './pane-layout.js';
 import { readPresets, writePresets, encodePreset, decodePreset } from './layout-presets.js';
 import { askText } from './dialog.js';
+import { uiIcon } from './ui-icons.js';
+import { upgradeSelects, refreshSelect, closeSelect } from './select-control.js';
 
 export const DEFAULT_SETTINGS = {
   themeName: 'apple',
@@ -68,6 +70,8 @@ const THEME_LABEL = { apple: 'Apple 风', obsidian: 'Obsidian 风' };
 let settings = { ...DEFAULT_SETTINGS };
 let mediaQuery = null;
 let onSettingsApplied = null;
+let workspaceActions = {};
+export function configureWorkspaces(actions) { workspaceActions = actions; }
 
 /** HTML 属性/文本转义（设置面板模板里插用户可改的值，如附件文件夹名） */
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
@@ -261,14 +265,14 @@ function build() {
     <div class="settings-box" role="dialog" aria-label="设置">
       <aside class="settings-nav">
         <div class="settings-nav-title">设置</div>
-        <button data-pane="appearance" class="active">外观</button>
-        <button data-pane="editor">编辑器</button>
-        <button data-pane="layout">布局</button>
-        <button data-pane="hotkeys">快捷键</button>
-        <button data-pane="attachment">附件</button>
-        <button data-pane="sync">同步</button>
-        <button data-pane="general">通用</button>
-        <button data-pane="about">关于</button>
+        <button data-pane="appearance" class="active">${uiIcon('appearance')}<span>外观</span></button>
+        <button data-pane="editor">${uiIcon('editor')}<span>编辑器</span></button>
+        <button data-pane="layout">${uiIcon('layout')}<span>布局</span></button>
+        <button data-pane="hotkeys">${uiIcon('hotkeys')}<span>快捷键</span></button>
+        <button data-pane="attachment">${uiIcon('attachment')}<span>附件</span></button>
+        <button data-pane="sync">${uiIcon('sync')}<span>同步</span></button>
+        <button data-pane="general">${uiIcon('general')}<span>通用</span></button>
+        <button data-pane="about">${uiIcon('about')}<span>关于</span></button>
       </aside>
       <section class="settings-body">
         <div class="settings-pane active" data-pane="appearance">
@@ -294,10 +298,12 @@ function build() {
 
         <div class="settings-pane" data-pane="layout">
           <h2>布局</h2>
-          <p class="set-note">修改即时预览并自动保存。拖动侧栏图标可换栏或排序，也可右键移动。Alt + 左右键排序，Alt + Shift + 左右键换栏。标题栏的「布局设置」按钮始终可用。</p>
-          <div class="set-section-title">布局预设</div>
-          <div class="layout-preset-toolbar"><select id="layout-preset-select" class="txt" aria-label="布局预设"></select><button id="layout-preset-apply" class="btn-ghost">应用</button><button id="layout-preset-save" class="btn-ghost">保存当前布局</button></div>
-          <div class="set-actions"><button id="layout-preset-import" class="btn-ghost">导入</button><button id="layout-preset-export" class="btn-ghost">导出</button><button id="layout-preset-remove" class="btn-ghost">移除预设</button></div>
+          <p class="set-note">修改即时预览并自动保存。拖动侧栏图标可换栏或排序，也可右键移动。Alt + 左右键排序，Alt + Shift + 左右键换栏。可从设置或命令面板进入布局设置。</p>
+          <div class="set-section-title">工作区</div>
+          <p class="set-note">保存当前打开的笔记、标签分组与颜色、侧栏布局和阅读位置。按笔记库保存在此设备；顶部标签菜单可一键切换。旧布局预设保留为仅布局工作区。</p>
+          <div class="layout-preset-toolbar"><select id="layout-preset-select" class="txt" aria-label="工作区"></select><button id="layout-preset-apply" class="btn-ghost">切换</button><button id="layout-preset-save" class="btn-ghost">保存当前工作区</button></div>
+          <p id="workspace-summary" class="set-note" role="status"></p>
+          <div class="set-actions"><button id="layout-preset-import" class="btn-ghost">导入</button><button id="layout-preset-export" class="btn-ghost">导出</button><button id="layout-preset-remove" class="btn-ghost">移除工作区</button></div>
           <input id="layout-preset-file" type="file" accept=".json,application/json" hidden />
           <div class="set-section-title">区域与位置</div>
           ${ROW('主侧栏位置', '交换完整侧栏；各个图标的位置可在下方单独调整', SEG('layout.navigationSide', [['left', '主栏在左'], ['right', '主栏在右']], settings.layout.navigationSide))}
@@ -306,7 +312,7 @@ function build() {
           ${ROW('左侧功能栏', '桌面的文件、搜索、绘图和命令等图标入口', TOGGLE('layout.ribbonVisible', settings.layout.ribbonVisible))}
           ${ROW('底部状态栏', '字数、保存状态和编辑模式入口', TOGGLE('layout.statusBarVisible', settings.layout.statusBarVisible))}
           <div class="set-section-title">页签位置与顺序</div>
-          <div id="layout-pane-controls">${Object.entries(PANE_NAMES).map(([id, label]) => ROW(label, '', `<div class="pane-placement-controls" data-pane-control="${id}"><select class="txt" data-pane-place="${id}" aria-label="${label}所在侧栏"><option value="navigation">主侧栏</option><option value="context">辅助侧栏</option></select><small class="pane-order"></small><button class="mini-btn" data-pane-step="-1" aria-label="${label}向前移动">↑</button><button class="mini-btn" data-pane-step="1" aria-label="${label}向后移动">↓</button></div>`)).join('')}</div>
+          <div id="layout-pane-controls">${Object.entries(PANE_NAMES).map(([id, label]) => ROW(label, '', `<div class="pane-placement-controls" data-pane-control="${id}"><select class="txt" data-pane-place="${id}" aria-label="${label}所在侧栏"><option value="navigation">主侧栏</option><option value="context">辅助侧栏</option></select><small class="pane-order"></small><button class="mini-btn" data-pane-step="-1" aria-label="${label}向前移动">${uiIcon('up')}</button><button class="mini-btn" data-pane-step="1" aria-label="${label}向后移动">${uiIcon('down')}</button></div>`)).join('')}</div>
           <div class="set-section-title">尺寸与排版</div>
           ${Object.entries(LAYOUT_FIELDS).map(([key, rule]) => ROW(rule.label, `${settings.layout[key]} ${rule.unit}`,
             `<input type="range" class="rng" data-key="layout.${key}" aria-label="${rule.label}" min="${rule.min}" max="${rule.max}" step="${rule.step}" value="${settings.layout[key]}" />`)).join('')}
@@ -390,6 +396,7 @@ function build() {
 }
 
 function bind(el) {
+  upgradeSelects(el);
   bindHotkeys(el);
   bindLayoutPresets(el);
   for (const control of el.querySelectorAll('[data-pane-control]')) {
@@ -403,7 +410,7 @@ function bind(el) {
   // 左侧导航
   for (const btn of el.querySelectorAll('.settings-nav button')) {
     btn.onclick = () => {
-      cancelHotkeyRecording();
+      cancelHotkeyRecording(); closeSelect();
       for (const b of el.querySelectorAll('.settings-nav button')) b.classList.toggle('active', b === btn);
       for (const p of el.querySelectorAll('.settings-pane')) p.classList.toggle('active', p.dataset.pane === btn.dataset.pane);
       if (btn.dataset.pane === 'sync') initSyncPane();   // 每次进来都取一次最新状态
@@ -483,39 +490,41 @@ function bindLayoutPresets(el) {
   const select = el.querySelector('#layout-preset-select'), file = el.querySelector('#layout-preset-file');
   const selected = () => readPresets().find(item => item.id === select.value);
   const refresh = id => {
-    select.replaceChildren(); const custom = document.createElement('option'); custom.value = ''; custom.textContent = '选择布局预设'; select.append(custom);
+    select.replaceChildren(); const custom = document.createElement('option'); custom.value = ''; custom.textContent = '选择工作区'; select.append(custom);
     for (const item of readPresets()) { const option = document.createElement('option'); option.value = item.id; option.textContent = item.name; select.append(option); }
-    select.value = id || '';
-    el.querySelector('#layout-preset-apply').disabled = !selected(); el.querySelector('#layout-preset-remove').disabled = !selected();
+    select.value = id || ''; refreshSelect(select);
+    select.onchange();
   };
-  select.onchange = () => { el.querySelector('#layout-preset-apply').disabled = !selected(); el.querySelector('#layout-preset-remove').disabled = !selected(); };
+  select.onchange = () => { const item = selected(); el.querySelector('#layout-preset-apply').disabled = !item; el.querySelector('#layout-preset-remove').disabled = !item;
+    el.querySelector('#workspace-summary').textContent = !item ? '保存同名工作区可更新快照；切换不会修改笔记正文。' : item.session ? `${item.session.tabs.filter(p => !p.startsWith('tracery:blank:')).length} 篇笔记 · ${item.session.groups.length} 个分组 · 含阅读位置` : '仅布局 · 再次保存同名工作区可加入当前笔记与阅读位置'; };
   el.querySelector('#layout-preset-save').onclick = async () => {
-    const name = await askText({ title: '保存布局预设', value: selected()?.name || '', placeholder: '例如：阅读、复习、写作', okText: '保存' });
+    const name = await askText({ title: '保存工作区', value: selected()?.name || '', placeholder: '例如：上课、复习、写作、项目', okText: '保存' });
     if (!name?.trim()) return;
     try {
       const items = readPresets(), label = name.trim().slice(0, 40), existing = items.find(item => item.name === label);
-      const item = { id: existing?.id || crypto.randomUUID(), name: label, layout: normalizeLayout(settings.layout) };
+      const item = { id: existing?.id || crypto.randomUUID(), name: label, layout: normalizeLayout(settings.layout), session: workspaceActions.capture?.() || null };
       if (existing) items[items.indexOf(existing)] = item; else items.push(item);
-      writePresets(items); refresh(item.id); toast('布局预设已保存到此设备');
-    } catch { toast('布局预设保存失败'); }
+      writePresets(items); refresh(item.id); toast('工作区已保存到此设备的当前笔记库');
+    } catch { toast('工作区保存失败'); }
   };
-  el.querySelector('#layout-preset-apply').onclick = () => { const item = selected(); if (item) { updateSettings({ layout: item.layout }); toast(`已应用布局：${item.name}`); } };
-  el.querySelector('#layout-preset-remove').onclick = () => { writePresets(readPresets().filter(item => item.id !== select.value)); refresh(); toast('已移除预设，当前布局保持不变'); };
+  el.querySelector('#layout-preset-apply').onclick = async () => { const item = selected(); if (!item) return; if (workspaceActions.apply) await workspaceActions.apply(item); else updateSettings({ layout: item.layout }); };
+  el.querySelector('#layout-preset-remove').onclick = () => { try { writePresets(readPresets().filter(item => item.id !== select.value)); refresh(); toast('已移除工作区，当前笔记和布局保持不变'); } catch { toast('工作区移除失败'); } };
   el.querySelector('#layout-preset-export').onclick = () => {
-    const item = selected() || { name: '当前布局', layout: settings.layout };
+    const item = selected() || { name: '当前工作区', layout: settings.layout, session: workspaceActions.capture?.() || null };
     const url = URL.createObjectURL(new Blob([encodePreset(item)], { type: 'application/json' }));
-    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'Tracery-layout.json'; document.body.append(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'Tracery-workspace.json'; document.body.append(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   el.querySelector('#layout-preset-import').onclick = () => file.click();
   file.onchange = async () => {
     const input = file.files[0]; file.value = ''; if (!input) return;
     try {
-      if (input.size > 256 * 1024) throw Error('布局文件过大');
+      if (input.size > 2 * 1024 * 1024) throw Error('工作区文件过大');
       const item = decodePreset(await input.text()), items = readPresets(), baseName = item.name;
       let suffix = 2; while (items.some(old => old.name === item.name)) item.name = `${baseName.slice(0, 32)} (${suffix++})`;
-      items.push(item); writePresets(items); refresh(item.id); toast('已导入布局，点击「应用」查看');
-    } catch (error) { toast(error.message || '布局文件无法读取'); }
+      items.push(item); writePresets(items); refresh(item.id); toast('已导入工作区，点击「切换」查看');
+    } catch (error) { toast(error.message || '工作区文件无法读取'); }
   };
+  el.refreshWorkspaces = () => refresh(select.value);
   refresh();
 }
 
@@ -624,6 +633,7 @@ function renderActiveControls() {
     const select = control.querySelector('select'), index = panels[host].indexOf(id);
     select.value = host;
     for (const option of select.options) option.textContent = `${option.value === 'navigation' ? '主侧栏' : '辅助侧栏'}（${(option.value === 'navigation') === (settings.layout.navigationSide === 'left') ? '左' : '右'}）`;
+    refreshSelect(select);
     control.querySelector('.pane-order').textContent = `${index + 1} / ${panels[host].length}`;
     control.querySelector('[data-pane-step="-1"]').disabled = index === 0;
     control.querySelector('[data-pane-step="1"]').disabled = index === panels[host].length - 1;
@@ -659,6 +669,7 @@ function renderActiveControls() {
 
 export function openSettings(pane) {
   if (!modalEl) modalEl = build();
+  modalEl.refreshWorkspaces?.();
   modalEl.hidden = false;
   open = true;
   renderActiveControls();
@@ -669,6 +680,7 @@ export function openSettings(pane) {
 
 export function close() {
   if (!modalEl) return;
+  closeSelect();
   modalEl.hidden = true;
   cancelHotkeyRecording();
   open = false;

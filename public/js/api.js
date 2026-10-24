@@ -4,6 +4,7 @@ const BASE = location.origin;
 async function api(path, opts = {}) {
   let res;
   try { res = await fetch(BASE + path, {
+    signal: opts.timeout ? AbortSignal.timeout(opts.timeout) : undefined,
     method: opts.method || 'GET',
     headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -13,7 +14,7 @@ async function api(path, opts = {}) {
   }
   window.dispatchEvent(new CustomEvent('tracery:connection', { detail: { connected: true } }));
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
   return data;
 }
 
@@ -24,9 +25,9 @@ export const Api = {
   forgetVault: (path) => api('/api/vault/forget', { method: 'POST', body: { path } }),
   tree: () => api('/api/tree'),
   drawings: () => api('/api/drawings'),
-  note: (path) => api(`/api/note?path=${encodeURIComponent(path)}`),
-  saveNote: (path, content) => api('/api/note', { method: 'PUT', body: { path, content } }),
-  createNote: (path, content) => api('/api/note/create', { method: 'POST', body: { path, content } }),
+  note: (path) => api(`/api/note?path=${encodeURIComponent(path)}`, { timeout: 30000 }),
+  saveNote: (path, content, options = {}) => api('/api/note', { method: 'PUT', timeout: 30000, body: { path, content, ...options } }),
+  createNote: (path, content, options = {}) => api('/api/note/create', { method: 'POST', body: { path, content, ...options } }),
   saveAsset: (payload) => api('/api/asset', { method: 'POST', body: payload }),
   rename: (path, newPath) => api('/api/rename', { method: 'POST', body: { path, newPath } }),
   remove: (path) => api('/api/delete', { method: 'POST', body: { path } }),

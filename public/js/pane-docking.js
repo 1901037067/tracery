@@ -137,5 +137,6 @@ function createDock() {
   document.addEventListener('keydown', event => { if (menu && event.key === 'Escape') { closeMenu(); event.preventDefault(); event.stopImmediatePropagation(); } }, true);
   apply({ panels });
   return { apply, select, onSelect: fn => { listeners.add(fn); fn(); }, isActive: id => active[hostOf(id)] === id,
-    configure(options) { callbacks = { ...callbacks, ...options }; }, hostOf, get panels() { return panels; } };
+    configure(options) { callbacks = { ...callbacks, ...options }; }, hostOf, get panels() { return panels; },
+    snapshot: () => ({ ...active }), restore(snapshot) { for (const host of Object.keys(hosts)) if (panels[host].includes(snapshot?.[host])) active[host] = snapshot[host]; renderActive(); } };
 }

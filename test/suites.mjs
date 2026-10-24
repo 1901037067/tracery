@@ -1,5 +1,9 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['workspaces', 'workspaces-test.mjs', '固定侧栏图标行、工作区会话与阅读位置恢复'],
+  ['ui-refresh', 'ui-refresh-test.mjs', '设置图标与选单、绘图工具条与标签分组落点预览'],
+  ['reliability', 'reliability-test.mjs', '保存故障、版本冲突、安全写入、长文与草稿恢复'],
+  ['close-lifecycle', 'close-lifecycle-test.mjs', '原生关闭等待保存、失败保留窗口与服务退出'],
   ['pane-docking', 'pane-docking-test.mjs', '侧栏页签跨栏拖放、排序与布局预设'],
   ['security', 'security-test.mjs', '仓库路径边界、Host、同源与 WebSocket 防护'],
   ['workspace-layout', 'workspace-layout-test.mjs', '区域显隐、左右互换与布局恢复'],

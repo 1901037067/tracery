@@ -1,3 +1,4 @@
+import { openLayoutSettings } from './settings-entry.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,7 +28,7 @@ try {
   const toggle = key => page.click(`[data-toggle="layout.${key}"]`);
   const persisted = (key, value) => page.waitForFunction(async ({ key, value }) => (await (await fetch('/api/state')).json()).settings.layout[key] === value, {}, { key, value });
   assert.deepEqual((await settings()).layout, DEFAULT_LAYOUT);
-  await page.click('#btn-layout'); assert.equal(await page.$eval('.settings-pane[data-pane="layout"]', el => el.classList.contains('active')), true);
+  await openLayoutSettings(page); assert.equal(await page.$eval('.settings-pane[data-pane="layout"]', el => el.classList.contains('active')), true);
   await page.click('.seg[data-key="layout.navigationSide"] [data-value="right"]'); await persisted('navigationSide', 'right');
   await page.click('#set-done'); await sleep(250);
   let g = await geometry(); assert.ok(g['sidebar-right'].right <= g['editor-area'].left); assert.ok(g.sidebar.left >= g['editor-area'].right);
@@ -51,7 +52,7 @@ try {
   await page.waitForFunction(() => document.getElementById('theme-css').getAttribute('href') === '/themes/obsidian.css'); await sleep(250);
   g = await geometry(); assert.ok(g['sidebar-right'].right <= g['editor-area'].left); assert.ok(g.sidebar.left >= g['editor-area'].right);
   await page.screenshot({ path: path.join(OUT, 'navigation-right-obsidian.png') });
-  await page.click('#btn-layout');
+  await openLayoutSettings(page);
   await toggle('navigationVisible'); await toggle('contextVisible'); await toggle('ribbonVisible'); await toggle('statusBarVisible');
   await persisted('statusBarVisible', false); await page.click('#set-done'); await sleep(250);
   assert.equal(await width('sidebar'), 0); assert.equal(await width('sidebar-right'), 0);
@@ -71,14 +72,14 @@ try {
   await page.keyboard.press('Escape'); await sleep(250);
   assert.equal(await width('sidebar'), 0); assert.equal((await settings()).layout.navigationVisible, false);
   await page.click('#btn-toggle-right'); await persisted('navigationVisible', true); await sleep(250);
-  await page.click('#btn-layout'); await toggle('navigationVisible'); await persisted('navigationVisible', false);
+  await openLayoutSettings(page); await toggle('navigationVisible'); await persisted('navigationVisible', false);
   await page.click('#set-done');
   // 手机不继承桌面隐藏/换边，返回桌面恢复原偏好。
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true }); await sleep(250);
   await page.click('#btn-toggle-left'); await sleep(250);
   assert.ok(await width('sidebar') > 200); assert.equal(await page.$eval('#sidebar', el => el.inert), false);
   assert.notEqual(await page.$eval('.ribbon', el => getComputedStyle(el).display), 'none');
-  await page.click('#btn-layout'); assert.equal(await page.evaluate(() => document.body.classList.contains('mobile-left-open')), false);
+  await openLayoutSettings(page); assert.equal(await page.evaluate(() => document.body.classList.contains('mobile-left-open')), false);
   await page.click('#set-done'); await page.click('#btn-toggle-right'); await sleep(250);
   assert.ok(await width('sidebar-right') > 200); await page.keyboard.press('Escape');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
@@ -86,7 +87,7 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
   await page.setViewport({ width: 1440, height: 900, isMobile: false, hasTouch: false }); await sleep(250);
   assert.equal(await width('sidebar'), 0); assert.equal(await width('sidebar-right'), 0);
-  await page.click('#btn-layout'); await page.click('#set-reset-layout'); await persisted('navigationSide', 'left');
+  await openLayoutSettings(page); await page.click('#set-reset-layout'); await persisted('navigationSide', 'left');
   await page.click('#set-done'); await sleep(250);
   assert.deepEqual((await settings()).layout, DEFAULT_LAYOUT); assert.equal((await settings()).accent, 'orange');
   assert.equal(await page.evaluate(() => window.__tracery.editor.getContent()), content);
@@ -99,11 +100,11 @@ try {
   await page.keyboard.down('Control'); await page.keyboard.down('Shift'); await page.keyboard.press('D'); await page.keyboard.up('Shift'); await page.keyboard.up('Control');
   await page.waitForSelector('.draw-overlay:not([hidden])');
   const left = await page.$eval('.draw-overlay', el => el.getBoundingClientRect().left); assert.ok(left < 16);
-  await page.click('#btn-layout'); await toggle('ribbonVisible'); await persisted('ribbonVisible', true); await page.click('#set-done');
+  await openLayoutSettings(page); await toggle('ribbonVisible'); await persisted('ribbonVisible', true); await page.click('#set-done');
   await page.waitForFunction(() => document.querySelector('.draw-overlay').getBoundingClientRect().left > 50);
   await page.screenshot({ path: path.join(OUT, 'draw-layout-dark.png') });
   await page.evaluate(() => window.__tracery.switchPanel('files'));
-  await page.click('#btn-layout'); await page.$eval('.settings-pane[data-pane="layout"]', el => { el.scrollTop = 0; }); await sleep(250);
+  await openLayoutSettings(page); await page.$eval('.settings-pane[data-pane="layout"]', el => { el.scrollTop = 0; }); await sleep(250);
   await page.screenshot({ path: path.join(OUT, 'layout-regions-dark.png') });
   assert.deepEqual(errors, []); assert.equal(fs.readFileSync(path.join(VAULT, '课堂资料.md'), 'utf8'), content);
   console.log('PASS 服务端类型/枚举校验、绘图边界跟随功能栏、深色设置界面，无页面错误');

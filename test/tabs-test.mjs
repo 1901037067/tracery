@@ -173,11 +173,11 @@ async function main() {
   const dragPreview = await page.evaluate(() => {
     const el = document.querySelector('.tab-drag-preview');
     const r = el?.getBoundingClientRect();
-    return { name: el?.textContent, x: r?.left, y: r?.top, pointerEvents: el ? getComputedStyle(el).pointerEvents : '' };
+    return { name: el?.querySelector('.tab-drop-caption')?.textContent, moving: el?.querySelector('.is-moving')?.textContent, x: r?.left, y: r?.top, pointerEvents: el ? getComputedStyle(el).pointerEvents : '' };
   });
-  check('拖动时鼠标旁显示正在拖动的标签名且不遮挡落点',
-    dragPreview.name === order0[1] && dragPreview.pointerEvents === 'none'
-    && Math.abs(dragPreview.x - (boxes[0].left + 5)) < 280 && Math.abs(dragPreview.y - boxes[1].y) <= 20, JSON.stringify(dragPreview));
+  check('拖动时显示松手后的排列预览且不遮挡落点',
+    dragPreview.name?.includes('松开后') && dragPreview.moving === order0[1] && dragPreview.pointerEvents === 'none'
+    && Math.abs(dragPreview.x - (boxes[0].left + 5)) < 280 && dragPreview.y > boxes[1].y && dragPreview.y < 120, JSON.stringify(dragPreview));
   await page.mouse.up();
   check('拖动结束移除标签预览', await page.evaluate(() => !document.querySelector('.tab-drag-preview')));
   await sleep(500);

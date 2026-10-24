@@ -99,7 +99,8 @@ try {
   await page.screenshot({ path: path.join(OUT, 'mobile-draw.png') });
   await page.tap('#draw-toggle-props');
   await page.tap('.draw-tool[data-tool="rect"]');
-  const x = canvas.left + 60, y = canvas.top + 210;
+  const toolsBottom = await page.$eval('.draw-tools', el => el.getBoundingClientRect().bottom);
+  const x = canvas.left + 60, y = Math.max(canvas.top + 210, toolsBottom + 24);
   const touch = await page.touchscreen.touchStart(x, y);
   await touch.move(x + 90, y + 80);
   await touch.end();

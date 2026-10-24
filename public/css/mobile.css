@@ -1,6 +1,16 @@
 /* 触屏有独立抽屉和舒适点击区；桌面栏宽、折叠状态与纸张排版保持各自的规则。 */
 .connection-banner { display: flex; align-items: center; justify-content: center; gap: 12px; flex-shrink: 0; padding: 6px 12px; font-size: 12px; background: var(--accent-soft); color: var(--text-primary); }
 .connection-banner button { color: var(--accent); padding: 6px 10px; border-radius: 6px; flex-shrink: 0; }
+.save-notice { flex-wrap: wrap; justify-content: flex-start; }
+.save-notice span { flex: 1 1 230px; }
+#recovery-center { z-index: 750; align-items: center; padding: 16px; }
+.recovery-card { width: min(760px, 92vw); height: min(550px, calc(100dvh - 32px)); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.recovery-card h2 { margin: 0; font-size: 18px; flex-shrink: 0; }
+.recovery-list { max-height: 180px; min-height: 44px; flex: 1 1 100px; overflow: auto; }
+.recovery-item { display: block; text-align: left; width: 100%; padding: 8px; border-radius: 6px; overflow-wrap: anywhere; }
+.recovery-item.active { background: var(--accent-soft); }
+.recovery-card textarea { width: 100%; min-height: 60px; flex: 2 1 150px; overflow: auto; resize: none; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--hairline); padding: 10px; }
+.recovery-card .dialog-actions { flex-wrap: wrap; margin-top: 0; flex-shrink: 0; }
 .mobile-backdrop, .draw-mobile-switches, .draw-panel-backdrop { display: none; }
 .app, .draw-overlay { height: var(--app-height, 100dvh); }
 
