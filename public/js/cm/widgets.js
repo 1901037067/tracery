@@ -73,11 +73,12 @@ function blockEmbed(content) {
 }
 
 class ImageEmbedWidget extends WidgetType {
-  constructor(embed, from, onImageClick) {
+  constructor(embed, from, onImageClick, onFileClick) {
     super();
     this.embed = embed;
     this.from = from;
     this.onImageClick = onImageClick || null;
+    this.onFileClick = onFileClick || null;
   }
   eq(o) { return o.from === this.from && o.embed.raw === this.embed.raw && o.embed.src === this.embed.src; }
   get estimatedHeight() { return this.embed.isImage ? (this.embed.width ? Math.min(this.embed.width * 0.62, 900) : 240) : 36; }
@@ -89,7 +90,15 @@ class ImageEmbedWidget extends WidgetType {
     fig.dataset.name = name;
     fig.dataset.target = this.embed.raw;   // 与块级渲染同口径：右键菜单「复制路径/删除图片」靠它
     fig.dataset.from = String(this.from);   // 供 setImageWidth / removeImageAt 定位
-    if (!isImage) { fig.textContent = `📎 ${name}`; return blockEmbed(fig); }
+    if (!isImage) {
+      fig.textContent = `📎 ${name}`;
+      if (this.onFileClick) {
+        fig.setAttribute('role', 'button'); fig.tabIndex = 0; fig.title = `打开 ${name}`;
+        fig.onclick = () => this.onFileClick(name);
+        fig.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.onFileClick(name); } };
+      }
+      return blockEmbed(fig);
+    }
     if (!src) { fig.innerHTML = `<div class="cm-lp-img-missing">图片不存在：<code>${name}</code></div>`; return blockEmbed(fig); }
     const img = document.createElement('img');
     img.src = src; img.alt = name; img.draggable = false; img.loading = 'lazy';
@@ -317,7 +326,7 @@ export function embedWidgets(opts = {}) {
       if (line.from >= line.to) continue;
       let widget;
       if (emb.isImage || emb.isAsset) {
-        widget = new ImageEmbedWidget({ raw: m[1], ...emb }, line.from, opts.onImageClick);
+        widget = new ImageEmbedWidget({ raw: m[1], ...emb }, line.from, opts.onImageClick, opts.onFileClick);
       } else if (opts.loadNote) {
         widget = new NoteEmbedWidget({ name: m[1], from: line.from, md: cache?.get(m[1]) ?? null, opts, scope: state.field(noteScope) });
         widget.load = (view) => load(view, m[1]);

@@ -14,7 +14,7 @@ import { onSyncStatus } from './sync-ui.js';
 import { askText, askConfirm } from './dialog.js';
 import { renderMarkdown } from './markdown.js';
 import { openLightbox } from './lightbox.js';
-import { openPdfViewer } from './pdf-viewer.js';
+import { openPdfViewer, configurePdfViewer, showPdfViewer, hidePdfViewer } from './pdf-viewer.js';
 import { openDraw, suspendDraw, isDrawOpen } from './draw.js';
 import { initMobile, isCompact, toggleMobilePanel, closeMobilePanels } from './mobile.js';
 import { initPwa } from './pwa.js';
@@ -34,6 +34,10 @@ import { uiIcon } from './ui-icons.js';
 import { sidebarForSide, applyWorkspaceLayout } from './workspace-layout.js';
 import { panelDock } from './pane-docking.js';
 import { setWorkspaceRoot, readPresets, normalizeSession } from './layout-presets.js';
+import { initTooltips } from './tooltip.js';
+
+initTooltips();
+configurePdfViewer({ open: path => openNote(path, null, { newTab: true }), close: () => closeTab(state.activeTab) });
 
 const $ = (id) => document.getElementById(id);
 
@@ -427,7 +431,8 @@ function openEmbeddedLink(raw, from = editor.path) {
   if (path) openNote(path, wikiParts(raw).heading, { newTab: true });
   else {
     const file = resolveEmbeddedFile(wikiParts(raw).target, from);
-    if (file) window.open(Api.fileUrl(file), '_blank', 'noopener');
+    if (file && PDF_FILE_RE.test(file)) openPdfViewer(Api.fileUrl(file));
+    else if (file) window.open(Api.fileUrl(file), '_blank', 'noopener');
     else toast('找不到引用的笔记或附件');
   }
 }
@@ -756,14 +761,18 @@ async function renameFolder(rel) {
     renameTabKeys(state, p => under(p) ? mapped(p) : p);
     if (state.currentPath && under(state.currentPath)) {
       const np = mapped(state.currentPath);
+      if (editor.path === state.currentPath) editor.path = np;
       state.currentPath = np;
-      editor.path = np;
       localStorage.setItem('tracery.lastNote', np);
       $('note-path').textContent = np;
     }
     await refreshTree(); refreshGraph(); refreshTags();
     saveTabsState();
     renderTabs();
+    if (PDF_FILE_RE.test(state.currentPath || '')) {
+      hidePdfViewer(); showPdfViewer(Api.fileUrl(state.currentPath), state.files.get(state.currentPath)?.name, vaultAbs(state.currentPath));
+      refreshRightPanels(null);
+    }
     toast('已重命名文件夹');
   } catch (e) { toast(e.message); }
 }
@@ -849,6 +858,7 @@ async function buildExportHtml() {
 }
 
 async function exportHtml() {
+  if (PDF_FILE_RE.test(state.currentPath || '')) { toast('PDF 请使用阅读器中的下载或打印功能'); return; }
   try {
     const html = await buildExportHtml();
     const name = (state.currentPath || '笔记').split('/').pop().replace(/\.md$/i, '');
@@ -863,6 +873,7 @@ async function exportHtml() {
 }
 
 async function exportPdf() {
+  if (PDF_FILE_RE.test(state.currentPath || '')) { toast('PDF 请使用阅读器中的下载或打印功能'); return; }
   if (!window.electronAPI?.exportPdf) { toast('PDF 导出仅桌面版支持，浏览器里可以用 HTML 导出后打印'); return; }
   try {
     const html = await buildExportHtml();
@@ -897,7 +908,7 @@ async function reloadCurrentNote() {
 }
 
 async function openHistory() {
-  if (!state.currentPath) { toast('先打开一篇笔记'); return; }
+  if (!state.currentPath || PDF_FILE_RE.test(state.currentPath)) { toast('先打开一篇 Markdown 笔记'); return; }
   const notePath = state.currentPath;
   let box = document.getElementById('history-viewer');
   if (!box) {
@@ -1282,11 +1293,15 @@ async function renameNote(f) {
     renameTabKeys(state, p => p === f.path ? newPath : p);
     if (state.currentPath === f.path) {
       state.currentPath = newPath;
-      editor.path = newPath;
+      if (editor.path === f.path) editor.path = newPath;
       localStorage.setItem('tracery.lastNote', newPath);
       $('note-path').textContent = newPath;
     }
     await refreshTree(); refreshGraph(); refreshTags();
+    if (state.currentPath === newPath && PDF_FILE_RE.test(newPath)) {
+      hidePdfViewer(); showPdfViewer(Api.fileUrl(newPath), state.files.get(newPath)?.name, vaultAbs(newPath));
+      refreshRightPanels(null);
+    }
     renderTabs(); saveTabsState();
     toast('已重命名');
   } catch (e) { toast(e.message); }
@@ -1390,11 +1405,14 @@ const tabDragUI = createTabDrag({ state, label: tabLabel, color: groupColor, com
 
 function updateEmptyNote() {
   const empty = !state.currentPath;
+  const pdf = PDF_FILE_RE.test(state.currentPath || '');
   $('empty-note').hidden = !empty;
-  $('editor-live').hidden = empty;
-  $('editor-live').inert = empty;
+  $('editor-live').hidden = empty || pdf;
+  $('editor-live').inert = empty || pdf;
   $('editor-area').classList.toggle('is-empty', empty);
-  $('btn-mode').disabled = empty;
+  $('editor-area').classList.toggle('is-pdf', pdf);
+  $('btn-mode').disabled = empty || pdf;
+  if (!pdf) hidePdfViewer();
 }
 
 function tabLabel(key) { return isBlankTab(key) ? '新标签页' : basename(key); }
@@ -1686,7 +1704,7 @@ async function applyWorkspaceNow(item) {
   if (document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
   switchPanel('files', { mobileOpen: false }); panelDock().restore(session.dock); if (isCompact()) closeMobilePanels();
   renderTree(); renderTabs(); saveTabsState();
-  if (active) await restoreReadingPosition(session.positions[active], () => root === state.vault?.root && state.currentPath === active);
+  if (active && !PDF_FILE_RE.test(active)) await restoreReadingPosition(session.positions[active], () => root === state.vault?.root && state.currentPath === active);
   toast(`已切换工作区：${item.name}${missing.length ? `（跳过 ${missing.length} 篇缺失笔记）` : ''}`);
   return true;
 }
@@ -1723,6 +1741,17 @@ async function loadTab(path, heading, { restore = true } = {}) {
     refreshRightPanels(null);
     renderTree(); renderTabs(); saveTabsState();
     return;
+  }
+  if (PDF_FILE_RE.test(path)) {
+    const file = state.files.get(path);
+    if (!file) { toast('PDF 文件不存在'); return false; }
+    if (!await editor.flush() || !current()) return false;
+    editor.load('', '');
+    state.currentPath = path; $('note-path').textContent = path; $('save-notice').hidden = true;
+    showPdfViewer(Api.fileUrl(path), file.name, vaultAbs(path));
+    pushRecent(path); refreshRightPanels(null); sidebars.setMetadata(path, file);
+    renderTree(); renderTabs(); saveTabsState();
+    return true;
   }
   try {
     const { content, ...metadata } = await Api.note(path);
@@ -1763,7 +1792,7 @@ async function activateTabNow(i, heading) {
   const group = groupForTab(state, path);
   if (group) group.collapsed = false;
   if (state.activeTab === i && state.currentPath === path) {
-    if (heading) editor.scrollToHeading(heading);
+    if (heading && !PDF_FILE_RE.test(path)) editor.scrollToHeading(heading);
     renderTabs(); saveTabsState();
     return;
   }
@@ -2204,6 +2233,7 @@ editor = new CmEditor({
     okText: '创建',
   }),
   onNavigate: (path, heading) => openNote(path, heading),
+  onFileClick: name => openEmbeddedLink(name),
   onCreateNote: (name) => {
     const path = name.replace(/\.md$/i, '') + '.md';
     Api.createNote(path, '').then(async () => {
@@ -2302,7 +2332,7 @@ function drawingOptions() {
 
 async function openDrawPanel() {
   if (isDrawOpen()) return;
-  if (!state.currentPath) { toast('先打开一篇笔记，绘图会插入到光标处'); return; }
+  if (!state.currentPath || PDF_FILE_RE.test(state.currentPath)) { toast('先打开一篇笔记，绘图会插入到光标处'); return; }
   // 阅读模式是只读的，插不进去：先切回实时预览，避免「画完点了插入却什么也没发生」
   if (editor.isRead) editor.setMode('live');
   await editor.flush();
@@ -2388,7 +2418,7 @@ function initResizers() {
 const hotkeyActions = {
   palette: openPalette, settings: openSettings,
   search: () => { switchPanel('search'); $('search-input').focus(); },
-  newNote: () => createNoteIn(''), draw: openDrawPanel, mode: () => editor.toggleMode(),
+  newNote: () => createNoteIn(''), draw: openDrawPanel, mode: () => { if (!PDF_FILE_RE.test(state.currentPath || '')) editor.toggleMode(); },
   save: () => editor.flush(), theme: toggleTheme, graph: () => switchPanel('graph'), tags: () => switchPanel('tags'),
   history: openHistory, vault: openVaultPicker, phone: () => $('btn-phone-access').click(), exportHtml, exportPdf,
   closeTab: () => closeTab(state.activeTab),
@@ -2607,7 +2637,7 @@ function bindGlobalEvents() {
       if (e.key === 'Escape' && !e.target.closest('.hotkey-binding[aria-pressed="true"]')) { e.preventDefault(); closeSettings(); }
       return;
     }
-    if (document.querySelector('.dialog-backdrop:not([hidden]), .draw-overlay:not([hidden]), .lightbox:not([hidden]), .pdf-viewer:not([hidden]), .history-viewer:not([hidden]), .trash-viewer:not([hidden])')) return;
+    if (document.querySelector('.dialog-backdrop:not([hidden]), .draw-overlay:not([hidden]), .lightbox:not([hidden]), .history-viewer:not([hidden]), .trash-viewer:not([hidden])')) return;
     if (e.key === 'Escape') {
       if (ctxMenu) { e.preventDefault(); closeCtxMenu(); }
       else if (!$('palette').hidden) closePalette();
@@ -2645,10 +2675,18 @@ function onWsMessage(msg) {
     editor.refreshDecorations();
     const paths = msg.paths || [];
     const affectsCurrent = state.currentPath && paths.some((p) => p === state.currentPath || p === '*' || p === state.currentPath + '.md');
-    if (msg.treeChanged !== false || !fileSort.startsWith('name')) refreshTree().then(() => pruneTabs()).catch(() => {});
+    const refreshed = msg.treeChanged !== false || !fileSort.startsWith('name') ? refreshTree().then(() => pruneTabs()) : Promise.resolve();
+    refreshed.catch(() => {});
     refreshGraph();
     refreshTags();
-    if (affectsCurrent && !editor.dirty) {
+    if (affectsCurrent && PDF_FILE_RE.test(state.currentPath || '')) {
+      const path = state.currentPath, root = state.vault?.root;
+      refreshed.then(() => {
+        if (state.currentPath !== path || state.vault?.root !== root || !state.files.has(path)) return;
+        hidePdfViewer(); showPdfViewer(Api.fileUrl(path), state.files.get(path).name, vaultAbs(path));
+        sidebars.setMetadata(path, state.files.get(path));
+      }).catch(() => {});
+    } else if (affectsCurrent && !editor.dirty) {
       const path = state.currentPath, root = state.vault?.root;
       const generation = editor._generation, before = editor.getContent(), revision = editor.revision;
       Api.note(path).then(({ content, ...metadata }) => {

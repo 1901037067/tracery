@@ -5,7 +5,7 @@ let currentRoot = () => '';
 export function setWorkspaceRoot(fn) { currentRoot = fn; }
 const key = () => `tracery.workspaces.${currentRoot() || 'default'}`;
 const record = value => value && typeof value === 'object' && !Array.isArray(value);
-const safePath = value => typeof value === 'string' && value.length <= 2048 && !/[\\:\u0000-\u001f]/.test(value) && !value.startsWith('/') && !value.split('/').some(p => p === '..' || p === '.') && /\.md$/i.test(value);
+const safePath = value => typeof value === 'string' && value.length <= 2048 && !/[\\:\u0000-\u001f]/.test(value) && !value.startsWith('/') && !value.split('/').some(p => p === '..' || p === '.') && /\.(?:md|pdf)$/i.test(value);
 export function normalizeSession(value) {
   if (!record(value)) return null;
   const tabs = [...new Set((Array.isArray(value.tabs) ? value.tabs : []).filter(p => safePath(p) || (isBlankTab(p) && p.length < 100)))].slice(0, 500);

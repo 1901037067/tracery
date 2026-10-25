@@ -49,7 +49,7 @@
 .draw-side-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .draw-panel-backdrop { display: none; }
 .draw-ui-hidden .draw-top, .draw-ui-hidden .draw-tools, .draw-ui-hidden .draw-mobile-switches, .draw-ui-hidden .draw-hint, .draw-overlay.draw-ui-hidden .draw-workspace > aside { display: none; }
-@media(max-width:900px) {
+@media(max-width:600px) {
   .draw-overlay { --draw-gap: 4px; border-radius: 14px; }
   .draw-top { top: 66px; left: 12px; right: auto; }
   .draw-tools { top: 120px; }

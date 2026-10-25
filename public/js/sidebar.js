@@ -71,7 +71,7 @@ export function createSidebarContext({ state, editor, api, navigate, createMissi
     signature = nextSignature; headings = next;
     $('tab-outline').title = `大纲 · ${headings.length} 个标题`;
     const box = $('outline-list'); box.replaceChildren();
-    if (!headings.length) { empty(box, state.currentPath ? '当前笔记没有标题' : '打开笔记后显示大纲'); return; }
+    if (!headings.length) { empty(box, /\.pdf$/i.test(state.currentPath || '') ? '在 PDF 阅读器中查看目录' : state.currentPath ? '当前笔记没有标题' : '打开笔记后显示大纲'); return; }
     const stack = [];
     for (const h of headings) {
       while (stack.length && stack.at(-1).level >= h.level) stack.pop();
@@ -103,7 +103,7 @@ export function createSidebarContext({ state, editor, api, navigate, createMissi
     $('note-context-title').textContent = path ? `当前笔记 · ${leaf(path)}` : '当前笔记 · 未打开笔记';
     $('note-context-title').title = path || '';
     $('note-info-path').textContent = path || '未打开笔记'; $('note-info-path').disabled = !path;
-    $('btn-note-history').disabled = !path;
+    $('btn-note-history').disabled = !path || /\.pdf$/i.test(path);
     const src = path ? String(content || '').replace(/\r\n?/g, '\n') : '';
     renderOutline();
     const tags = new Set();
@@ -130,6 +130,7 @@ export function createSidebarContext({ state, editor, api, navigate, createMissi
     const request = ++linkRequest, path = state.currentPath, root = state.vault?.root;
     clearTimeout(linkTimer);
     if (!path) return;
+    if (/\.pdf$/i.test(path)) { empty($('backlinks-list'), 'PDF 文件'); return; }
     linkTimer = setTimeout(async () => {
       try {
         const { backlinks = [], outgoing = [], unresolved = [] } = await api.links(path);

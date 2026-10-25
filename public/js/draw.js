@@ -1227,11 +1227,17 @@ function resetView() {
 /** 默认与侧栏开关齐平；拖动后始终约束在画板内，缩窄窗口也能抓回手柄。 */
 function layoutToolbar() {
   if (!toolsEl || overlay.hidden || !toolsEl.offsetWidth) return;
-  const compact = matchMedia('(max-width: 900px)').matches;
+  const compact = overlay.clientWidth < 600;
   const left = compact ? 12 : overlay.querySelector('.draw-mobile-switches').offsetLeft + overlay.querySelector('.draw-mobile-switches').offsetWidth + 12;
   const right = compact ? overlay.clientWidth - 12 : overlay.querySelector('.draw-top').offsetLeft - 12;
-  toolsEl.style.maxWidth = 'none';
-  const naturalWidth = toolsEl.offsetWidth, fits = naturalWidth <= right - left;
+  // flex-wrap 的 max-content 宽度可能漏算 gap，显式计入每个工具、分隔线与内外边距。
+  const style = getComputedStyle(toolsEl), items = [...toolsEl.children];
+  const naturalWidth = Math.ceil(items.reduce((sum, item) => {
+    const css = getComputedStyle(item);
+    return sum + item.offsetWidth + parseFloat(css.marginLeft) + parseFloat(css.marginRight);
+  }, 0) + (items.length - 1) * parseFloat(style.columnGap) + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth));
+  toolsEl.style.width = `${naturalWidth}px`;
+  const fits = naturalWidth <= right - left;
   toolsEl.style.maxWidth = `${Math.max(48, toolbarPosition || compact || !fits ? overlay.clientWidth - 24 : right - left)}px`;
   const width = toolsEl.offsetWidth, height = toolsEl.offsetHeight;
   const x = clamp(toolbarPosition?.x ?? (left + (right - left - width) / 2), 12, Math.max(12, overlay.clientWidth - width - 12));

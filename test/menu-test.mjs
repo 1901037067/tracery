@@ -200,12 +200,12 @@ const pdf = await page.evaluate(() => ({
   title: document.querySelector('.pdf-title')?.textContent || '',
   src: document.querySelector('.pdf-frame')?.getAttribute('src') || '',
 }));
-check('点 PDF → 打开应用内阅读器浮层',
+check('点 PDF → 在编辑区打开阅读器标签页',
   pdf.open && pdf.title === '说明文档.pdf' && decodeURIComponent(pdf.src).includes('说明文档.pdf'),
   JSON.stringify(pdf));
-await page.keyboard.press('Escape');
+await page.click('.pdf-close');
 await sleep(400);
-check('Esc 关闭 PDF 浮层', await page.evaluate(() => document.querySelector('.pdf-viewer').hidden));
+check('关闭 PDF 标签页恢复笔记', await page.evaluate(() => document.querySelector('.pdf-viewer').hidden));
 
 /* ---------- ⑤ 文件树右键菜单（Obsidian 式） ---------- */
 const fileMenu = await page.evaluate(async () => {

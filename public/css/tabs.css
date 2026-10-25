@@ -68,3 +68,15 @@
   .window-drag-space { display: none; }
   .tab-more { height: 36px; }
 }
+/* 桌面最小窗口仍使用一行标题栏；手机浏览器保留上方按钮、下方标签的触屏布局。 */
+@media(max-width:900px) {
+  body.electron .titlebar { display: flex; height: 46px; padding: 0 0 0 10px; gap: 0; }
+  body.electron .titlebar-left { flex: 0 0 auto; max-width: 170px; gap: 6px; margin-right: 6px; }
+  body.electron .titlebar-left .vault-name { max-width: 94px; padding: 3px 18px 3px 8px; }
+  body.electron .titlebar .icon-btn { width: 30px; height: 30px; min-width: 30px; padding: 0 6px; align-self: center; }
+  body.electron .titlebar-right { gap: 0; }
+  body.electron .win-btn { width: 36px; }
+  body.electron .tab-strip { width: auto; }
+  body.electron .tab-more { width: 28px; height: 30px; flex-basis: 28px; margin: 0 2px; }
+  body.electron .window-drag-space { display: block; flex: 1 0 32px; min-width: 32px; }
+}

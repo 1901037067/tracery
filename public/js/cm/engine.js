@@ -144,6 +144,7 @@ export class CmEditor {
         openLink: this.opts.openEmbedLink,
         openNote: this.opts.openEmbedNote,
         onImageClick: this.opts.onImageClick,
+        onFileClick: this.opts.onFileClick,
         // 双链点击：解析得到就跳过去；解析不到（这篇笔记还不存在）→ 交给 onCreateWikilink
         // 走「问一句就当场创建」那条路（demo-vault/双链与反链.md 承诺的行为，反链面板同口径）。
         onOpenWikilink: (target) => {

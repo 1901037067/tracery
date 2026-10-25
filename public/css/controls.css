@@ -24,3 +24,7 @@
 .pane-placement-controls .mini-btn svg { width: 15px; height: 15px; }
 .pane-placement-controls .mini-btn:hover:not(:disabled) { color: var(--accent); background: var(--accent-soft); }
 .pane-order { border-radius: 6px; padding: 3px 4px; font-size: 10px; font-variant-numeric: tabular-nums; }
+/* 全应用图标提示：固定浮层避免被侧栏和滚动画布裁剪。 */
+.app-tooltip { position: fixed; z-index: 1500; display: flex; align-items: center; gap: 10px; max-width: min(320px, calc(100vw - 16px)); padding: 7px 10px; border-radius: 7px; background: var(--text-primary); color: var(--bg-sheet); box-shadow: 0 4px 16px rgba(0,0,0,.18); font: 12px/1.5 var(--font-ui); white-space: pre-line; overflow-wrap: anywhere; pointer-events: none; -webkit-app-region: no-drag; }
+.app-tooltip[hidden] { display: none; }
+.app-tooltip kbd { flex-shrink: 0; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; opacity: .7; font: 10px/1.6 var(--font-mono); }
