@@ -196,6 +196,10 @@
 #editor-live .cm-lp-cell-last { border-right: none; padding-right: 10px; }
 
 /* ---------- ⑤ 块级 widget（public/js/cm/widgets.js 产出） ---------- */
+/* widget 根节点必须完整容纳内容与留白；flow-root 防止子卡片的 margin 穿出测量盒。
+   图片自身用块布局，避免 inline-block 额外产生未计入 CM 块高度的文字基线空隙。 */
+.cm-lp-embed-block { display: flow-root; }
+.cm-lp-embed-block > .cm-lp-img { display: block; width: fit-content; max-width: 100%; }
 /* 图片 / 附件嵌入：默认态**只留图片本身**（圆角 + 阴影），虚线框与拖宽手柄都在悬停时出现
    —— 常驻的虚线框 + 橙色方块太吵（用户 2026-10-19 反馈）。虚线框用 style.css 的
    `.embed-image:hover { outline: ... }`（outline 不改盒尺寸，行内图不会因 hover 重排）。 */

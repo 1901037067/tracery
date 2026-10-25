@@ -63,6 +63,15 @@ function parseEmbed(raw, opts) {
 
 /* ================= ① 图片嵌入 widget（块级，StateField） ================= */
 
+/** CM 测量 widget 根节点的边框盒。把卡片的外边距包进独立块，避免其高度落在测量范围外。 */
+function blockEmbed(content) {
+  const block = document.createElement('div');
+  block.className = 'cm-lp-embed-block';
+  block.contentEditable = 'false';
+  block.append(content);
+  return block;
+}
+
 class ImageEmbedWidget extends WidgetType {
   constructor(embed, from, onImageClick) {
     super();
@@ -80,10 +89,12 @@ class ImageEmbedWidget extends WidgetType {
     fig.dataset.name = name;
     fig.dataset.target = this.embed.raw;   // 与块级渲染同口径：右键菜单「复制路径/删除图片」靠它
     fig.dataset.from = String(this.from);   // 供 setImageWidth / removeImageAt 定位
-    if (!isImage) { fig.textContent = `📎 ${name}`; return fig; }
-    if (!src) { fig.innerHTML = `<div class="cm-lp-img-missing">图片不存在：<code>${name}</code></div>`; return fig; }
+    if (!isImage) { fig.textContent = `📎 ${name}`; return blockEmbed(fig); }
+    if (!src) { fig.innerHTML = `<div class="cm-lp-img-missing">图片不存在：<code>${name}</code></div>`; return blockEmbed(fig); }
     const img = document.createElement('img');
     img.src = src; img.alt = name; img.draggable = false; img.loading = 'lazy';
+    img.addEventListener('load', () => view.requestMeasure());
+    img.addEventListener('error', () => view.requestMeasure());
     if (width) { img.style.width = `${width}px`; img.style.maxWidth = '100%'; }
     const grip = document.createElement('span');
     grip.className = 'cm-lp-img-grip';
@@ -114,7 +125,7 @@ class ImageEmbedWidget extends WidgetType {
     // 点图片本体 → 灯箱（对齐 editor.js 的 onImageClick）
     fig.addEventListener('click', (e) => { e.stopPropagation(); this.onImageClick?.(src, name); });
     fig.append(img, grip);
-    return fig;
+    return blockEmbed(fig);
   }
   // 不实现 ignoreEvent（默认 false）；拖宽手柄自己 stopPropagation，不让 CM 抢走指针事件。
 }
@@ -260,7 +271,7 @@ class NoteEmbedWidget extends WidgetType {
     if (this.md == null) {
       const loading = document.createElement('div'); loading.className = 'cm-lp-note-loading'; loading.textContent = '加载中…'; box.append(loading);
       this.load?.(view);      // 首次渲染时触发解析（load 由 embedWidgets 注入）
-      return box;
+      return blockEmbed(box);
     }
     const result = typeof this.md === 'string' ? { md: this.md } : this.md;
     const body = document.createElement('div');
@@ -269,7 +280,7 @@ class NoteEmbedWidget extends WidgetType {
     else body.appendChild(renderNoteContent(result, this.opts));
     body.addEventListener('load', () => view.requestMeasure(), true);
     box.append(body);
-    return box;
+    return blockEmbed(box);
   }
   ignoreEvent() { return true; }   // 卡片内容只读（要编辑请点开原笔记）
 }

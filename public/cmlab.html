@@ -55,6 +55,8 @@
   .cm-lp-tr-head { background: #f3f4f6; font-weight: 600; }
   .cm-lp-zero { height: 0; overflow: hidden; }
   /* P3 块级 widget 与行级装饰（public/js/cm/widgets.js） */
+  .cm-lp-embed-block { display: flow-root; }
+  .cm-lp-embed-block > .cm-lp-img { display: block; width: fit-content; max-width: 100%; }
   .cm-lp-img { position: relative; display: inline-block; margin: 6px 0; padding: 4px; border: 1px dashed var(--border); border-radius: 6px; background: #fafafa; }
   .cm-lp-img img { display: block; max-width: 100%; border-radius: 4px; }
   .cm-lp-img-grip { position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px; border-radius: 3px; background: var(--accent); opacity: .75; cursor: nwse-resize; }
