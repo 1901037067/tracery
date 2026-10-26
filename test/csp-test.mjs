@@ -68,8 +68,10 @@ try {
   const expected=await page.evaluate(()=>window.__tracery.editor.getContent());await waitForSaved(page,'note.md',expected);
   await page.evaluate(()=>new Promise((resolve,reject)=>{const ws=new WebSocket(location.origin.replace('http:','ws:')+'/ws');ws.onopen=()=>{ws.close();resolve(true);};ws.onerror=()=>reject(Error('same-origin WebSocket blocked'));}));
   console.log('PASS 浏览器阻止内联/事件/eval/外站脚本和连接/仓库 JS，正常图片、保存和 WebSocket 可用');
-  const offline=await browser.newPage();await offline.goto(BASE+'/offline.html',{waitUntil:'domcontentloaded'});
-  const navigation=offline.waitForNavigation({waitUntil:'domcontentloaded'});await offline.click('[data-reconnect]');await navigation;
+  const offline=await browser.newPage();await offline.bringToFront();await offline.goto(BASE+'/offline.html',{waitUntil:'domcontentloaded'});await offline.waitForSelector('[data-reconnect]',{visible:true});
+  await offline.waitForFunction(()=>{const button=document.querySelector('[data-reconnect]'),r=button.getBoundingClientRect();return r.width>0&&r.height>0&&document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('[data-reconnect]')===button;});
+  const point=await offline.$eval('[data-reconnect]',button=>{const r=button.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};});
+  const navigation=offline.waitForNavigation({waitUntil:'domcontentloaded'});await offline.mouse.click(point.x,point.y);await navigation;
   assert.equal(offline.url(),BASE+'/offline.html');assert.deepEqual(errors,[]);
   const svgPage=await browser.newPage();await svgPage.goto(BASE+'/api/file?path=sample.svg',{waitUntil:'domcontentloaded'});assert.equal(await svgPage.evaluate(()=>Boolean(globalThis.__svgExecuted)),false);
   console.log('PASS 离线页使用外部事件脚本，重新连接按钮仍可实际重载');

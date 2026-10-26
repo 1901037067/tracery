@@ -138,6 +138,8 @@ try {
   await page.evaluate(() => window.__editor.flush());
   console.log('PASS 连续导航后标签与内容一致，自身保存通知不清空撤销历史');
   staleReply = await (await fetch(BASE + '/api/note?path=' + encodeURIComponent('甲.md'))).json();
+  // Linux 的递归文件监听不一定转发仅 utimes 的属性事件；实际重写同一正文，保持版本不变。
+  fs.writeFileSync(path.join(VAULT, '甲.md'), fs.readFileSync(path.join(VAULT, '甲.md')));
   fs.utimesSync(path.join(VAULT, '甲.md'), new Date(), new Date(Date.now() + 3000));
   for (let i = 0; i < 80 && !refreshHeld; i++) await sleep(30); assert.ok(refreshHeld);
   await page.evaluate(async () => { window.__editor.insertText('晚到刷新不回滚'); await window.__editor.flush(); });

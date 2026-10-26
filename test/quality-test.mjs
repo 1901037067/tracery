@@ -5,10 +5,10 @@ import assert from 'node:assert/strict';
 import {ESLint} from 'eslint';
 import ts from 'typescript';
 
-const ROOT=path.resolve(import.meta.dirname,'..'),lint=new ESLint({cwd:ROOT});
+const ROOT=path.resolve(import.meta.dirname,'..'),lint=new ESLint({cwd:ROOT,overrideConfigFile:path.join(ROOT,'eslint.config.mjs'),ignore:false});
 const file=path.join(ROOT,'server/note-store.js'),original=fs.readFileSync(file,'utf8');
 const floating=await lint.lintText(original+'\nreadDiskNote(".", "fixture.md");\n',{filePath:file});
-assert.ok(floating[0].messages.some(message=>message.ruleId==='@typescript-eslint/no-floating-promises'));
+assert.ok(floating[0].messages.some(message=>message.ruleId==='@typescript-eslint/no-floating-promises'),JSON.stringify(floating[0].messages));
 const undefinedVar=await lint.lintText('missingGateIdentifier();',{filePath:path.join(ROOT,'public/js/reconnect.js')});
 assert.ok(undefinedVar[0].messages.some(message=>message.ruleId==='no-undef'));
 const unused=await lint.lintText('const gateUnusedBinding=1;',{filePath:path.join(ROOT,'public/js/reconnect.js')});
