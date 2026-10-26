@@ -65,7 +65,6 @@ const RADII = {
   large: [8, 12, 18, 26, 34],
 };
 
-const THEME_LABEL = { apple: 'Apple 风', obsidian: 'Obsidian 风' };
 
 let settings = { ...DEFAULT_SETTINGS };
 let mediaQuery = null;

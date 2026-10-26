@@ -56,7 +56,12 @@
     "test:all": "node test/run-suite.mjs full",
     "test:icons": "node test/icons-test.mjs",
     "test:hotkeys": "node test/hotkeys-test.mjs",
-    "qa:prepare": "node scripts/prepare-qa.mjs"
+    "qa:prepare": "node scripts/prepare-qa.mjs",
+    "check:syntax": "node scripts/check-syntax.mjs",
+    "check:types": "tsc -p tsconfig.json && tsc -p tsconfig.cm.json",
+    "lint": "eslint server electron public/js scripts --max-warnings=0",
+    "check": "npm run check:syntax && npm run check:types && npm run lint",
+    "test:ci": "node test/run-suite.mjs only csp quality correctness fence-selection access-boundary mobile-access mobile-access-ui security reliability engine merge embeds-colors"
   },
   "dependencies": {
     "bonjour-service": "^1.4.4",
@@ -70,10 +75,15 @@
     "@codemirror/view": "^6.43.14",
     "@electron/packager": "^18.4.4",
     "@lezer/markdown": "^1.8.0",
+    "@types/node": "22.20.5",
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
+    "eslint": "10.13.0",
+    "globals": "17.13.0",
     "katex": "0.19.0",
-    "puppeteer-core": "^23.11.1"
+    "puppeteer-core": "^23.11.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.0"
   },
   "build": {
     "appId": "com.tracery.app",

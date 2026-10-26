@@ -140,6 +140,8 @@ Windows桌面设置和本机历史版本位于`%APPDATA%\\tracery`；如需完�
 
 浏览器测试可通过环境变量`TRACERY_BROWSER`指定 Chrome、Edge 或 Chromium 可执行文件的完整路径；此设置优先于套件原有路径。完整验收还包含真实 Electron 窗口的单实例、退出保存和端口占用检查，需要可启动桌面窗口的环境。
 
+参与开发时先运行 `npm run check` 和 `npm run test:ci`；检查范围、CI 和 CSP 边界见[开发说明](docs/DEVELOPMENT.md)。这些源码更新尚未打包到 v1.11.0 ZIP。
+
 ## 许可
 
 采用[MIT许可](LICENSE)。UI与部分操作习惯参考Obsidian，与Obsidian官方无关。

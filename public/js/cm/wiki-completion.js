@@ -1,10 +1,13 @@
+// @ts-check
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
 import { Prec } from '@codemirror/state';
 import { keymap } from '@codemirror/view';
 import { parseCached } from './decorations.js';
 
+/** @param {(query:string)=>Promise<Array<{label:string,target?:string,type?:string,detail?:string}>>} [complete] */
 export function wikiCompletion(complete) {
   if (!complete) return [];
+  /** @param {import('@codemirror/autocomplete').CompletionContext} context */
   const source = async context => {
     if (context.state.readOnly) return null;
     const match = context.matchBefore(/!?\[\[[^\]\n]*/);

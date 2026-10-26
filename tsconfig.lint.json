@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["server/**/*.js", "electron/**/*.cjs", "public/js/**/*.js", "scripts/**/*.mjs", "test/**/*.mjs"]
+}

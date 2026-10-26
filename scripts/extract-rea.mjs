@@ -11,7 +11,6 @@ const g = norm.graph;
 const nodes = g.nodes;
 const edges = g.edges || [];
 
-const labelOf = (n) => n.observations?.[0]?.label || n.identity?.key || '?';
 const propsOf = (n) => n.observations?.[0]?.properties || {};
 const byId = new Map(nodes.map((n) => [n.node_id, n]));
 
@@ -19,7 +18,6 @@ const out = {};
 
 // webpack 模块按 bundle 归组
 const bundles = {};
-const exportsByName = [];
 for (const n of nodes) {
   if (n.kind !== 'javascript-module') continue;
   const p = propsOf(n);

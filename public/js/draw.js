@@ -127,7 +127,6 @@ let stage = null;
 let toolsEl = null;
 let propsEl = null;
 let textEdit = null;
-let hintEl = null;
 let draftPanel = null;
 
 let W = 0;
@@ -1437,7 +1436,6 @@ function ensure() {
   toolsEl = overlay.querySelector('.draw-tools');
   propsEl = overlay.querySelector('.draw-props');
   textEdit = overlay.querySelector('#draw-textedit');
-  hintEl = overlay.querySelector('#draw-hint');
   draftPanel = overlay.querySelector('#draw-drafts');
   enableToolbarDrag();
   overlay.querySelectorAll('[data-board-background]').forEach(button => {

@@ -1,0 +1,20 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {ESLint} from 'eslint';
+import ts from 'typescript';
+
+const ROOT=path.resolve(import.meta.dirname,'..'),lint=new ESLint({cwd:ROOT});
+const file=path.join(ROOT,'server/note-store.js'),original=fs.readFileSync(file,'utf8');
+const floating=await lint.lintText(original+'\nreadDiskNote(".", "fixture.md");\n',{filePath:file});
+assert.ok(floating[0].messages.some(message=>message.ruleId==='@typescript-eslint/no-floating-promises'));
+const undefinedVar=await lint.lintText('missingGateIdentifier();',{filePath:path.join(ROOT,'public/js/reconnect.js')});
+assert.ok(undefinedVar[0].messages.some(message=>message.ruleId==='no-undef'));
+const unused=await lint.lintText('const gateUnusedBinding=1;',{filePath:path.join(ROOT,'public/js/reconnect.js')});
+assert.ok(unused[0].messages.some(message=>message.ruleId==='no-unused-vars'));
+const home=fs.mkdtempSync(path.join(os.tmpdir(),'tracery-type-gate-')),fixture=path.join(home,'fixture.js');
+fs.writeFileSync(fixture,'/** @param {number} value */\nfunction square(value){return value*value;}\nsquare("invalid");');
+const program=ts.createProgram([fixture],{allowJs:true,checkJs:true,noEmit:true,types:[],skipLibCheck:true,target:ts.ScriptTarget.ES2022});
+assert.ok(ts.getPreEmitDiagnostics(program).some(diagnostic=>diagnostic.code===2345));
+console.log('PASS 实际 ESLint 配置拒绝遗漏 await/未定义/无用绑定，checkJs 拒绝错误参数类型；未写入或破坏生产源码');

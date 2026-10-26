@@ -53,7 +53,7 @@ async function closeBrowsers(tmp) {
 for (const [index, suite] of selected.entries()) {
   const dir = path.join(OUT, suite.id), work = path.join(dir, 'work'), tmp = path.join(dir, 'tmp');
   fs.mkdirSync(work, { recursive: true }); fs.mkdirSync(tmp);
-  for (const entry of ['public', 'server', 'sync-server', 'electron', 'build', 'demo-vault', 'docs', 'test', 'scripts', 'package.json', 'README.md']) {
+  for (const entry of ['public', 'server', 'sync-server', 'electron', 'build', 'demo-vault', 'docs', 'test', 'scripts', 'package.json', 'README.md', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.cm.json', 'tsconfig.lint.json']) {
     const source = path.join(ROOT, entry);
     fs.cpSync(source, path.join(work, entry), { recursive: true, filter: file => {
       const rel = path.relative(ROOT, file).replaceAll('\\', '/');

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "checkJs": false },
+  "include": ["public/js/cm/wiki-completion.js"]
+}

@@ -379,8 +379,9 @@
   <div id="link-preview" class="link-preview" hidden></div>
 
   <div id="toast" class="toast" hidden></div>
-  <div id="boot-error" class="welcome" hidden><div class="welcome-card"><h1>暂时无法连接仓库</h1><p>请确认网络与仓库服务已开启，再重新连接。</p><button class="btn-primary" onclick="location.reload()">重新连接</button></div></div>
+  <div id="boot-error" class="welcome" hidden><div class="welcome-card"><h1>暂时无法连接仓库</h1><p>请确认网络与仓库服务已开启，再重新连接。</p><button class="btn-primary" data-reconnect>重新连接</button></div></div>
 
   <script type="module" src="/js/app.js"></script>
+  <script type="module" src="/js/reconnect.js"></script>
 </body>
 </html>

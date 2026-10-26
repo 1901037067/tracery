@@ -4,11 +4,14 @@ import crypto from 'node:crypto';
 import { resolveInVault } from './path-guard.js';
 
 export const revisionOf = content => content === null ? null : crypto.createHash('sha256').update(content).digest('hex');
+/** @type {Map<string, Promise<unknown>>} */
 const queues = new Map();
 export async function readDiskNote(root, rel) {
   try { return await fs.readFile(resolveInVault(root, rel), 'utf8'); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
+/** @param {string} root @param {string} rel @param {string} content
+ * @param {{expectedRevision?:string|null,beforeCommit?:(previous:string|null)=>unknown}} [options] */
 export function saveDiskNote(root, rel, content, { expectedRevision, beforeCommit } = {}) {
   const key = resolveInVault(root, rel);
   const job = (queues.get(key) || Promise.resolve()).then(async () => {
@@ -35,6 +38,7 @@ export function saveDiskNote(root, rel, content, { expectedRevision, beforeCommi
     } finally { await fs.unlink(temp).catch(() => {}); }
   });
   const tail = job.catch(() => {}); queues.set(key, tail);
-  tail.finally(() => { if (queues.get(key) === tail) queues.delete(key); });
+  tail.finally(() => { if (queues.get(key) === tail) queues.delete(key); })
+    .catch(error => console.error('[note-store] 保存队列清理失败', error));
   return job;
 }

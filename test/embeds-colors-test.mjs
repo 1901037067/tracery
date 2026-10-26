@@ -151,7 +151,8 @@ try {
   const assets = fs.readdirSync(VAULT, { recursive: true }).filter(file => file.endsWith('.draw.json'));
   const scene = JSON.parse(fs.readFileSync(path.join(VAULT, assets[0]), 'utf8'));
   assert.equal(scene.elements[0].stroke, '#aabbcc'); assert.equal(scene.elements[0].background, '#123456');
-  await page.reload({ waitUntil: 'networkidle0' }); await page.click('#btn-draw'); await page.click('#draw-toggle-props');
+  await page.reload({ waitUntil: 'domcontentloaded' }); await waitForApp(page); await page.bringToFront();
+  await page.click('#btn-draw'); await page.waitForSelector('.draw-overlay:not([hidden])'); await page.click('#draw-toggle-props');
   assert.ok(await page.$eval('.draw-recent-swatch', node => node.dataset.color === '#aabbcc'));
   assert.deepEqual(errors, []);
   console.log('PASS 原色紧凑保留、自定义选色/HEX/非法输入、最近 8 色去重与重启保留、选中图形颜色保存');

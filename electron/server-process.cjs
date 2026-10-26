@@ -1,6 +1,7 @@
 /* 只接受本次子进程的 IPC 就绪消息，不探测或复用端口上的其他 HTTP 服务。 */
 const {spawn}=require('node:child_process');
 const {randomBytes}=require('node:crypto');
+/** @param {{executable:string,entry:string,env:NodeJS.ProcessEnv,port:number,onLog?:(...args:unknown[])=>void,timeout?:number}} options */
 exports.startServerProcess=({executable,entry,env,port,onLog=()=>{},timeout=30000})=>{
   const nonce=randomBytes(32).toString('hex');
   const child=spawn(executable,[entry],{env:{...env,TRACERY_START_TOKEN:nonce},windowsHide:true,stdio:['ignore','pipe','pipe','ipc']});

@@ -170,7 +170,6 @@ const MATH_LINE_RE = /^\s*\$\$(.*?)\$\$\s*$/;
 const HR_RE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
 const LIST_RE = /^(\s*)([-*+]|\d+\.)\s+(.*)$/;
 const CALLOUT_RE = /^\s*>\s*\[!(\w+)\]\s*(.*)$/;
-const QUOTE_PREFIX_RE = /^(\s*>\s?)/;
 
 /** 子文档（引用体 / 列表续言）的行起点表 */
 function subLineStarts(text) {

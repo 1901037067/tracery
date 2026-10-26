@@ -8,7 +8,7 @@ import { CmEditor } from './cm/engine.js';
 import { ForceGraph } from './graph.js';
 import {
   initSettings, receiveSettings, updateSettings, getSettings, openSettings, close as closeSettings,
-  isOpen as settingsIsOpen, onApplied, ACCENTS, resolveAssetDir, configureWorkspaces,
+  isOpen as settingsIsOpen, onApplied, resolveAssetDir, configureWorkspaces,
 } from './settings.js';
 import { onSyncStatus } from './sync-ui.js';
 import { askText, askConfirm } from './dialog.js';
@@ -1984,7 +1984,6 @@ function refreshBacklinks() { sidebars?.refreshLinks(); }
 function escapeText(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
-function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /* ================= 面板切换 ================= */
 let graphReturnPanel = 'files';

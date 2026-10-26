@@ -1,5 +1,7 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['csp', 'csp-test.mjs', 'CSP 真实拦截、importmap/附件边界与正常读写'],
+  ['quality', 'quality-test.mjs', '静态门禁拒绝未处理 Promise 和错误类型'],
   ['correctness', 'correctness-test.mjs', '搜索全局排序与围栏选择事务'],
   ['startup', 'startup-test.mjs', '子进程启动身份、单实例与端口占用'],
   ['fence-selection', 'fence-selection-test.mjs', '围栏选择与自动保存语义等待'],

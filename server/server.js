@@ -19,6 +19,7 @@ import { normalizeLayout } from '../public/js/layout-settings.js';
 import { resolveInDirectory } from './path-guard.js';
 import { resolveUserPath as resolveInVault } from './user-path.js';
 import { publicSettings } from './public-settings.js';
+import { contentSecurityPolicy, attachmentHeaders } from './content-security.js';
 import { createHistoryStore } from './history-store.js';
 import { createMobileAccess } from './mobile-access.js';
 import { validateRequest, isLocalClient } from './request-guard.js';
@@ -348,7 +349,8 @@ async function handleRequest(req, res) {
   try {
     validateRequest(req);
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+    const origin = `http://${req.headers.host}`;
+    res.setHeader('Content-Security-Policy', contentSecurityPolicy(origin));
     res.setHeader('Referrer-Policy', 'no-referrer');
     if (req.mobile) {
       res.setHeader('Cache-Control', 'no-store');
@@ -700,7 +702,7 @@ async function handleRequest(req, res) {
       }
       const mime = MIME[path.extname(abs).toLowerCase()] || 'application/octet-stream';
       // 图片会被「编辑绘图」覆盖写，浏览器不能拿旧缓存：每次都回源校验
-      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' });
+      res.writeHead(200, { ...attachmentHeaders(path.extname(abs), mime), 'Cache-Control': 'no-cache' });
       fs.createReadStream(abs).pipe(res);
       return;
     }
@@ -719,6 +721,11 @@ async function handleRequest(req, res) {
       if (!fs.existsSync(filePath)) { res.writeHead(404); return res.end('Not Found'); }
     }
     const mime = MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+    if (path.extname(filePath).toLowerCase() === '.html') {
+      const html = await fsp.readFile(filePath, 'utf8');
+      res.writeHead(200, { 'Content-Type': mime, 'Content-Security-Policy': contentSecurityPolicy(origin, html) });
+      return res.end(html);
+    }
     res.writeHead(200, { 'Content-Type': mime });
     fs.createReadStream(filePath).pipe(res);
   } catch (err) {

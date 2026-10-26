@@ -130,7 +130,6 @@ function cursorLines(state) {
   return set;
 }
 
-const QUOTE_MARK_RE = /^(\s*>\s?)/;
 
 /** AST 描述符的行号是 0-based（lines[] 下标），CM 的 doc.line(n) 是 1-based——
  *  所有跨 API 的取行都必须过这个转换，否则装饰整体挂歪一行。 */

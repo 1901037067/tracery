@@ -24,7 +24,6 @@ import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import { externalUrl } from '../external-link.js';
 import { parseCached, refreshLivePreview } from './decorations.js';
-import { renderMarkdown } from '../markdown.js';
 import { wikiParts } from '../wiki-path.js';
 import { renderNoteContent } from '../note-embed.js';
 

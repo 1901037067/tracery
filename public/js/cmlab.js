@@ -17,7 +17,7 @@
  * 结果同时渲染到页面表格并暴露在 window.__probe.results。
  */
 import { EditorState, EditorSelection, Compartment, StateEffect, StateField, RangeSetBuilder } from '@codemirror/state';
-import { EditorView, Decoration, ViewPlugin, keymap, lineNumbers, WidgetType } from '@codemirror/view';
+import { EditorView, Decoration, keymap, lineNumbers, WidgetType } from '@codemirror/view';
 import { history, undo, redo, defaultKeymap, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
@@ -575,8 +575,6 @@ async function probeDecorations() {
   await waitScrollSettle();
   const lineByText = (needle) =>
     [...view.dom.querySelectorAll('.cm-line')].find((e) => e.textContent.includes(needle)) || null;
-  const m = {};
-  const okOf = (name, cond, detail) => { m[name] = cond ? '✅' : '❌ ' + (detail ?? ''); return cond; };
 
   // ① 标题：非光标行藏掉 # 前缀、行装饰生效
   const h1 = lineByText('标题行');
