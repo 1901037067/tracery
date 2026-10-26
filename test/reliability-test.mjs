@@ -107,8 +107,10 @@ try {
   await sleep(200); await page.screenshot({ path: path.join(OUT, 'recovery-center.png') });
   for (const [width,height] of [[390,844],[844,390]]) {
     await page.setViewport({width,height});
+    // 等待应用处理 visualViewport.resize；setViewport 完成不代表 --app-height 已更新。
+    await page.waitForFunction(height => Math.abs(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-height')) - height) < 1, {}, height);
     const bounds = await page.$eval('.recovery-card', el => {const r=el.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right};});
-    assert.ok(bounds.top>=0 && bounds.bottom<=height && bounds.left>=0 && bounds.right<=width);
+    assert.ok(bounds.top>=0 && bounds.bottom<=height && bounds.left>=0 && bounds.right<=width, JSON.stringify({width,height,bounds}));
     await page.screenshot({path:path.join(OUT,`recovery-${width}.png`)});
   }
   const downloads=path.join(OUT,'downloads'); fs.mkdirSync(downloads,{recursive:true});

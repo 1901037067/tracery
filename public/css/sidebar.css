@@ -113,3 +113,5 @@
   .phone-other-addresses > summary { min-height: 44px; }
   .phone-address input { font-size: 16px; }
 }
+.file-kind { flex: 0 0 auto; margin-left: 6px; padding: 1px 4px; border: 1px solid var(--hairline-strong); border-radius: 4px; color: var(--text-tertiary); font: 9px/1.4 var(--font-mono); letter-spacing: .03em; }
+.tree-item.active .file-kind { color: var(--accent); border-color: currentColor; }

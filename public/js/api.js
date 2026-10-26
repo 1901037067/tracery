@@ -66,7 +66,11 @@ export const Api = {
 export function connectWs(onMessage) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => window.dispatchEvent(new CustomEvent('tracery:connection', { detail: { connected: true } }));
+  ws.onopen = () => {
+    window.dispatchEvent(new CustomEvent('tracery:connection', { detail: { connected: true } }));
+    // WebSocket 不重放断线时的通知，初次连接也可能错过页面加载期间的变更。
+    onMessage({ type: 'connection-ready' });
+  };
   ws.onmessage = (ev) => {
     try { onMessage(JSON.parse(ev.data)); } catch { /* ignore */ }
   };

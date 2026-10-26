@@ -302,10 +302,19 @@ const ICON = {
 };
 
 function iconForFile(name) {
-  if (/\.md$/i.test(name)) return ICON.doc;
+  if (/\.(md|markdown|txt)$/i.test(name)) return '';
   if (/\.(png|jpe?g|gif|svg|webp|avif)$/i.test(name)) return ICON.image;
   if (/\.pdf$/i.test(name)) return ICON.pdf;
   return ICON.paperclip;
+}
+
+function appendFileLabel(item, file, className = 'label') {
+  const pdf = PDF_FILE_RE.test(file.path);
+  const iconMarkup = pdf ? '' : iconForFile(file.name);
+  if (iconMarkup) { const icon = document.createElement('span'); icon.className = 'icon'; icon.innerHTML = iconMarkup; item.append(icon); }
+  const label = document.createElement('span'); label.className = className;
+  label.textContent = file.name.replace(/\.(md|markdown|txt|pdf)$/i, ''); item.append(label);
+  if (pdf) { const badge = document.createElement('span'); badge.className = 'file-kind'; badge.textContent = 'PDF'; badge.setAttribute('aria-label', 'PDF 文件'); item.append(badge); }
 }
 
 /* ================= 数据刷新 ================= */
@@ -517,8 +526,7 @@ function renderShortcuts() {
     tab.title = `${label} · ${available.length}`; tab.setAttribute('aria-label', `${label}，${available.length} 项`);
     for (const p of available) {
       const item = document.createElement('button'); item.className = `tree-item ${kind}-item${p === state.currentPath ? ' active' : ''}`; item.dataset.path = p; item.title = p;
-      const icon = document.createElement('span'); icon.className = 'icon'; icon.innerHTML = kind === 'pinned' ? ICON.star : ICON.doc;
-      const label = document.createElement('span'); label.className = 'label tree-label'; label.textContent = basename(p); item.append(icon, label);
+      appendFileLabel(item, state.files.get(p), 'label tree-label');
       item.onclick = () => {
         if (IMG_FILE_RE.test(p)) openLightbox(Api.fileUrl(p), state.files.get(p).name);
         else if (PDF_FILE_RE.test(p)) openPdfViewer(Api.fileUrl(p), state.files.get(p).name, vaultAbs(p));
@@ -598,13 +606,7 @@ function renderFile(f) {
   const item = document.createElement('div');
   item.className = 'tree-item' + (f.path === state.currentPath ? ' active' : '');
   item.dataset.path = f.path;
-  const icon = document.createElement('span');
-  icon.className = 'icon';
-  icon.innerHTML = iconForFile(f.name);
-  const label = document.createElement('span');
-  label.className = 'label';
-  label.textContent = f.name.replace(/\.md$/i, '');
-  item.append(icon, label);
+  appendFileLabel(item, f);
   item.onclick = (e) => {
     // 图片 → 灯箱；PDF → 应用内阅读器（以前都走 openNote → 报「笔记不存在」）
     if (IMG_FILE_RE.test(f.path)) { openLightbox(Api.fileUrl(f.path), f.name); return; }
@@ -1453,6 +1455,7 @@ function renderTabs() {
     const name = document.createElement('span');
     name.className = 'tab-name';
     name.textContent = tabLabel(p);
+    if (PDF_FILE_RE.test(p)) { tab.dataset.fileKind = 'pdf'; tab.setAttribute('aria-label', `${tabLabel(p)}，PDF 文件`); }
     const close = document.createElement('button');
     close.className = 'tab-close';
     close.title = commandLabel('closeTab');
@@ -2671,7 +2674,15 @@ function bindGlobalEvents() {
 
 /* ================= WebSocket 同步 ================= */
 function onWsMessage(msg) {
-  if (msg.type === 'fs-change') {
+  if (msg.type === 'connection-ready') {
+    const root = state.vault?.root;
+    Api.state().then(snapshot => {
+      if (root !== state.vault?.root) return;
+      // 先核对仓库身份，不能把断线期间切换的仓库当成原仓库刷新。
+      if (snapshot.vault?.root !== root) onWsMessage({ type: 'vault-opened' });
+      else onWsMessage({ type: 'fs-change', paths: ['*'], treeChanged: true });
+    }).catch(() => {});
+  } else if (msg.type === 'fs-change') {
     editor.refreshDecorations();
     const paths = msg.paths || [];
     const affectsCurrent = state.currentPath && paths.some((p) => p === state.currentPath || p === '*' || p === state.currentPath + '.md');

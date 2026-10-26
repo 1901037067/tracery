@@ -27,11 +27,22 @@ const PORT = 9635, BASE = `http://127.0.0.1:${PORT}`, sleep = ms => new Promise(
 const packed = process.env.TRACERY_TEST_EXE, entry = packed ? path.join(path.dirname(packed), 'resources/app.asar/server/server.js') : path.join(ROOT, 'server/server.js');
 const server = spawn(packed || process.execPath, [entry], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME, ...(packed ? { ELECTRON_RUN_AS_NODE: '1' } : {}) }, windowsHide: true, stdio: 'pipe' });
 let browser, page;
+const refreshTrace = [];
 try {
   for (let i = 0; i < 80; i++) { try { if ((await fetch(BASE + '/api/state')).ok) break; } catch {} await sleep(200); }
   browser = await launchBrowser({ width: 1360, height: 900 }); page = await browser.newPage(); const errors = [];
+  await page.evaluateOnNewDocument(() => {
+    const NativeSocket = window.WebSocket; window.__embedTestSockets = [];
+    window.WebSocket = class extends NativeSocket { constructor(...args) { super(...args); window.__embedTestSockets.push(this); } };
+  });
   page.setDefaultTimeout(8000);
   page.on('pageerror', error => errors.push(error.message));
+  const cdp = await page.createCDPSession(); await cdp.send('Network.enable');
+  cdp.on('Network.webSocketFrameReceived', event => refreshTrace.push({ type: 'ws', data: event.response.payloadData, at: Date.now() }));
+  page.on('response', response => {
+    if (!response.url().includes('/api/note')) return;
+    response.text().then(body => refreshTrace.push({ type: 'note-response', url: response.url(), status: response.status(), body: body.slice(0, 400), at: Date.now() })).catch(() => {});
+  });
   await page.goto(BASE, { waitUntil: 'networkidle0' });
   const open = rel => page.evaluate(async rel => window.__tracery.openNote(rel, null, { newTab: true }), rel);
   await open('Host.md');
@@ -80,8 +91,25 @@ try {
   // 已显示的嵌入跟随磁盘内容更新。
   await setDoc('# 更新\n\n![[资料/Next]]');
   await page.waitForFunction(() => document.querySelector('.cm-lp-note-body')?.textContent.includes('下一篇'));
-  await fetch(BASE + '/api/note', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '资料/Next.md', content: '# 已修改的嵌入内容' }) });
+  const changed = await fetch(BASE + '/api/note', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '资料/Next.md', content: '# 已修改的嵌入内容' }) });
+  refreshTrace.push({ type: 'external-save', status: changed.status, body: await changed.text(), disk: fs.readFileSync(path.join(VAULT, '资料/Next.md'), 'utf8'), at: Date.now() });
+  assert.equal(changed.status, 200, '外部更新必须保存成功');
   await page.waitForFunction(() => document.querySelector('.cm-lp-note-body')?.textContent.includes('已修改的嵌入内容'));
+  await page.evaluate(() => window.__tracery.editor.flush());
+  await page.waitForFunction(() => window.__embedTestSockets.some(socket => socket.readyState === 1));
+  await page.evaluate(() => window.__embedTestSockets.forEach(socket => socket.close()));
+  await page.evaluate(() => {
+    const editor = window.__tracery.editor; editor.setAutosave(60000);
+    editor.view.dispatch({ changes: { from: editor.view.state.doc.length, insert: '\n\n断线未保存草稿' } });
+  });
+  const offlineSave = await fetch(BASE + '/api/note', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '资料/Next.md', content: '# 断线期间更新' }) });
+  assert.equal(offlineSave.status, 200);
+  await page.waitForFunction(() => window.__embedTestSockets.length > 1 && window.__embedTestSockets.at(-1).readyState === 1);
+  await page.waitForFunction(() => document.querySelector('.cm-lp-note-body')?.textContent.includes('断线期间更新'));
+  assert.ok(await page.evaluate(() => window.__tracery.editor.dirty && window.__tracery.editor.getContent().includes('断线未保存草稿')));
+  assert.ok(!fs.readFileSync(path.join(VAULT, 'Host.md'), 'utf8').includes('断线未保存草稿'));
+  await page.evaluate(async () => { window.__tracery.editor.setAutosave(900); await window.__tracery.editor.flush(); });
+  console.log('PASS 断线期间的嵌入更新在重连后自动补查');
   await page.setRequestInterception(true); let held;
   const intercept = request => {
     if (new URL(request.url()).searchParams.get('path') === '甲/Same.md') held = request;
@@ -128,4 +156,4 @@ try {
 } catch (error) {
   if (page) console.error('页面诊断', await page.evaluate(() => ({ content: window.__tracery?.editor.getContent(), mode: window.__tracery?.editor.mode, cards: [...document.querySelectorAll('.cm-lp-note')].map(node => node.textContent), text: document.querySelector('.cm-content')?.textContent })));
   throw error;
-} finally { await browser?.close(); server.kill(); }
+} finally { fs.writeFileSync(path.join(OUT, 'refresh-trace.json'), JSON.stringify(refreshTrace, null, 2)); await browser?.close(); server.kill(); }

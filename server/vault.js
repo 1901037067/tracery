@@ -6,6 +6,8 @@ import { readIndex, writeIndex, snapshotIndex, sameStat, fileStat } from './inde
 import { resolveInVault } from './path-guard.js';
 export const IGNORED_DIRS = new Set(['.tracery', '.evnote', '.obsidian', '.git', 'node_modules', '.trash']);
 const TEXT_EXT = new Set(['.md', '.markdown', '.txt']);
+// 仅影响浏览列表；其他文件仍保留在仓库、附件下载与同步清单中。
+const VISIBLE_EXT = new Set([...TEXT_EXT, '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.avif']);
 
 export class Vault {
   constructor(root) {
@@ -192,8 +194,7 @@ export class Vault {
       }
     }
     for (const rel of [...this.files.keys()].sort()) {
-      // 绘图的笔画旁车文件不作为普通附件展示（仍参与同步）
-      if (/\.draw\.json$/i.test(rel)) continue;
+      if (!VISIBLE_EXT.has(path.extname(rel).toLowerCase())) continue;
       const parts = rel.split('/');
       let cur = root;
       for (let i = 0; i < parts.length - 1; i++) cur = cur.dirs.get(parts[i]) || root;

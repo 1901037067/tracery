@@ -25,7 +25,9 @@ for (const name of names) fs.writeFileSync(path.join(VAULT, name), name === name
 fs.writeFileSync(path.join(VAULT, '引用.md'), '# 项目乙的同名笔记\n\n乙唯一关键词：海豚乙。');
 fs.writeFileSync(path.join(HOME, 'tracery.config.json'), JSON.stringify({ currentVault: VAULT, settings: { themeMode: 'light' } }));
 const PORT = 9647, BASE = `http://127.0.0.1:${PORT}`, sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const server = spawn(process.execPath, [path.join(ROOT, 'server/server.js')], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME }, windowsHide: true, stdio: 'pipe' });
+const packed = process.env.TRACERY_TEST_EXE;
+const entry = packed ? path.join(path.dirname(packed), 'resources/app.asar/server/server.js') : path.join(ROOT, 'server/server.js');
+const server = spawn(packed || process.execPath, [entry], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME, ...(packed ? { ELECTRON_RUN_AS_NODE: '1' } : {}) }, windowsHide: true, stdio: 'pipe' });
 let browser, page, blockSave = false; const errors = [], pdfNoteRequests = [];
 try {
   for (let i = 0; i < 80; i++) { try { if ((await fetch(BASE + '/api/state')).ok) break; } catch {} await sleep(200); }

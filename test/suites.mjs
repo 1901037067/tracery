@@ -1,5 +1,6 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['file-surface', 'file-surface-test.mjs', '文件格式过滤、PDF 标记与统一活动标签'],
   ['workspace-media', 'workspace-media-test.mjs', '线型、单行工具栏、窄桌面、提示与编辑区 PDF'],
   ['line-numbers', 'line-numbers-test.mjs', '图片展开、块级预览与正文行号几何对齐'],
   ['workspaces', 'workspaces-test.mjs', '固定侧栏图标行、工作区会话与阅读位置恢复'],
