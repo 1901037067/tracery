@@ -92,6 +92,7 @@ export class CmEditor {
     // 阅读模式的两条硬约束：① 不可编辑（没有光标）② 不显示行号（Obsidian 阅读视图也没有）
     const read = this.mode === 'read';
     return [
+      EditorState.transactionFilter.of(tr => this.accessReadOnly && tr.docChanged ? [] : tr),
       this.editableComp.of(read ? [EditorView.editable.of(false), EditorState.readOnly.of(true)] : []),
       this.lineNumComp.of(!read && this.showLineNumbers ? lineNumbers() : []),
       history(),

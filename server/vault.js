@@ -275,21 +275,27 @@ export class Vault {
   }
 
   search(q, limit = 50) {
+    if (!q || limit <= 0) return [];
     const needle = q.toLowerCase();
     const results = [];
     for (const [rel, content] of this.contentCache) {
       const name = this.notes.get(rel)?.name || rel;
       const nameHit = name.toLowerCase().includes(needle);
       const lines = [];
-      content.split('\n').forEach((line, i) => {
+      const sourceLines = content.split('\n');
+      for (let i = 0; i < sourceLines.length; i++) {
+        const line = sourceLines[i];
         if (line.toLowerCase().includes(needle)) lines.push({ line: i + 1, text: line.trim().slice(0, 160) });
-      });
+        if (lines.length >= 6) break;
+      }
       if (nameHit || lines.length) {
         results.push({ path: rel, name, nameHit, matches: lines.slice(0, 6) });
       }
-      if (results.length >= limit) break;
     }
-    return results.sort((a, b) => (b.nameHit ? 1 : 0) - (a.nameHit ? 1 : 0));
+    const rank = row => row.name.toLowerCase() === needle ? 2 : row.nameHit ? 1 : 0;
+    return results.sort((a, b) => rank(b) - rank(a)
+      || (this.notes.get(b.path)?.mtimeMs || 0) - (this.notes.get(a.path)?.mtimeMs || 0)
+      || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).slice(0, limit);
   }
 
   allTags() {

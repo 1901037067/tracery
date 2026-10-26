@@ -367,7 +367,7 @@ export function createFenceHiding({ readOnly = false } = {}) {
   return StateField.define({
     create(state) { return buildFenceDecos(state, readOnly); },
     update(value, tr) {
-      if (!tr.docChanged && !tr.selectionSet) return value;
+      if (!tr.docChanged && !tr.selection) return value;
       return buildFenceDecos(tr.state, readOnly);
     },
     provide: (f) => EditorView.decorations.from(f),

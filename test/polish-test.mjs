@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 编辑器体验回归：撤销/重做、实时预览行号、右键菜单紧凑化 + 无 emoji
  * ------------------------------------------------------------------
@@ -7,7 +8,6 @@
  *   ② 右键菜单用 emoji 当图标 + 选项间距太大（22 项排成一长条）。
  *   ③ 实时预览没有行号，且设置里要能关。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,7 +31,7 @@ for (let i = 0; i < 40; i++) {
   await sleep(250);
 }
 
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
   defaultViewport: { width: 1280, height: 860 },
 });

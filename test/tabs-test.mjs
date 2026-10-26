@@ -1,7 +1,7 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 多标签页 / 栏宽拖拽 / 绘图历史 回归测试
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -48,7 +48,7 @@ async function main() {
     body: JSON.stringify({ path: VAULT.replace(/\\/g, '/') }),
   });
 
-  const browser = await puppeteer.launch({
+  const browser = await launchTestBrowser({
     executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
     defaultViewport: { width: 1400, height: 880, deviceScaleFactor: 2 },
   });
@@ -218,11 +218,13 @@ async function main() {
   await sleep(1500);
   const persisted = await page.evaluate(() => Math.round(document.getElementById('sidebar').getBoundingClientRect().width));
   check('栏宽刷新后保持', Math.abs(persisted - after) <= 2, `${after} → ${persisted}`);
+  await page.bringToFront();
   await page.screenshot({ path: path.join(SHOTS, 'resizable-panels.png') });
 
   // 9. 绘图：清空后可撤销
   await page.evaluate(() => document.getElementById('btn-draw').click());
-  await sleep(500);
+  const strokes = count => page.waitForFunction(count => document.visibilityState === 'visible' && document.getElementById('draw-canvas')?.dataset.strokes === String(count), {}, count);
+  await strokes(0);
   // 白板默认是「选择」工具，先切到手绘笔再拖
   await page.evaluate(() => document.querySelector('.draw-tool[data-tool="freedraw"]').click());
   await sleep(100);
@@ -233,15 +235,15 @@ async function main() {
     await page.mouse.down();
     for (let i = 0; i < 10; i++) await page.mouse.move(box.x + 320 + k * 60 + i * 9, box.y + 260 + i * 6);
     await page.mouse.up();
-    await sleep(150);
+    await strokes(k + 1);
   }
   const drawn = await page.evaluate(() => document.getElementById('draw-canvas').dataset.strokes);
   await page.evaluate(() => document.getElementById('draw-clear').click());
-  await sleep(200);
+  await strokes(0);
   const cleared = await page.evaluate(() => document.getElementById('draw-canvas').dataset.strokes);
   const clearUndoDisabled = await page.evaluate(() => document.getElementById('draw-undo').disabled);
   await page.evaluate(() => document.getElementById('draw-undo').click());
-  await sleep(200);
+  await strokes(2);
   const undoneClear = await page.evaluate(() => document.getElementById('draw-canvas').dataset.strokes);
   check('清空后可以撤销回来', drawn === '2' && cleared === '0' && undoneClear === '2', `${drawn} → ${cleared} → ${undoneClear}`);
   check('有历史时撤销按钮可用', !clearUndoDisabled);

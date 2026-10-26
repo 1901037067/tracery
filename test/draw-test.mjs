@@ -1,10 +1,10 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 内置绘图（Excalidraw 风格白板）：端到端验证
  * ------------------------------------------------------------------
  * 打开绘图 → 画矩形 + 手绘 → 换背景/填充 → 选择并拖动 → 撤销/重做 →
  * Delete 删除 → 文字 → 保存插入笔记（PNG + 场景 JSON）
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -51,7 +51,7 @@ async function main() {
     body: JSON.stringify({ path: VAULT.replace(/\\/g, '/') }),
   });
 
-  const browser = await puppeteer.launch({
+  const browser = await launchTestBrowser({
     executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
     defaultViewport: { width: 1360, height: 860, deviceScaleFactor: 2 },
   });

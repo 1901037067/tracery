@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 编辑区右键菜单 + 左侧栏折叠回归
  * ------------------------------------------------------------------
@@ -5,7 +6,6 @@
  * ② 左侧栏折叠按钮失效（按钮从 .titlebar-right 挪到 .titlebar-left 后
  *    丢了 no-drag，点击被当成拖窗口）。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,7 +54,7 @@ for (let i = 0; i < 40; i++) {
   try { if ((await fetch(`http://localhost:${PORT}/api/state`)).ok) break; } catch { /* wait */ }
   await sleep(250);
 }
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
   defaultViewport: { width: 1280, height: 860 },
 });

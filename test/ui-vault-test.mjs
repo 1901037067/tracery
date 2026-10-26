@@ -1,8 +1,8 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 界面修复验证：Windows 窗口按钮 / 主题图标 / 欢迎页浮层与仓库管理
  * 使用临时 TRACERY_HOME + demo-vault，不触碰用户真实仓库。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,7 +27,7 @@ for (let i = 0; i < 40; i++) {
   await sleep(250);
 }
 
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE,
   headless: 'new',
   args: ['--no-sandbox', '--force-device-scale-factor=2'],

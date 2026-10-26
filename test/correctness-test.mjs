@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import {EditorState} from '@codemirror/state';
+import {createFenceHiding} from '../public/js/cm/decorations.js';
+import {Vault} from '../server/vault.js';
+import {browserExecutable} from '../scripts/lib/browser.mjs';
+const browserOverride=process.env.TRACERY_BROWSER;
+try{process.env.TRACERY_BROWSER='fixture-browser';assert.equal(browserExecutable({executablePath:'old-hardcoded-browser'}),'fixture-browser');delete process.env.TRACERY_BROWSER;assert.equal(browserExecutable({executablePath:'explicit-browser'}),'explicit-browser');}finally{if(browserOverride===undefined)delete process.env.TRACERY_BROWSER;else process.env.TRACERY_BROWSER=browserOverride;}
+const vault=new Vault(process.cwd());
+for(let i=0;i<70;i++)vault.indexNote('body-'+String(i).padStart(2,'0')+'.md','needle 正文\nsecond needle',i);
+vault.indexNote('a-needle-extra.md','no body hit',300);vault.indexNote('needle.md','only title',1);
+const hits=vault.search('needle');assert.equal(hits.length,50);assert.equal(hits[0].path,'needle.md');assert.equal(hits[1].path,'a-needle-extra.md');assert.equal(hits[2].path,'body-69.md');
+assert.deepEqual(vault.search('needle',2).map(row=>row.path),['needle.md','a-needle-extra.md']);assert.equal(vault.search('needle',0).length,0);assert.equal(vault.search('missing').length,0);
+vault.indexNote('中文检索.md','第一行\n中文片段\n'+'命中\n'.repeat(10),10);assert.equal(vault.search('片')[0].matches[0].line,2);assert.equal(vault.search('命中')[0].matches.length,6);
+const tied=new Vault(process.cwd());tied.indexNote('z.md','match',1);tied.indexNote('a.md','match',1);assert.deepEqual(tied.search('match').map(row=>row.path),['a.md','z.md']);
+console.log('PASS 全局截断前排序、精确/部分文件名/正文优先、最近修改/路径稳定排序、子串与行号');
+const field=createFenceHiding(),doc='before\n\n```js\nlet a = 1\n```\n\n| head |\n| --- |\n| cell |\n\nafter';
+let state=EditorState.create({doc,selection:{anchor:0},extensions:[field]});
+const spans=state=>{const out=[];state.field(field).between(0,state.doc.length,(from,to)=>out.push([from,to]));return out;};
+const outside=spans(state);assert.equal(outside.length,3);
+state=state.update({selection:{anchor:doc.indexOf('let a')}}).state;assert.equal(spans(state).length,1);
+state=state.update({selection:{anchor:doc.indexOf('cell')}}).state;assert.deepEqual(spans(state),outside);
+state=state.update({selection:{anchor:doc.length}}).state;assert.deepEqual(spans(state),outside);assert.equal(state.doc.toString(),doc);
+const readonly=createFenceHiding({readOnly:true}),read=EditorState.create({doc,selection:{anchor:doc.indexOf('let a')},extensions:[readonly]});assert.equal(read.field(readonly).size,3);
+console.log('PASS 仅移动选择时围栏露出/收起、表格分隔行始终隐藏、阅读模式与正文不变');

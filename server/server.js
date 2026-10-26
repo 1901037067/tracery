@@ -727,6 +727,11 @@ async function handleRequest(req, res) {
   }
 }
 const server = http.createServer(handleRequest);
+server.on('error',error=>{
+  console.error('[server]',error.message);
+  const message={type:'tracery-start-error',nonce:process.env.TRACERY_START_TOKEN,pid:process.pid,code:error.code};
+  if(process.send)process.send(message,()=>process.exit(1));else process.exit(1);
+});
 function mobileVaultKey() { return 'mobile-vault:' + crypto.createHash('sha256').update(vault?.root || '').digest('hex'); }
 const mobileAccess = createMobileAccess({ handler:handleRequest, upgrade:upgradeSocket, port:PORT < 65535 ? PORT+1 : PORT-1,
   onRevoke(id) { for(const client of wss.clients) if(client.mobileSession && (!id || client.mobileSession === id)) client.terminate(); },
@@ -803,9 +808,10 @@ async function start() {
   vault = new Vault(root);
   await vault.open();
   watchVault(root);
-  syncEngine.startAuto();
 
   server.listen(PORT, '127.0.0.1', () => {
+    process.send?.({type:'tracery-ready',nonce:process.env.TRACERY_START_TOKEN,pid:process.pid,port:server.address().port});
+    syncEngine.startAuto();
     console.log(`Tracery 已启动:  http://localhost:${PORT}`);
     console.log(`当前仓库:      ${vault.root}`);
     console.log(`笔记数:        ${vault.notes.size}`);

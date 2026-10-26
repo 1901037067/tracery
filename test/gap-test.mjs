@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 实时预览「空行 / 落点」回归（2026-10-18 用户报告）
  * ------------------------------------------------------------------
@@ -9,7 +10,6 @@
  *   ② 点空行前后布局不跳、光标落在这条空行上；
  *   ③ 空行上打字/回车，输入留在这一行、源码行数不变。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,7 +32,7 @@ for (let i = 0; i < 40; i++) {
   await sleep(250);
 }
 
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
   defaultViewport: { width: 1280, height: 860 },
 });

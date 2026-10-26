@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 编辑器回车行为回归（实时预览模式）
  * ------------------------------------------------------------------
@@ -8,7 +9,6 @@
  *      含软换行的段落里光标映射整体偏移（实测：行尾回车把 "Xef" 从中间拆开）
  * 本套件用真实键盘驱动锁死这些场景，防回归。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,7 +34,7 @@ for (let i = 0; i < 40; i++) {
   await sleep(250);
 }
 
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
   defaultViewport: { width: 1280, height: 860 },
 });

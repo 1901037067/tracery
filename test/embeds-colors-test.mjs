@@ -4,6 +4,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { launchBrowser } from './browser.mjs';
+import { waitForApp } from './waits.mjs';
 import { noteAnchors, selectNoteContent } from '../public/js/note-embed.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..'), HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tracery-embeds-colors-'));
@@ -43,7 +44,8 @@ try {
     if (!response.url().includes('/api/note')) return;
     response.text().then(body => refreshTrace.push({ type: 'note-response', url: response.url(), status: response.status(), body: body.slice(0, 400), at: Date.now() })).catch(() => {});
   });
-  await page.goto(BASE, { waitUntil: 'networkidle0' });
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await waitForApp(page);
   const open = rel => page.evaluate(async rel => window.__tracery.openNote(rel, null, { newTab: true }), rel);
   await open('Host.md');
   await page.waitForFunction(() => document.querySelectorAll('.cm-lp-note').length >= 6 && !document.querySelector('.cm-lp-note-loading'));

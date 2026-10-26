@@ -1,9 +1,9 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /* 临时仓库 + 真实浏览器触屏与离线模式，验证安装资源、移动抽屉和断线后的内容保留。 */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import puppeteer from 'puppeteer-core';
 import { buildWorker } from '../server/pwa.js';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TMP = path.join(os.tmpdir(), 'tracery-pwa-mobile-test');
@@ -36,7 +36,7 @@ try {
   fs.writeFileSync(path.join(shellDir, 'index.html'), 'version one');
   const before = buildWorker(shellDir); fs.writeFileSync(path.join(shellDir, 'index.html'), 'version two');
   check('资源内容变化会生成新的 worker 版本', before !== buildWorker(shellDir));
-  browser = await puppeteer.launch({ executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', headless: true, args: ['--no-sandbox'], defaultViewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } });
+  browser = await launchTestBrowser({ executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', headless: true, args: ['--no-sandbox'], defaultViewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } });
   const page = await browser.newPage(); const errors = []; page.on('pageerror', (e) => errors.push(e.message));
   page.on('dialog', (dialog) => dialog.accept());
   await page.goto(BASE, { waitUntil: 'networkidle0' });

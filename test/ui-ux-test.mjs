@@ -1,8 +1,8 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * UI/UX 回归测试：布局调整、新建对话框、图片查看、图谱全屏
  * 使用临时仓库，不碰用户数据。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -60,7 +60,7 @@ async function main() {
     body: JSON.stringify({ path: VAULT.replace(/\\/g, '/') }),
   });
 
-  const browser = await puppeteer.launch({
+  const browser = await launchTestBrowser({
     executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
     defaultViewport: { width: 1360, height: 880, deviceScaleFactor: 2 },
   });

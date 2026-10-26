@@ -1,10 +1,10 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 回收站回归
  * ------------------------------------------------------------------
  * 删除不再是永久删除：文件移进 TRACERY_HOME/trash/<仓库哈希>/，可恢复。
  * 覆盖：删除入回收站 → 列表可见 → 恢复回原地 → 再次删除 → 彻底删除。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,7 +34,7 @@ for (let i = 0; i < 40; i++) {
   try { if ((await fetch(`http://localhost:${PORT}/api/state`)).ok) break; } catch { /* wait */ }
   await sleep(250);
 }
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
   defaultViewport: { width: 1280, height: 860 },
 });

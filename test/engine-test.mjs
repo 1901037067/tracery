@@ -1,3 +1,5 @@
+import { waitForApp, waitForNote, waitForSaved, waitForLayout } from './waits.mjs';
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * engine-test.mjs — CM6 内核「真实 app」冒烟测试（P4-b）
  * ------------------------------------------------------------------
@@ -13,7 +15,6 @@
  *   7. 无页面错误。
  * 运行: npm run test:engine
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -87,7 +88,7 @@ async function main() {
   server.stderr.on('data', (d) => process.stderr.write('[server] ' + d));
   await waitForServer(BASE);
 
-  const browser = await puppeteer.launch({
+  const browser = await launchTestBrowser({
     executablePath: EDGE, headless: 'new',
     defaultViewport: { width: 1440, height: 900 },
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--force-color-profile=srgb'],
@@ -97,7 +98,7 @@ async function main() {
     page.on('pageerror', (e) => browserErrors.push('pageerror: ' + e.message));
     page.on('console', (m) => { if (m.type() === 'error') browserErrors.push('console: ' + m.text()); });
 
-    await page.goto(`${BASE}`, { waitUntil: 'networkidle0' });
+    await page.goto(`${BASE}`, { waitUntil: 'domcontentloaded' }); await waitForApp(page);
     // 打开自建临时仓库（避免写仓库里的 demo-vault），然后重载让文件树就位
     await page.evaluate(async (vp) => {
       await fetch('/api/vault/open', {
@@ -105,8 +106,8 @@ async function main() {
         body: JSON.stringify({ path: vp }),
       });
     }, VAULT.replace(/\\/g, '/'));
-    await page.reload({ waitUntil: 'networkidle0' });
-    await sleep(900);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForApp(page);
 
     // 1. app 起来
     const appVisible = await page.evaluate(() => !document.getElementById('app').hidden);
@@ -128,7 +129,7 @@ async function main() {
     await page.evaluate((nm) => {
       [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes(nm.replace(/\.md$/, '')))?.click();
     }, NOTE);
-    await sleep(900);
+    await waitForNote(page,NOTE);
     const deco = await page.evaluate(() => {
       const live = document.getElementById('editor-live');
       return {
@@ -144,7 +145,7 @@ async function main() {
     await page.click('#editor-live .cm-content');
     await page.keyboard.down('Control'); await page.keyboard.press('End'); await page.keyboard.up('Control');
     await typeText(page, `\n\n${MARKER}`);
-    await sleep(1800);   // 自动保存（900ms 防抖 + 余量）
+    await waitForSaved(page,NOTE,await page.evaluate(()=>window.__editor.getContent()));
     const saved = await page.evaluate(async (a) => {
       const res = await fetch('/api/note?path=' + encodeURIComponent(a.note));
       const data = await res.json();
@@ -155,11 +156,11 @@ async function main() {
     // 4b. 撤销 / 重做（CM history 在真实 app 下生效）
     const doc0 = await page.evaluate(() => window.__editor.getContent());
     await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
-    await sleep(500);
+    await page.waitForFunction(before=>window.__editor.getContent()!==before,{},doc0);
     const docUndo = await page.evaluate(() => window.__editor.getContent());
     // 重做用 Ctrl+Y（Ctrl+Shift+Z 会因 Shift 让 key 变大写 Z，CM 键名不匹配）
     await page.keyboard.down('Control'); await page.keyboard.press('KeyY'); await page.keyboard.up('Control');
-    await sleep(500);
+    await page.waitForFunction(before=>window.__editor.getContent()===before,{},doc0);
     const docRedo = await page.evaluate(() => window.__editor.getContent());
     check('cm 下 Ctrl+Z / Ctrl+Y 撤销且能重做', docUndo !== doc0 && docRedo === doc0,
       `undoChanged=${docUndo !== doc0} redoRestored=${docRedo === doc0}`);
@@ -171,14 +172,14 @@ async function main() {
     }, NOTE);
     const countHeadDeco = () => page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lp-h1, .cm-lp-h2, .cm-lp-h3').length);
     await page.evaluate(() => document.getElementById('btn-mode').click());   // → 源码
-    await sleep(600);
+    await page.waitForFunction(()=>window.__editor.mode==='source');
     const src = await countHeadDeco();
     const modeLabel = await page.evaluate(() => document.getElementById('btn-mode-label')?.textContent || '');
     await page.evaluate(() => document.getElementById('btn-mode').click());   // → 阅读
-    await sleep(600);
+    await page.waitForFunction(()=>window.__editor.mode==='read');
     const readLabel = await page.evaluate(() => document.getElementById('btn-mode-label')?.textContent || '');
     await page.evaluate(() => document.getElementById('btn-mode').click());   // → 实时预览
-    await sleep(600);
+    await page.waitForFunction(()=>window.__editor.mode==='live');
     const backDeco = await countHeadDeco();
     check('模式按钮三态循环：源码（关装饰）→ 阅读 → 实时预览（恢复装饰）',
       src === 0 && modeLabel.includes('源码') && readLabel.includes('阅读') && backDeco >= 2,
@@ -187,15 +188,15 @@ async function main() {
 
     // 5c. 行号开关（设置面板 → compartment reconfigure）
     await page.keyboard.down('Control'); await page.keyboard.press(','); await page.keyboard.up('Control');
-    await sleep(500);
+    await page.waitForSelector('#settings:not([hidden])');
     await page.evaluate(() => document.querySelector('.switch[data-toggle="lineNumbers"]')?.click());
-    await sleep(500);
+    await page.waitForFunction(()=>!document.querySelector('#editor-live .cm-lineNumbers'));
     const linesOff = await page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lineNumbers').length);
     await page.evaluate(() => document.querySelector('.switch[data-toggle="lineNumbers"]')?.click());
-    await sleep(500);
+    await page.waitForSelector('#editor-live .cm-lineNumbers');
     const linesOn = await page.evaluate(() => document.getElementById('editor-live').querySelectorAll('.cm-lineNumbers').length);
     await page.keyboard.press('Escape');
-    await sleep(400);
+    await page.waitForSelector('#settings',{hidden:true});
     check('cm 下行号开关（设置面板 compartment）', linesOff === 0 && linesOn === 1, `off=${linesOff} on=${linesOn}`);
 
     // 6. 附件粘贴：cm 拦截 → 落盘 → 回插 ![[..]]
@@ -208,7 +209,7 @@ async function main() {
       target.dispatchEvent(ev);
       return { prevented: ev.defaultPrevented, items: dt.items.length };
     });
-    await sleep(1800);
+    await page.waitForFunction(()=>window.__editor.getContent().includes('cm-smoke')); await waitForSaved(page,NOTE,await page.evaluate(()=>window.__editor.getContent()));
     const assetOk = await page.evaluate(async (note) => {
       const { content } = await (await fetch('/api/note?path=' + encodeURIComponent(note))).json();
       const m = /!\[\[([^\]]*cm-smoke[^\]]*)\]\]/.exec(content || '');
@@ -227,7 +228,7 @@ async function main() {
       span.click();
       return true;
     });
-    await sleep(900);
+    await waitForNote(page,'双链与反链.md');
     const navPath = await page.evaluate(() => document.getElementById('note-path')?.textContent || '');
     check('cm 下点击 [[双链]] 跳转到目标笔记', clicked && navPath.includes('双链与反链'), `clicked=${clicked} path=${navPath}`);
 
@@ -237,7 +238,7 @@ async function main() {
     await page.evaluate(() => {
       [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('测试笔记'))?.click();
     });
-    await sleep(1000);
+    await waitForNote(page,NOTE);
     const linkBox = await page.evaluate(() => {
       const span = [...document.querySelectorAll('#editor-live .cm-lp-wikilink')]
         .find((s) => s.textContent.includes('双链与反链'));
@@ -245,7 +246,7 @@ async function main() {
       const r = span.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     });
-    if (linkBox) { await page.mouse.click(linkBox.x, linkBox.y); await sleep(1000); }
+    if (linkBox) { await page.mouse.click(linkBox.x, linkBox.y); await waitForNote(page,'双链与反链.md'); }
     const realNav = await page.evaluate(() => document.getElementById('note-path')?.textContent || '');
     check('真实鼠标点击 [[双链]] 也能跳转', !!linkBox && realNav.includes('双链与反链'), `box=${!!linkBox} path=${realNav}`);
 
@@ -253,7 +254,7 @@ async function main() {
     await page.evaluate(() => {
       [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('测试笔记'))?.click();
     });
-    await sleep(1000);
+    await waitForNote(page,NOTE);
     const unLink = await page.evaluate(() => {
       const span = [...document.querySelectorAll('#editor-live .cm-lp-wikilink')]
         .find((s) => s.textContent.includes('还不存在的新笔记'));
@@ -270,7 +271,7 @@ async function main() {
       !!unLink && unLink.unresolved && unLink.borderStyle === 'dashed',
       JSON.stringify(unLink));
     if (unLink) { await page.mouse.click(unLink.x, unLink.y); }
-    await sleep(600);
+    await page.waitForSelector('.dialog-backdrop:not([hidden])');
     const askCreate = await page.evaluate(() => {
       const d = document.querySelector('.dialog-backdrop');
       return d && !d.hidden ? d.querySelector('.dialog-title').textContent : null;
@@ -278,7 +279,7 @@ async function main() {
     check('点未解析双链会问「要不要当场创建」',
       !!askCreate && askCreate.includes('还不存在的新笔记'), String(askCreate));
     await page.evaluate(() => document.querySelector('.dialog-ok')?.click());
-    await sleep(1500);
+    await waitForNote(page,'还不存在的新笔记.md');
     const created = await page.evaluate(() => ({
       path: document.getElementById('note-path')?.textContent || '',
       inTree: !!document.querySelector('#file-tree .tree-item[data-path="还不存在的新笔记.md"]'),
@@ -290,7 +291,7 @@ async function main() {
     await page.evaluate(() => {
       [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('任务'))?.click();
     });
-    await sleep(900);
+    await waitForNote(page,'任务.md');
     // 光标直接落到任务行末：.cm-content 下沿有 40vh 空白内边距（供滚过文末），
     // 点击其几何中心会落进空白里的末行，Enter 就不再「续任务列表」了。
     await page.evaluate(() => {
@@ -299,16 +300,16 @@ async function main() {
       ed.view.focus();
     });
     await page.keyboard.press('Enter');
-    await sleep(500);
+    await page.waitForFunction(()=>window.__editor.getContent().includes('甲任务\n- [ ] '));
     const taskDoc = await page.evaluate(() => window.__editor.getContent());
     check('cm 下 Enter 续任务列表（- [ ] ）', /- \[ \] 甲任务\n- \[ \] /.test(taskDoc), JSON.stringify(taskDoc));
 
     // 9. 阅读模式（2026-10-19 新增）：只读 + 全量渲染（剥掉源码标记）+ 任务勾选 + 双链跳转
     //    模式按钮三态循环：实时预览 → 源码 → 阅读，所以点两次到阅读
     await page.evaluate(() => document.getElementById('btn-mode').click());
-    await sleep(300);
+    await waitForLayout(page);
     await page.evaluate(() => document.getElementById('btn-mode').click());
-    await sleep(700);
+    await page.waitForFunction(()=>window.__editor.mode==='read');
     const readMode = await page.evaluate(() => {
       const ed = window.__editor;
       const taskLine = [...document.querySelectorAll('#editor-live .cm-line')].find((l) => l.textContent.includes('甲任务'));
@@ -329,17 +330,16 @@ async function main() {
     const mdBeforeRead = await page.evaluate(() => window.__editor.getContent());
     await page.evaluate(() => document.getElementById('editor-live').click());
     await page.keyboard.type('ZZZ');
-    await sleep(300);
+    await waitForLayout(page);
     check('阅读模式敲键盘不改内容', mdBeforeRead === (await page.evaluate(() => window.__editor.getContent())));
 
     const readToggle = await page.evaluate(async () => {
       const cb = document.querySelector('#editor-live input.cm-lp-cb');
       if (!cb) return false;
       cb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
-      await new Promise((r) => setTimeout(r, 250));
       return true;
     });
-    await sleep(300);
+    await waitForLayout(page);
     check('阅读模式下任务框仍可勾选（改的是 doc，不是光标）',
       readToggle && /- \[[xX]\] 甲任务/.test(await page.evaluate(() => window.__editor.getContent())),
       await page.evaluate(() => window.__editor.getContent()));
@@ -348,14 +348,14 @@ async function main() {
     await page.evaluate(() => {
       [...document.querySelectorAll('#file-tree .tree-item')].find((i) => i.textContent.includes('测试笔记'))?.click();
     });
-    await sleep(1000);
+    await waitForNote(page,NOTE);
     const linkBoxRead = await page.evaluate(() => {
       const span = [...document.querySelectorAll('#editor-live .cm-lp-wikilink')].find((s) => s.textContent.includes('双链与反链'));
       if (!span) return null;
       const r = span.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     });
-    if (linkBoxRead) { await page.mouse.click(linkBoxRead.x, linkBoxRead.y); await sleep(1000); }
+    if (linkBoxRead) { await page.mouse.click(linkBoxRead.x, linkBoxRead.y); await waitForNote(page,'双链与反链.md'); }
     const afterReadNav = await page.evaluate(() => ({
       path: document.getElementById('note-path')?.textContent || '',
       mode: window.__editor.mode,
@@ -367,7 +367,7 @@ async function main() {
 
     // 收尾：切回实时预览，免得影响后面的截图
     await page.evaluate(() => { window.__editor.setMode('live'); });
-    await sleep(300);
+    await waitForLayout(page);
 
     await page.screenshot({ path: path.join(__dirname, 'screenshots', 'p4-cm-app.png') });
 

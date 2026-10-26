@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {launchBrowser} from './browser.mjs';
 const ROOT=path.resolve(import.meta.dirname,'..'),HOME=fs.mkdtempSync(path.join(os.tmpdir(),'tracery-mobile-ui-')),VAULT=path.join(HOME,'vault');fs.mkdirSync(VAULT);
-fs.writeFileSync(path.join(VAULT,'手机笔记.md'),'# 手机笔记\n\n可读正文');fs.writeFileSync(path.join(VAULT,'另一篇.md'),'# 第二篇\n\n其他正文');
+fs.writeFileSync(path.join(VAULT,'手机笔记.md'),'# 手机笔记\n\n可读正文');fs.writeFileSync(path.join(VAULT,'另一篇.md'),'# 第二篇\n\n其他正文\n\n- [ ] 只读任务');
 fs.writeFileSync(path.join(HOME,'tracery.config.json'),JSON.stringify({currentVault:VAULT,settings:{themeMode:'light',startup:'empty'}}));
 const PORT=9663,BASE=`http://127.0.0.1:${PORT}`,OUT=path.join(ROOT,'dist/mobile-access-preview');fs.mkdirSync(OUT,{recursive:true});
 const server=spawn(process.execPath,[path.join(ROOT,'server/server.js')],{env:{...process.env,TRACERY_HOME:HOME,PORT:String(PORT)},windowsHide:true,stdio:'ignore'});let browser;
@@ -30,6 +30,9 @@ try{
  await phone.evaluate(()=>window.__tracery.editor.setMode('source'));assert.equal(await phone.evaluate(()=>window.__tracery.editor.mode),'read');
  await phone.evaluate(()=>window.__tracery.editor.insertText('forbidden'));assert.equal(fs.readFileSync(path.join(VAULT,'手机笔记.md'),'utf8'),'# 手机笔记\n\n可读正文');
  await phone.evaluate(()=>window.__tracery.openNote('另一篇.md',null,{newTab:true}));await phone.waitForFunction(()=>window.__tracery.editor.path==='另一篇.md');assert.equal(await phone.$eval('.cm-content',el=>el.contentEditable),'false');
+ assert.equal(await phone.$eval('.cm-lp-cb',el=>el.disabled),true);
+ await phone.evaluate(()=>{const view=window.__tracery.editor.view;view.dispatch({changes:{from:0,insert:'not allowed'}});});
+ assert.equal(await phone.evaluate(()=>window.__tracery.editor.dirty),false);
  await phone.screenshot({path:path.join(OUT,'phone-readonly.png')});
  console.log('INFO 只读切换完成，退出会话');
  await phone.click('.mobile-access-status button');await phone.waitForSelector('#pair-code');

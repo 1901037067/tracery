@@ -1,7 +1,7 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 新特性回归：右栏三按钮切换 / 代码高亮 / 表格 Tab 跳格 / 星标 / 最近打开 / 导出 HTML
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,7 +37,7 @@ for (let i = 0; i < 40; i++) {
   try { if ((await fetch(`http://localhost:${PORT}/api/state`)).ok) break; } catch { /* wait */ }
   await sleep(250);
 }
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
   defaultViewport: { width: 1280, height: 820 },
 });

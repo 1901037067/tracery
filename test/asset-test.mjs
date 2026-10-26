@@ -1,9 +1,9 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 附件管理验证：新附件落点（指定文件夹 / 跟随笔记 / 仓库根目录）、
  * 粘贴与拖拽入库、路径穿越拦截、旧客户端（不带 dir）兼容。
  * 全部用临时仓库副本 + 临时 TRACERY_HOME，不碰真实数据和 demo-vault。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,7 +34,7 @@ for (let i = 0; i < 40; i++) {
   await sleep(250);
 }
 
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE,
   headless: 'new',
   args: ['--no-sandbox'],

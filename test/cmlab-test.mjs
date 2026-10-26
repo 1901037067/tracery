@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * cmlab-test.mjs — CM6 探针页运行器（编辑区内核迁移 P0–P4）
  * ------------------------------------------------------------------
@@ -11,7 +12,6 @@
  * IME 说明：无头 Edge 没有真实输入法，CDP 的 imeSetComposition 是渲染层
  * 模拟 composition 的标准途径，compositionstart/update/end 会真实触发。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -43,11 +43,12 @@ try {
     try { if ((await fetch(`http://localhost:${PORT}/api/state`)).ok) break; } catch { /* wait */ }
     await sleep(250);
   }
-  const browser = await puppeteer.launch({
+  const browser = await launchTestBrowser({
     executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
     defaultViewport: { width: 1280, height: 860 },
   });
   const page = await browser.newPage();
+  await page.bringToFront();
   page.on('pageerror', (e) => browserErrors.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') browserErrors.push('console: ' + m.text()); });
 

@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * Tracery 端到端测试
  * ------------------------------------------------------------------
@@ -16,7 +17,6 @@
  *
  * 运行: node test/e2e.mjs
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -94,7 +94,7 @@ async function main() {
   await waitForServer(BASE);
   console.log(`\n▶ 服务器已启动 ${BASE}\n`);
 
-  const browser = await puppeteer.launch({
+  const browser = await launchTestBrowser({
     executablePath: EDGE,
     headless: 'new',
     defaultViewport: { width: 1440, height: 900 },

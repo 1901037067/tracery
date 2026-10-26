@@ -1,5 +1,8 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['correctness', 'correctness-test.mjs', '搜索全局排序与围栏选择事务'],
+  ['startup', 'startup-test.mjs', '子进程启动身份、单实例与端口占用'],
+  ['fence-selection', 'fence-selection-test.mjs', '围栏选择与自动保存语义等待'],
   ['access-boundary', 'access-boundary-test.mjs', '敏感目录/配置脱敏与历史身份隔离'],
   ['mobile-access', 'mobile-access-test.mjs', '手机独立入口、授权会话、权限与撤销'],
   ['mobile-access-ui', 'mobile-access-ui-test.mjs', '电脑授权面板与手机只读/读写交互'],

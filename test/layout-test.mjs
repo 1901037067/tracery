@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 布局回归：侧边栏折叠 + Tab 栏位置（标题栏模式）
  * 背景①：拖拽过栏宽后内联 style.width 会覆盖 .collapsed{width:0}，折叠失效——
@@ -6,7 +7,6 @@
  *   与窗口按钮同一行；锁死「Tab 在编辑区上方 / 与窗口按钮同线 / 标题栏紧凑」。
  * 使用临时 TRACERY_HOME + demo-vault，不触碰用户真实仓库。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,7 +30,7 @@ for (let i = 0; i < 40; i++) {
   await sleep(250);
 }
 
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE,
   headless: 'new',
   args: ['--no-sandbox'],

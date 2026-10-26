@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /* 一万篇真实临时文件 + Edge：同时量冷 / 热索引与真实滚动，防止靠减少数据伪造性能。 */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -5,7 +6,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
-import puppeteer from 'puppeteer-core';
 import { Vault } from '../server/vault.js';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TEMP = path.join(os.tmpdir(), 'tracery-performance-test');
@@ -84,7 +84,7 @@ try {
   fs.writeFileSync(path.join(HOME, 'tracery.config.json'), JSON.stringify({ currentVault: VAULT, settings: { startup: 'empty' } }));
   server = spawn(process.execPath, ['server/server.js'], { cwd: ROOT, env: { ...process.env, TRACERY_HOME: HOME, PORT: String(PORT) }, stdio: 'pipe' });
   for (let i = 0; i < 100; i++) { try { if ((await fetch(BASE + '/api/state')).ok) break; } catch {} await sleep(200); }
-  browser = await puppeteer.launch({ executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', headless: true, args: ['--no-sandbox'], defaultViewport: { width: 1360, height: 860 } });
+  browser = await launchTestBrowser({ executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', headless: true, args: ['--no-sandbox'], defaultViewport: { width: 1360, height: 860 } });
   const page = await browser.newPage(), errors = [], requests = [];
   page.on('pageerror', (e) => errors.push(e.message)); page.on('request', (req) => requests.push(new URL(req.url()).pathname));
   const start = performance.now(); await page.goto(BASE, { waitUntil: 'networkidle0' });

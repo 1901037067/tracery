@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /* 真 UDP 5353 + 三个隔离应用：关闭旧广播后仍能发现 / 配对，不能把 fallback 当成 mDNS 测试通过。 */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,7 +8,6 @@ import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import { Bonjour } from 'bonjour-service';
-import puppeteer from 'puppeteer-core';
 import { browse, advertise, serviceCandidate, reachable, SERVICE_TYPE } from '../server/mdns.js';
 import { broadcastAddrs } from '../server/lan.js';
 import { runtimeDependencies } from '../scripts/runtime-deps.mjs';
@@ -66,7 +66,7 @@ try {
   check('共享 HTTP 状态页不泄露通行码', !landing.includes(hostA.lan.code));
   const again = await Promise.all([api(A, '/api/sync/lan/start', {}), api(A, '/api/sync/lan/start', {})]);
   check('重复开启共享保持同一会话', again.every((r) => r.lan.port === hostA.lan.port && r.lan.code === hostA.lan.code));
-  browser = await puppeteer.launch({ executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', headless: true, args: ['--no-sandbox'], defaultViewport: { width: 1280, height: 860, isMobile: true, hasTouch: true } });
+  browser = await launchTestBrowser({ executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', headless: true, args: ['--no-sandbox'], defaultViewport: { width: 1280, height: 860, isMobile: true, hasTouch: true } });
   const page = await browser.newPage(), errors = []; page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(C, { waitUntil: 'networkidle0' }); await page.click('#btn-settings');
   await page.click('.settings-nav [data-pane="sync"]');

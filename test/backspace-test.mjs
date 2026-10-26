@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 跨行删除回归：行首 Backspace / 行尾 Delete / 跨块选区删除（2026-10-18 用户报告）
  * ------------------------------------------------------------------
@@ -11,7 +12,6 @@
  * 修法：跨行删除全部在模型层做（和 Enter 一条路子），外加「md 没变但 DOM 结构
  * 变了就强制重渲染」的安全网。本套件用真实键盘锁住行为。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,7 +34,7 @@ for (let i = 0; i < 40; i++) {
   await sleep(250);
 }
 
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
   defaultViewport: { width: 1280, height: 860 },
 });

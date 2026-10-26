@@ -1,3 +1,4 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * Markdown round-trip 属性测试（保护 editor/markdown 双向引擎）
  * ------------------------------------------------------------------
@@ -15,7 +16,6 @@
  * 另加 demo-vault 全量文件的不动点检查（真实语料）。
  * 在无头 Edge 里跑（真实 DOM），不是 jsdom 模拟。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,7 +39,7 @@ for (let i = 0; i < 40; i++) {
   await sleep(250);
 }
 
-const browser = await puppeteer.launch({
+const browser = await launchTestBrowser({
   executablePath: EDGE, headless: 'new', args: ['--no-sandbox'],
   defaultViewport: { width: 1280, height: 860 },
 });

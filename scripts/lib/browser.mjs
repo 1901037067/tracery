@@ -5,9 +5,21 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import puppeteer from 'puppeteer-core';
 
+export function browserExecutable(options = {}) {
+  if (process.env.TRACERY_BROWSER) return process.env.TRACERY_BROWSER;
+  if (options.executablePath) return options.executablePath;
+  const candidates = process.platform === 'win32'
+    ? ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Google/Chrome/Application/chrome.exe']
+    : process.platform === 'darwin' ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome','/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
+    : ['/usr/bin/chromium','/usr/bin/chromium-browser','/usr/bin/google-chrome'];
+  const executable=candidates.find(file=>fs.existsSync(file));
+  if(!executable)throw Error('未找到浏览器，请通过 TRACERY_BROWSER 指定 Chromium、Chrome 或 Edge 的完整路径');
+  return executable;
+}
+
 export async function launchBrowser(options = {}) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'tracery-browser-'));
-  const executable = options.executablePath || process.env.TRACERY_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+  const executable = browserExecutable(options);
   const child = spawn(executable, ['--headless=new', '--no-sandbox', '--disable-gpu', '--no-first-run',
     // 与 Puppeteer 默认参数一致，避免 Windows 后台/遮挡节流暂停 rAF 和可见性测量。
     '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding',

@@ -76,7 +76,12 @@ try {
   await page.click('#btn-toggle-left'); await page.click('#btn-toggle-right');
   await page.waitForFunction(() => !document.getElementById('sidebar').classList.contains('collapsed') && !document.getElementById('sidebar-right').classList.contains('collapsed'));
 
-  async function pane() { await page.click('#btn-settings'); await page.click('.settings-nav [data-pane="hotkeys"]'); }
+  async function pane() {
+    await page.bringToFront(); await page.click('#btn-settings');
+    await page.waitForSelector('#settings:not([hidden])');
+    await page.click('.settings-nav [data-pane="hotkeys"]');
+    await page.waitForSelector('.settings-pane.active[data-pane="hotkeys"]');
+  }
   async function chord(keys) {
     const parts = keys.split('+'), key = parts.pop();
     for (const modifier of parts) await page.keyboard.down(modifier);
@@ -85,7 +90,13 @@ try {
   }
   const row = id => `.hotkey-row[data-hotkey="${id}"]`;
   async function record(id, keys) { await page.click(row(id) + ' .hotkey-binding'); await chord(keys); }
-  async function persisted(id, expected) { await page.waitForFunction(async ({ id, expected }) => (await (await fetch('/api/state')).json()).settings.hotkeys[id] === expected, {}, { id, expected }); }
+  async function persisted(id, expected) {
+    try { await page.waitForFunction(async ({ id, expected }) => (await (await fetch('/api/state')).json()).settings.hotkeys[id] === expected, {}, { id, expected }); }
+    catch (error) {
+      console.error('快捷键保存诊断', await page.evaluate(async id => ({ id, server: (await (await fetch('/api/state')).json()).settings.hotkeys, message: document.getElementById('hotkey-message')?.textContent, label: document.querySelector(`.hotkey-row[data-hotkey="${id}"] .hotkey-binding`)?.textContent, focus: document.activeElement?.outerHTML }), id));
+      await page.screenshot({ path: path.join(OUT, 'save-failure.png') }); throw error;
+    }
+  }
   async function focusEditor() {
     await page.waitForFunction(() => window.__tracery.state.currentPath === '主笔记.md' && window.__editor.view.state.doc.lines > 3);
     await page.evaluate(() => { const v = window.__editor.view; v.dispatch({ selection: { anchor: v.state.doc.line(3).from } }); v.focus(); });

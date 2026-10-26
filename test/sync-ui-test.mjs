@@ -1,8 +1,8 @@
+import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
 /**
  * 同步面板 UI 测试：设置 → 同步 → 填地址/配对码 → 连接 → 立即同步
  * 真跑一个同步服务端 + 一个 Tracery 实例，用无头 Edge 操作界面。
  */
-import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -60,7 +60,7 @@ async function main() {
     body: JSON.stringify({ path: VAULT.replace(/\\/g, '/') }),
   });
 
-  const browser = await puppeteer.launch({
+  const browser = await launchTestBrowser({
     executablePath: EDGE,
     headless: 'new',
     args: ['--no-sandbox'],

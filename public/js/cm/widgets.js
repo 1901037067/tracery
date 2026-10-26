@@ -362,6 +362,7 @@ class CheckboxWidget extends WidgetType {
     box.type = 'checkbox';
     box.className = 'cm-lp-cb';
     box.checked = this.checked;
+    box.disabled = view.dom.ownerDocument.body.dataset.access === 'read';
     box.addEventListener('pointerdown', (e) => {
       e.preventDefault(); e.stopPropagation();
       const cur = view.state.doc.sliceString(this.from + 1, this.from + 2);

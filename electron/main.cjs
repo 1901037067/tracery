@@ -10,6 +10,7 @@ const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
+const { startServerProcess } = require('./server-process.cjs');
 
 // 环境自愈：某些环境（如把 Electron 当 Node 用的沙箱/CI）会预设 ELECTRON_RUN_AS_NODE，
 // 这会让 Electron 退化成纯 Node（require('electron') 拿不到 API）。此时去掉它重启自己。
@@ -25,8 +26,10 @@ if (process.env.TRACERY_REEXEC !== '1' && process.env.ELECTRON_RUN_AS_NODE) {
   process.exit(0);
 }
 
+if (!app.requestSingleInstanceLock()) { app.quit(); return; }
 const HOME = app.getPath('userData');
-const PORT = process.env.PORT || '9520';
+const PORT = Number(process.env.PORT || '9520');
+fs.mkdirSync(HOME,{recursive:true});
 
 // 打包版没有控制台：日志落盘，方便用户反馈问题时排查
 const logStream = fs.createWriteStream(path.join(HOME, 'tracery.log'), { flags: 'a' });
@@ -52,21 +55,34 @@ if (!process.env.TRACERY_HOME && !process.env.EVNOTE_HOME
 
 let mainWindow = null;
 let serverProc = null;
+let startupWindow = null, ipcRegistered = false;
+app.on('second-instance',()=>{
+  const win=mainWindow||startupWindow;
+  if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}
+});
 
 function startServer() {
+  if(!Number.isInteger(PORT)||PORT<1||PORT>65535) return Promise.reject(Error('端口必须为 1 到 65535 的整数'));
   const serverPath = path.join(__dirname, '..', 'server', 'server.js');
-  serverProc = spawn(process.execPath, [serverPath], {
+  const processState = startServerProcess({executable:process.execPath,entry:serverPath,port:PORT,onLog:log,
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',   // 让 Electron 二进制以纯 Node 模式运行服务端
       TRACERY_HOME: process.env.TRACERY_HOME || process.env.EVNOTE_HOME || HOME,  // asar 只读 → 配置/仓库写用户目录（可用环境变量重定向，便于便携模式/测试；兼容旧名 EVNOTE_HOME）
       PORT: String(PORT),
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  serverProc.stdout.on('data', (d) => log('[server]', String(d).trimEnd()));
-  serverProc.stderr.on('data', (d) => log('[server:err]', String(d).trimEnd()));
-  serverProc.on('exit', (code) => log('[server] 退出, code =', code));
+  serverProc = processState.child;
+  return processState.ready;
+}
+
+function showStartupError(error) {
+  log('启动失败：',error.message);
+  startupWindow=new BrowserWindow({width:620,height:330,title:'Tracery 启动失败',webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  const escape=text=>String(text).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const html=`<!doctype html><meta charset="utf-8"><title>Tracery 启动失败</title><main style="font:16px system-ui;padding:30px;line-height:1.7"><h2>暂时无法启动 Tracery</h2><p id="startup-error">${escape(error.message)}</p><p>关闭此窗口，处理问题后再重新启动。笔记仍保留在原仓库。</p></main>`;
+  startupWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html)).catch(reason=>log(reason.message));
+  startupWindow.on('closed',()=>{startupWindow=null;});
 }
 
 function createWindow() {
@@ -118,6 +134,9 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  if(ipcRegistered)return;
+  ipcRegistered=true;
+
   ipcMain.on('tracery:win-minimize', () => mainWindow && mainWindow.minimize());
   ipcMain.on('tracery:win-maximize', () => {
     if (!mainWindow) return;
@@ -167,23 +186,15 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
-  startServer();
-  // 等服务端就绪再开窗口（最多等 10 秒）
-  const waitAndOpen = async () => {
-    for (let i = 0; i < 50; i++) {
-      try {
-        const res = await fetch(`http://localhost:${PORT}/api/state`);
-        if (res.ok) break;
-      } catch { /* 重试 */ }
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    if (!mainWindow) createWindow();
-  };
-  waitAndOpen();
+app.whenReady().then(async () => {
+  try { await startServer(); if(!mainWindow)createWindow(); }
+  catch(error){showStartupError(error);}
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      if(serverProc&&serverProc.exitCode===null)createWindow();
+      else showStartupError(Error('仓库服务未运行，请关闭后重新启动'));
+    }
   });
 });
 
