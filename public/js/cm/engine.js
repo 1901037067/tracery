@@ -220,7 +220,7 @@ export class CmEditor {
     this.path = path;
     this.md = content;
     this.dirty = false;
-    if (!keepMode) this.mode = 'live';
+    if (!keepMode) this.mode = this.accessReadOnly ? 'read' : 'live';
     // 换文件 = 全新 state（撤销栈按笔记隔离）
     this.view.setState(EditorState.create({ doc: content, extensions: this._extensions() }));
     this._loading = false;
@@ -265,6 +265,7 @@ export class CmEditor {
   get isRead() { return this.mode === 'read'; }
 
   setMode(mode) {
+    if (this.accessReadOnly) mode = 'read';
     if (mode !== 'live' && mode !== 'source' && mode !== 'read') return;
     if (mode === this.mode) return;
     this._flushSave();

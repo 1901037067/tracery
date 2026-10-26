@@ -1,4 +1,4 @@
-/* 手机网页入口来自本机网卡与主应用端口；与仓库同步发现、配对端口无关。 */
+/* 只枚举指定监听端口的本机网卡地址，不代表入口已开启或会话拥有读写授权。 */
 import os from 'node:os';
 
 export function phoneAccess(port, interfaces = os.networkInterfaces()) {
@@ -13,5 +13,5 @@ export function phoneAccess(port, interfaces = os.networkInterfaces()) {
   }
   const priority = item => (item.virtual ? 10 : 0) + (/wi-?fi|wlan|wireless|ethernet|以太网|无线/i.test(item.name) ? 0 : 1);
   addresses.sort((a, b) => priority(a) - priority(b) || a.name.localeCompare(b.name));
-  return { addresses, access: 'read-write', requiresComputer: true };
+  return { addresses, requiresComputer: true };
 }

@@ -22,6 +22,7 @@ import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { mergeText, isMergeablePath } from './merge.js';
+import { isPrivateUserPath } from './user-path.js';
 import {
   deriveKeys, newSalt, keyToHex, keyFromHex,
   encryptBuffer, decryptBuffer, nameToken, makeCheck, verifyCheck,
@@ -580,8 +581,9 @@ export class SyncEngine {
       let entries;
       try { entries = await fsp.readdir(abs, { withFileTypes: true }); } catch { return; }
       for (const e of entries) {
-        if (IGNORED_DIRS.has(e.name)) continue;
+        if (IGNORED_DIRS.has(e.name.toLowerCase())) continue;
         const relPath = rel ? `${rel}/${e.name}` : e.name;
+        if (isPrivateUserPath(root,relPath)) continue;
         const absPath = path.join(abs, e.name);
         if (e.isDirectory()) { await walk(absPath, relPath); continue; }
         if (!e.isFile()) continue;

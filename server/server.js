@@ -13,11 +13,14 @@ import { WebSocketServer } from 'ws';
 import { SyncEngine, vaultConfigDir } from './sync.js';
 import { createLanShare } from './lan.js';
 import { buildWorker } from './pwa.js';
-import { phoneAccess } from './access.js';
 import { HOTKEY_COMMANDS, bindingFor, sanitizeHotkeys, validateShortcut } from '../public/js/hotkeys.js';
 import { Vault, IGNORED_DIRS } from './vault.js';
 import { normalizeLayout } from '../public/js/layout-settings.js';
-import { resolveInVault, resolveInDirectory } from './path-guard.js';
+import { resolveInDirectory } from './path-guard.js';
+import { resolveUserPath as resolveInVault } from './user-path.js';
+import { publicSettings } from './public-settings.js';
+import { createHistoryStore } from './history-store.js';
+import { createMobileAccess } from './mobile-access.js';
 import { validateRequest, isLocalClient } from './request-guard.js';
 import { readDiskNote, saveDiskNote, revisionOf } from './note-store.js';
 
@@ -30,26 +33,9 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
  * 每次保存前把「旧内容」快照进 TRACERY_HOME/history/<仓库哈希>/<笔记相对路径>/<时间戳>.md
  * 每个文件最多留 20 个快照（按时间滚动删除）。
  */
-function historyDir(root, rel) {
-  resolveInVault(root, rel);
-  const h = crypto.createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 12);
-  const safe = rel.split('/').map((s) => s.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_')).join('/');
-  return resolveInDirectory(HOME, `history/${h}/${safe}`);
-}
-let lastHistoryId = 0;
-async function snapshotHistory(root, rel, prevContent) {
-  if (prevContent == null) return;
-  const dir = historyDir(root, rel);
-  fs.mkdirSync(dir, { recursive: true });
-  const id = lastHistoryId = Math.max(Date.now(), lastHistoryId + 1);
-  fs.writeFileSync(path.join(dir, `${id}.md`), prevContent, { encoding: 'utf8', flag: 'wx' });
-  const files = fs.readdirSync(dir).filter((f) => /^\d+\.md$/.test(f)).sort();
-  for (const f of files.slice(0, Math.max(0, files.length - 20))) {
-    try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignore */ }
-  }
-}
-
 const HOME = process.env.TRACERY_HOME || process.env.EVNOTE_HOME || ROOT;
+const history = createHistoryStore(HOME);
+const snapshotHistory = (root, rel, content) => history.snapshot(root, rel, content);
 
 /* ================= 回收站 =================
  * 删除不再直接 unlink，而是移进 TRACERY_HOME/trash/<仓库哈希>/，
@@ -325,6 +311,7 @@ const MIME = {
 };
 
 function sendJson(res, code, obj) {
+  if (obj?.settings) obj = { ...obj, settings: publicSettings(obj.settings) };
   const body = JSON.stringify(obj);
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(body);
@@ -338,14 +325,23 @@ function readBody(req, limit = 32 * 1024 * 1024) {
       if (bytes > limit) { req.destroy(); reject(new Error('请求体过大')); return; }
       chunks.push(c);
     });
-    req.on('end', () => { try { const data = Buffer.concat(chunks).toString('utf8'); resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); } });
+    req.on('end', () => { try {
+      const raw = Buffer.concat(chunks).toString('utf8'), data = raw ? JSON.parse(raw) : {};
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw Object.assign(new Error('请求正文必须是对象'),{status:400});
+      if (req.mobile && req.mobileSession) mobileAccess.authorize(req,new URL(req.url,'http://localhost'));
+      if (req.mobile && data.vaultRoot !== undefined) {
+        if (data.vaultRoot !== mobileVaultKey()) throw Object.assign(new Error('仓库已切换，原草稿保留'), {status:409});
+        data.vaultRoot = vault?.root;
+      }
+      resolve(data);
+    } catch (e) { reject(e); } });
     req.on('aborted', () => reject(new Error('请求已中断')));
     req.on('error', reject);
   });
 }
 
 /* ---------------- HTTP 路由 ---------------- */
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   const u = new URL(req.url, `http://localhost:${PORT}`);
   const p = u.pathname;
 
@@ -353,17 +349,26 @@ const server = http.createServer(async (req, res) => {
     validateRequest(req);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    if (req.mobile) {
+      res.setHeader('Cache-Control', 'no-store');
+      if (await mobileAccess.publicRequest(req,res,u,readBody)) return;
+    }
     if (p === '/sw.js') {
       const source = buildWorker(PUBLIC_DIR);
       res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' });
       return res.end(source);
     }
     // ---- API ----
-    if (p === '/api/access' && req.method === 'GET') return sendJson(res, 200, phoneAccess(server.address().port));
+    if (p === '/api/access' && req.method === 'GET') return sendJson(res, 200, mobileAccess.status());
+    if (p === '/api/access/start' && req.method === 'POST') { const {mode}=await readBody(req); return sendJson(res,200,await mobileAccess.start(mode)); }
+    if (p === '/api/access/stop' && req.method === 'POST') return sendJson(res,200,await mobileAccess.stop());
+    if (p === '/api/access/revoke' && req.method === 'POST') return sendJson(res,200,mobileAccess.revoke());
     if (p === '/api/state') {
       return sendJson(res, 200, {
-        vault: vault ? { root: vault.root, name: path.basename(vault.root) } : null,
-        recentVaults: config.recentVaults,
+        vault: vault ? { root: req.mobile ? mobileVaultKey() : vault.root, name: path.basename(vault.root) } : null,
+        recentVaults: req.mobile ? [] : config.recentVaults,
+        access: req.mobile ? {local:false,mode:req.mobileSession.mode} : {local:true,mode:'write'},
         settings: config.settings,
       });
     }
@@ -388,6 +393,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: '目录不存在或不是文件夹' });
       }
       if (vault?.root !== path.resolve(vaultPath)) await lanShare.stop();
+      if (vault?.root !== path.resolve(vaultPath)) mobileAccess.revoke();
       vault = new Vault(path.resolve(vaultPath));
       await vault.open();
       config.currentVault = vault.root;
@@ -494,6 +500,7 @@ const server = http.createServer(async (req, res) => {
       const { path: rel, content, expectedRevision, vaultRoot } = await readBody(req);
       if (!rel) return sendJson(res, 400, { error: '缺少 path' });
       const target = vault;
+      resolveInVault(target.root, rel);
       if (vaultRoot !== undefined && vaultRoot !== target.root) return sendJson(res, 409, { error: '仓库已切换，原仓库的草稿已保留，请重新打开原仓库' });
       const revision = await saveDiskNote(target.root, rel, content, { expectedRevision,
         beforeCommit: previous => previous === null ? undefined : snapshotHistory(target.root, rel, previous) });
@@ -505,60 +512,47 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/history' && req.method === 'GET') {
       const rel = u.searchParams.get('path');
       if (!rel) return sendJson(res, 400, { error: '缺少 path' });
-      const dir = historyDir(vault.root, rel);
-      let items = [];
-      try {
-        items = fs.readdirSync(dir)
-          .filter((f) => /^\d+\.md$/.test(f))
-          .map((f) => {
-            const st = fs.statSync(path.join(dir, f));
-            return { id: f.replace(/\.md$/, ''), time: Number(f.replace(/\.md$/, '')), size: st.size };
-          })
-          .sort((a, b) => b.time - a.time);
-      } catch { /* 没有历史 */ }
-      return sendJson(res, 200, { items });
+      return sendJson(res, 200, { items: history.list(vault.root,rel) });
     }
     if (p === '/api/history/content' && req.method === 'GET') {
       const rel = u.searchParams.get('path');
       const id = u.searchParams.get('id');
-      const file = path.join(historyDir(vault.root, rel || ''), `${id}.md`);
-      if (!rel || !/^\d+$/.test(id || '') || !fs.existsSync(file)) return sendJson(res, 404, { error: '版本不存在' });
-      return sendJson(res, 200, { content: await fsp.readFile(file, 'utf8') });
+      return sendJson(res, 200, { content: history.read(vault.root,rel,id) });
     }
     if (p === '/api/history/restore' && req.method === 'POST') {
       const { path: rel, id } = await readBody(req);
-      const dir = historyDir(vault.root, rel || '');
-      const file = path.join(dir, `${id}.md`);
-      if (!rel || !/^\d+$/.test(String(id || '')) || !fs.existsSync(file)) return sendJson(res, 404, { error: '版本不存在' });
-      const abs = resolveInVault(vault.root, rel);
+      const target = vault;
+      const restored = history.read(target.root,rel,id,{restore:true});
+      const abs = resolveInVault(target.root, rel);
       let cur = null;
       try { cur = await fsp.readFile(abs, 'utf8'); } catch { /* 可能已被删 */ }
-      await saveDiskNote(vault.root, rel, await fsp.readFile(file, 'utf8'), { expectedRevision: revisionOf(cur),
-        beforeCommit: previous => previous === null ? undefined : snapshotHistory(vault.root, rel, previous) });
-      await vault.applyChange(rel);
-      broadcast({ type: 'fs-change', paths: [rel] });
+      await saveDiskNote(target.root, rel, restored, { expectedRevision: revisionOf(cur),
+        beforeCommit: previous => previous === null ? undefined : snapshotHistory(target.root, rel, previous) });
+      await target.applyChange(rel);
+      if (target === vault) broadcast({ type: 'fs-change', paths: [rel] });
       return sendJson(res, 200, { ok: true });
     }
     if (p === '/api/replace' && req.method === 'POST') {
       const { query, replacement } = await readBody(req);
       if (!query) return sendJson(res, 400, { error: '查询为空' });
       const rep = String(replacement ?? '');
+      const target = vault;
       const touched = [];
       let count = 0;
-      for (const rel of vault.notes.keys()) {
-        const abs = resolveInVault(vault.root, rel);
+      for (const rel of target.notes.keys()) {
+        const abs = resolveInVault(target.root, rel);
         let text;
         try { text = await fsp.readFile(abs, 'utf8'); } catch { continue; }
         if (!text.includes(query)) continue;
         const parts = text.split(query);
         count += parts.length - 1;
-        await saveDiskNote(vault.root, rel, parts.join(rep), { expectedRevision: revisionOf(text),
-          beforeCommit: previous => snapshotHistory(vault.root, rel, previous) });
+        await saveDiskNote(target.root, rel, parts.join(rep), { expectedRevision: revisionOf(text),
+          beforeCommit: previous => snapshotHistory(target.root, rel, previous) });
         touched.push(rel);
       }
       if (touched.length) {
-        await vault.open();
-        broadcast({ type: 'fs-change', paths: touched });
+        await target.open();
+        if (target === vault) broadcast({ type: 'fs-change', paths: touched });
       }
       return sendJson(res, 200, { ok: true, files: touched, count });
     }
@@ -731,17 +725,30 @@ const server = http.createServer(async (req, res) => {
     console.error('[api error]', p, err);
     sendJson(res, err.status || 500, { error: String(err.message || err) });
   }
+}
+const server = http.createServer(handleRequest);
+function mobileVaultKey() { return 'mobile-vault:' + crypto.createHash('sha256').update(vault?.root || '').digest('hex'); }
+const mobileAccess = createMobileAccess({ handler:handleRequest, upgrade:upgradeSocket, port:PORT < 65535 ? PORT+1 : PORT-1,
+  onRevoke(id) { for(const client of wss.clients) if(client.mobileSession && (!id || client.mobileSession === id)) client.terminate(); },
 });
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /* ---------------- WebSocket ---------------- */
-const wss = new WebSocketServer({ server, path: '/ws', verifyClient(info, done) {
-  try { validateRequest(info.req); done(true); } catch (error) { done(false, error.status || 403, error.message); }
-} });
+const wss = new WebSocketServer({ noServer:true });
+function upgradeSocket(req,socket,head) {
+  try {
+    validateRequest(req);
+    if(new URL(req.url,'http://localhost').pathname !== '/ws') throw Object.assign(new Error('Not Found'),{status:404});
+    const session=req.mobile?mobileAccess.authorizeSocket(req):null;
+    wss.handleUpgrade(req,socket,head,client=>{client.mobileSession=session?.id;wss.emit('connection',client,req);});
+  } catch(error) { socket.end(`HTTP/1.1 ${error.status||403} Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`); }
+}
+server.on('upgrade',upgradeSocket);
 function broadcast(msg) {
+  if(msg.type === 'settings') msg = {...msg,settings:publicSettings(msg.settings)};
   const data = JSON.stringify(msg);
-  for (const c of wss.clients) if (c.readyState === 1) c.send(data);
+  for (const c of wss.clients) if (c.readyState === 1 && (!c.mobileSession || ['fs-change','vault-opened','settings'].includes(msg.type))) c.send(data);
 }
 
 /* ---------------- 文件监听（对应 Obsidian 的 vault 监听） ---------------- */
@@ -755,7 +762,7 @@ function watchVault(root) {
     watcher = fs.watch(root, { recursive: true }, (event, filename) => {
       if (!filename) return;
       const rel = filename.replace(/\\/g, '/');
-      if (rel.split('/').some((s) => IGNORED_DIRS.has(s))) return;
+      if (rel.split('/').some((s) => IGNORED_DIRS.has(s.toLowerCase()))) return;
       pendingChanges.add(rel);
       if (watchTimer) clearTimeout(watchTimer);
       watchTimer = setTimeout(flushChanges, 120);
@@ -798,7 +805,7 @@ async function start() {
   watchVault(root);
   syncEngine.startAuto();
 
-  server.listen(PORT, () => {
+  server.listen(PORT, '127.0.0.1', () => {
     console.log(`Tracery 已启动:  http://localhost:${PORT}`);
     console.log(`当前仓库:      ${vault.root}`);
     console.log(`笔记数:        ${vault.notes.size}`);

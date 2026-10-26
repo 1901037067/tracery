@@ -28,7 +28,7 @@ let browser;
 try {
   for (let i = 0; i < 80; i++) { try { if ((await fetch(BASE + '/api/state')).ok) break; } catch {} await sleep(250); }
   const lan = phoneAccess(9521, { wifi: [{ family: 'IPv4', internal: false, address: '192.168.1.20' }, { family: 'IPv6', internal: false, address: '::1' }], lo: [{ family: 'IPv4', internal: true, address: '127.0.0.1' }] });
-  assert.equal(lan.addresses.length, 1); assert.equal(lan.addresses[0].url, 'http://192.168.1.20:9521'); assert.equal(lan.access, 'read-write');
+  assert.equal(lan.addresses.length, 1); assert.equal(lan.addresses[0].url, 'http://192.168.1.20:9521'); assert.equal(lan.requiresComputer,true); assert.equal('access' in lan,false);
   browser = await launchBrowser(); const page = await browser.newPage(), errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(BASE, { waitUntil: 'networkidle0' });
@@ -132,7 +132,7 @@ try {
   await page.screenshot({ path: screenshot('desktop') });
   await page.click('#btn-phone-access');
   await page.waitForFunction(() => !document.getElementById('phone-addresses').textContent.includes('正在读取'));
-  assert.ok(await page.$eval('.phone-permissions', e => e.textContent.includes('编辑')));
+  assert.ok(await page.$eval('.phone-permissions', e => e.textContent.includes('默认只读')));
   assert.equal(await page.$eval('#app', e => e.inert), true);
   const addresses = await (await fetch(BASE + '/api/access')).json();
   if (addresses.addresses.length) assert.ok(addresses.addresses.every(a => new URL(a.url).port === String(PORT)));

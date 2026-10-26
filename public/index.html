@@ -357,10 +357,12 @@
   <div class="phone-access" id="phone-access-panel" hidden role="dialog" aria-modal="true" aria-labelledby="phone-access-title">
     <div class="phone-access-card">
       <div class="phone-access-heading"><h2 id="phone-access-title">手机访问</h2><button id="btn-phone-close" class="mini-btn" aria-label="关闭手机访问">✕</button></div>
-      <p>手机和电脑连接同一局域网，在手机浏览器打开下面的地址。多网卡时优先选择正在使用的 Wi-Fi 或以太网。</p>
+      <p>默认仅电脑本机可访问。开启后，在同网手机浏览器打开地址并输入短时通行码。</p>
+      <div class="phone-access-controls"><label>新会话权限 <select id="phone-mode"><option value="read">只读</option><option value="write">读写</option></select></label><button id="btn-phone-start" class="mini-btn">开启访问 / 新通行码</button><button id="btn-phone-stop" class="mini-btn">关闭访问</button><button id="btn-phone-revoke" class="mini-btn">撤销全部会话</button></div>
+      <p id="phone-access-status" aria-live="polite"></p>
       <div id="phone-addresses" aria-live="polite"></div>
       <button id="btn-phone-refresh" class="mini-btn">刷新地址</button>
-      <p class="phone-permissions">当前网页可读取、编辑和管理电脑上的笔记，请仅在可信局域网使用。</p>
+      <p class="phone-permissions">默认只读；读写权限由本次通行码决定。通行码 5 分钟有效、仅使用一次，会话最长 12 小时，程序重启后失效。仅在可信局域网使用。</p>
       <p class="phone-access-hint">保持 Tracery 运行、电脑不休眠。手机访问的是当前笔记仓库；电脑关闭或离开同网后，无法继续浏览整库。</p>
     </div>
   </div>

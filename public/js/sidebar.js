@@ -189,10 +189,16 @@ export function initPhoneAccess({ api, toast, closeMobile }) {
   async function refresh() {
     const ticket = ++request, box = $('phone-addresses'); empty(box, '正在读取本机地址…');
     try {
-      const { addresses } = await api.phoneAccess();
+      const { addresses, enabled, invitation, sessions } = await api.phoneAccess();
       if (ticket !== request || panel.hidden) return;
+      $('btn-phone-stop').disabled = !enabled;
+      $('btn-phone-revoke').disabled = !enabled;
+      $('phone-access-status').textContent = !enabled ? '手机访问已关闭，本机仍可正常使用。' : invitation
+        ? `通行码 ${invitation.code} · ${invitation.mode === 'read' ? '只读' : '读写'} · ${new Date(invitation.expiresAt).toLocaleTimeString()} 前有效 · 已授权 ${sessions} 个会话`
+        : `访问已开启 · 已授权 ${sessions} 个会话 · 点击「新通行码」连接其他设备`;
       box.replaceChildren();
-      if (!addresses.length) empty(box, '没有找到局域网 IPv4 地址，请先连接 Wi-Fi 或有线网络后刷新。');
+      if (!enabled) empty(box, '开启后显示手机访问地址。');
+      else if (!addresses.length) empty(box, '没有找到局域网 IPv4 地址，请先连接 Wi-Fi 或有线网络后刷新。');
       let others;
       if (addresses.some(item => item.virtual)) {
         others = document.createElement('details'); others.className = 'phone-other-addresses';
@@ -212,12 +218,16 @@ export function initPhoneAccess({ api, toast, closeMobile }) {
   }
   trigger.onclick = () => { closeMobile(); panel.hidden = false; $('app').inert = true; trigger.setAttribute('aria-expanded', 'true'); $('btn-phone-close').focus(); refresh(); };
   $('btn-phone-close').onclick = close; $('btn-phone-refresh').onclick = refresh;
+  for (const [id, action] of [ ['btn-phone-start', () => api.phoneStart($('phone-mode').value)], ['btn-phone-stop', () => api.phoneStop()], ['btn-phone-revoke', () => api.phoneRevoke()] ]) {
+    $(id).onclick = async () => { $(id).disabled=true; try {await action();await refresh();} catch(error){toast(error.message);} finally{$(id).disabled=false;} };
+  }
+  setInterval(() => { if(!panel.hidden) refresh(); },30000);
   panel.onclick = event => { if (event.target === panel) close(); };
   document.addEventListener('keydown', event => {
     if (panel.hidden) return;
     if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); close(); }
     if (event.key === 'Tab') {
-      const items = [...panel.querySelectorAll('button,input,summary')].filter(el => !el.disabled && el.getClientRects().length);
+      const items = [...panel.querySelectorAll('button,input,select,summary')].filter(el => !el.disabled && el.getClientRects().length);
       const index = items.indexOf(document.activeElement);
       if (event.shiftKey && index <= 0) { event.preventDefault(); items.at(-1)?.focus(); }
       else if (!event.shiftKey && (index < 0 || index === items.length - 1)) { event.preventDefault(); items[0]?.focus(); }

@@ -1,0 +1,5 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>连接 Tracery</title><link rel="stylesheet" href="/css/mobile-login.css"></head>
+<body><main><h1>连接电脑上的笔记</h1><p>在电脑的「手机访问」中开启访问，输入当前通行码。</p>
+<form id="pair-form"><label for="pair-code">6 位通行码</label><input id="pair-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus><button>连接</button></form>
+<p id="pair-error" role="alert"></p><small>通行码 5 分钟内有效，仅使用一次。访问权限由电脑授权；请在可信局域网连接。</small></main><script type="module" src="/js/mobile-login.js"></script></body></html>

@@ -1,5 +1,8 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['access-boundary', 'access-boundary-test.mjs', '敏感目录/配置脱敏与历史身份隔离'],
+  ['mobile-access', 'mobile-access-test.mjs', '手机独立入口、授权会话、权限与撤销'],
+  ['mobile-access-ui', 'mobile-access-ui-test.mjs', '电脑授权面板与手机只读/读写交互'],
   ['file-surface', 'file-surface-test.mjs', '文件格式过滤、PDF 标记与统一活动标签'],
   ['workspace-media', 'workspace-media-test.mjs', '线型、单行工具栏、窄桌面、提示与编辑区 PDF'],
   ['line-numbers', 'line-numbers-test.mjs', '图片展开、块级预览与正文行号几何对齐'],

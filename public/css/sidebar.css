@@ -88,6 +88,12 @@
 .note-history-btn:disabled { opacity: .45; }
 .phone-access { position: fixed; inset: 0; z-index: 390; display: flex; justify-content: center; align-items: center; background: color-mix(in srgb, var(--bg-window) 55%, transparent); padding: 20px; }
 .phone-access[hidden] { display: none; }
+.phone-access-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-block:14px; }
+.phone-access-controls select { font:inherit; padding:5px; border-radius:6px; }
+#phone-access-status { font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.mobile-access-status { position:fixed; bottom:8px; left:50%; transform:translateX(-50%); z-index:390; display:flex; align-items:center; gap:12px; padding:6px 12px; border-radius:12px; background:var(--bg-sheet); color:var(--text-primary); box-shadow:var(--shadow-float); font-size:12px; white-space:nowrap; }
+body[data-client="mobile"] :is(#btn-phone-access,#btn-settings) { display:none; }
+body[data-access="read"] :is(#btn-new-note,#btn-add-file,#btn-draw) { display:none; }
 .phone-access-card { width: 480px; max-width: 100%; max-height: 85dvh; overflow-y: auto; background: var(--bg-sheet); color: var(--text-primary); border-radius: var(--r-lg); box-shadow: var(--shadow-float); padding: 24px; }
 .phone-access-heading { display: flex; align-items: center; justify-content: space-between; }
 .phone-access-heading h2 { margin: 0; font-size: 18px; }

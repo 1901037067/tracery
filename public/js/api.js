@@ -1,7 +1,10 @@
 /* Tracery 前端 API 封装 + WebSocket */
 const BASE = location.origin;
+let access = {local:true,mode:'write'};
+export function setAccess(value) { access = value || access; }
 
 async function api(path, opts = {}) {
+  if (access.mode === 'read' && opts.method && opts.method !== 'GET') throw Object.assign(new Error('当前会话仅可查看，请在电脑授权读写'),{status:403});
   let res;
   try { res = await fetch(BASE + path, {
     signal: opts.timeout ? AbortSignal.timeout(opts.timeout) : undefined,
@@ -14,13 +17,19 @@ async function api(path, opts = {}) {
   }
   window.dispatchEvent(new CustomEvent('tracery:connection', { detail: { connected: true } }));
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
+  if (!res.ok) {
+    if (res.status === 401) location.replace('/mobile-login.html');
+    throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
+  }
   return data;
 }
 
 export const Api = {
   state: () => api('/api/state'),
   phoneAccess: () => api('/api/access'),
+  phoneStart: mode => api('/api/access/start', {method:'POST',body:{mode}}),
+  phoneStop: () => api('/api/access/stop', {method:'POST',body:{}}),
+  phoneRevoke: () => api('/api/access/revoke', {method:'POST',body:{}}),
   openVault: (path) => api('/api/vault/open', { method: 'POST', body: { path } }),
   forgetVault: (path) => api('/api/vault/forget', { method: 'POST', body: { path } }),
   tree: () => api('/api/tree'),
@@ -76,6 +85,7 @@ export function connectWs(onMessage) {
   };
   ws.onclose = () => {
     window.dispatchEvent(new CustomEvent('tracery:connection', { detail: { connected: false } }));
+    if (!access.local) api('/api/state').catch(() => {});
     setTimeout(() => connectWs(onMessage), 2000);
   };
   return ws;

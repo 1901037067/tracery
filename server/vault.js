@@ -4,7 +4,8 @@ import { noteIndex, resolveNote } from '../public/js/wiki-path.js';
 import path from 'node:path';
 import { readIndex, writeIndex, snapshotIndex, sameStat, fileStat } from './index-cache.js';
 import { resolveInVault } from './path-guard.js';
-export const IGNORED_DIRS = new Set(['.tracery', '.evnote', '.obsidian', '.git', 'node_modules', '.trash']);
+import { isPrivateUserPath } from './user-path.js';
+export const IGNORED_DIRS = new Set(['.tracery', '.evnote', '.obsidian', '.git', 'node_modules', '.trash', '.local']);
 const TEXT_EXT = new Set(['.md', '.markdown', '.txt']);
 // 仅影响浏览列表；其他文件仍保留在仓库、附件下载与同步清单中。
 const VISIBLE_EXT = new Set([...TEXT_EXT, '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.avif']);
@@ -70,10 +71,11 @@ export class Vault {
     try { entries = await fsp.readdir(absDir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       if (e.isSymbolicLink()) continue;
-      if (e.name.startsWith('.') && IGNORED_DIRS.has(e.name)) continue;
+      if (IGNORED_DIRS.has(e.name.toLowerCase())) continue;
       const rel = relDir ? `${relDir}/${e.name}` : e.name;
+      if (isPrivateUserPath(this.root,rel)) continue;
       if (e.isDirectory()) {
-        if (IGNORED_DIRS.has(e.name)) continue;
+        if (IGNORED_DIRS.has(e.name.toLowerCase())) continue;
         try { resolveInVault(this.root, rel); } catch { continue; }
         this.dirs.add(rel);
         await this.walk(path.join(absDir, e.name), rel, files);
@@ -329,7 +331,8 @@ export class Vault {
     let structure = false, noteStructure = false;
     const entries = [];
     for (const rel of new Set(rels)) {
-      if (!rel || rel.split(/[\\/]/).some((s) => s === '..' || IGNORED_DIRS.has(s)) || path.isAbsolute(rel)) continue;
+      if (!rel || rel.split(/[\\/]/).some((s) => s === '..' || IGNORED_DIRS.has(s.toLowerCase())) || path.isAbsolute(rel)) continue;
+      if (isPrivateUserPath(this.root,rel)) continue;
       let st;
       try { st = await fsp.stat(resolveInVault(this.root, rel)); }
       catch (error) { if (error.status !== 403 && !['ENOENT', 'ENOTDIR'].includes(error.code)) continue; }

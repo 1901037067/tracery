@@ -3,7 +3,7 @@
  * 负责：仓库/欢迎页、文件树、面板切换、命令面板、快捷键、
  *       编辑器装配、反链/大纲/标签面板、图谱、主题、WebSocket 同步
  */
-import { Api, toast, debounce, fuzzyMatch, connectWs } from './api.js';
+import { Api, toast, debounce, fuzzyMatch, connectWs, setAccess } from './api.js';
 import { CmEditor } from './cm/engine.js';
 import { ForceGraph } from './graph.js';
 import {
@@ -102,6 +102,19 @@ async function boot() {
   // 调试/测试钩子
   window.__tracery = { editor, state, Api, openNote, switchPanel, switchRightPanel, exportHtml, exportPdf, togglePin, openTrash, revealInTree, prepareClose, openRecoveryCenter };
   const st = await Api.state();
+  state.access = st.access || {local:true,mode:'write'};
+  setAccess(state.access);
+  if (!state.access.local) {
+    document.body.dataset.client = 'mobile';
+    document.body.dataset.access = state.access.mode;
+    editor.accessReadOnly = state.access.mode === 'read';
+    if (editor.accessReadOnly) editor.setMode('read');
+    const status = document.createElement('div'); status.className = 'mobile-access-status'; status.setAttribute('role','status');
+    const label = document.createElement('span'); label.textContent = editor.accessReadOnly ? '手机访问 · 只读' : '手机访问 · 读写';
+    const logout = document.createElement('button'); logout.className='mini-btn'; logout.textContent='断开';
+    logout.onclick = async () => { if (!await editor.flush()) return; try { await fetch('/api/access/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); } finally {location.replace('/mobile-login.html');} };
+    status.append(label,logout);document.body.append(status);
+  }
   state.settings = st.settings || null;
   initSettings(st.settings || {});
   state.settings = getSettings();
@@ -957,13 +970,14 @@ async function openHistory() {
     name.textContent = new Date(it.time).toLocaleString('zh-CN', { hour12: false });
     const meta = document.createElement('div');
     meta.className = 'trash-meta';
-    meta.textContent = `${fmtSize(it.size || 0)} · 点击看内容`;
+    meta.textContent = `${fmtSize(it.size || 0)} · ${it.sourceUncertain ? '旧版历史 · 来源未验证，仅供预览' : '点击看内容'}`;
     main.append(name, meta);
     const actions = document.createElement('div');
     actions.className = 'trash-item-actions';
     const restore = document.createElement('button');
     restore.className = 'mini-btn';
     restore.textContent = '恢复';
+    restore.disabled = it.restorable === false || state.access?.mode === 'read';
     restore.onclick = async (e) => {
       e.stopPropagation();
       const ok = await askConfirm({
@@ -1759,7 +1773,8 @@ async function loadTab(path, heading, { restore = true } = {}) {
   try {
     const { content, ...metadata } = await Api.note(path);
     if (!current() || !await editor.flush() || !current()) return false;
-    const recovered = await recoverDraft(root, path, content);
+    // 只读授权只展示磁盘正文；本设备的待恢复草稿保留，等重新获准读写后处理。
+    const recovered = state.access?.mode === 'read' ? null : await recoverDraft(root, path, content);
     if (!current() || recovered === false) return false;
     // 等待恢复确认时旧笔记也可能继续输入，切换前再次确认已落盘。
     if (!await editor.flush() || !current()) return false;
