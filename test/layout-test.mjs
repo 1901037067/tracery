@@ -139,6 +139,8 @@ const header = await page.evaluate(() => {
     })(),
     noteHeaderGone: !noteHeader,
     editorFirstChild: editorArea.firstElementChild?.className || '',
+    documentHeaderVisible: !document.getElementById('document-header').hidden,
+    documentPathMatches: document.getElementById('note-path').textContent === window.__tracery.state.currentPath,
     modeBtnInStatusbar: !!modeBtn?.closest('.statusbar'),
     modeBtnNearRight: btnRect ? (sbRect.right - btnRect.right) < 30 : false,
     modeBtnVisible: btnRect ? btnRect.width > 0 && btnRect.height > 0 : false,
@@ -152,7 +154,7 @@ check('标签卡片在标题栏内留出上下边距',
   header.tabBottom != null && header.titlebarBottom - header.tabBottom >= 3 && header.titlebarBottom - header.tabBottom <= 10,
   `tabBottom=${header.tabBottom?.toFixed(1)} titlebarBottom=${header.titlebarBottom?.toFixed(1)}`);
 check('标题栏高度紧凑（30~50px）', header.titlebarH > 30 && header.titlebarH < 50, `${header.titlebarH.toFixed(1)}px`);
-check('笔记头行已删除（界面不再显示文件名+模式那一行）', header.noteHeaderGone && header.editorFirstChild === 'editor-wrap', `firstChild=${header.editorFirstChild}`);
+check('文档路径显示在编辑区上方，模式按钮仍在底部', header.noteHeaderGone && header.editorFirstChild === 'document-header' && header.documentHeaderVisible && header.documentPathMatches, `firstChild=${header.editorFirstChild}`);
 check('模式切换按钮在状态栏、靠右、可见',
   header.modeBtnInStatusbar && header.modeBtnNearRight && header.modeBtnVisible,
   `inStatusbar=${header.modeBtnInStatusbar} nearRight=${header.modeBtnNearRight}`);
@@ -194,10 +196,10 @@ const seamless = await page.evaluate(() => {
     sidebarBg: norm(getComputedStyle(document.getElementById('sidebar')).backgroundColor),
   };
 });
-check('顶栏与左侧栏无缝拼接（顶栏无底边线 + 与侧栏底色一致）',
+check('导航栏保持连续底色，侧栏使用独立底色',
   seamless.titlebarBorderBottom === '0px'
   && seamless.titlebarBg === seamless.layoutBg
-  && seamless.ribbonBg === 'rgba(0,0,0,0)' && seamless.sidebarBg === 'rgba(0,0,0,0)',
+  && seamless.ribbonBg === 'rgba(0,0,0,0)' && seamless.sidebarBg !== 'rgba(0,0,0,0)' && seamless.sidebarBg !== seamless.layoutBg,
   JSON.stringify(seamless));
 
 for (const theme of ['light', 'dark']) {

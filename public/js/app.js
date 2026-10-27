@@ -323,11 +323,13 @@ function iconForFile(name) {
 
 function appendFileLabel(item, file, className = 'label') {
   const pdf = PDF_FILE_RE.test(file.path);
-  const iconMarkup = pdf ? '' : iconForFile(file.name);
+  const image = /\.(png|jpe?g|gif|svg|webp|avif|bmp)$/i.test(file.path);
+  const kind = pdf ? 'PDF' : image ? '图片' : '';
+  const iconMarkup = kind ? '' : iconForFile(file.name);
   if (iconMarkup) { const icon = document.createElement('span'); icon.className = 'icon'; icon.innerHTML = iconMarkup; item.append(icon); }
   const label = document.createElement('span'); label.className = className;
   label.textContent = file.name.replace(/\.(md|markdown|txt|pdf)$/i, ''); item.append(label);
-  if (pdf) { const badge = document.createElement('span'); badge.className = 'file-kind'; badge.textContent = 'PDF'; badge.setAttribute('aria-label', 'PDF 文件'); item.append(badge); }
+  if (kind) { const badge = document.createElement('span'); badge.className = 'file-kind'; badge.textContent = kind; badge.setAttribute('aria-label', `${kind}文件`); item.append(badge); }
 }
 
 /* ================= 数据刷新 ================= */
@@ -794,14 +796,6 @@ async function renameFolder(rel) {
 
 /** 删除文件夹（连同里面的内容一起移入回收站，可整体恢复） */
 async function deleteFolder(rel) {
-  const name = rel.split('/').pop();
-  const ok = await askConfirm({
-    title: `删除文件夹「${name}」？`,
-    desc: '文件夹里的所有内容会一起移入回收站，之后可从文件面板的“更多”菜单整体恢复。',
-    okText: '删除',
-    danger: true,
-  });
-  if (!ok) return;
   const prefix = rel + '/';
   const under = (p) => p === rel || p.startsWith(prefix);
   try {
@@ -1273,13 +1267,6 @@ function showImageMenu(e, target) {
 
 async function deleteAssetFile(rel) {
   if (!rel) return;
-  const ok = await askConfirm({
-    title: '删除这个图片文件？',
-    desc: `${rel}\n\n会从仓库里删除文件本身，文档里引用它的地方会变成坏链。`,
-    okText: '删除',
-    danger: true,
-  });
-  if (!ok) return;
   try {
     await Api.remove(rel);
     await refreshTree();
@@ -1324,13 +1311,6 @@ async function renameNote(f) {
 }
 
 async function deleteNote(f) {
-  const ok = await askConfirm({
-    title: `删除「${f.name}」？`,
-    desc: '文件会移入回收站，之后可从文件面板的“更多”菜单恢复。',
-    okText: '删除',
-    danger: true,
-  });
-  if (!ok) return;
   try {
     if (state.currentPath === f.path && !await editor.flush()) return;
     await Api.remove(f.path);
@@ -1428,6 +1408,9 @@ function updateEmptyNote() {
   $('editor-area').classList.toggle('is-empty', empty);
   $('editor-area').classList.toggle('is-pdf', pdf);
   $('btn-mode').disabled = empty || pdf;
+  $('document-header').hidden = empty;
+  $('note-path').textContent = state.currentPath || '';
+  $('note-path').title = state.currentPath || '';
   if (!pdf) hidePdfViewer();
 }
 
@@ -1443,7 +1426,62 @@ async function openBlankTabNow() {
   $('empty-open-note').focus();
 }
 
+const tabAnimations = new Set();
+let tabGhostLayer;
+function cancelTabMotion() {
+  for (const animation of tabAnimations) animation.cancel();
+  tabAnimations.clear();
+  tabGhostLayer?.remove();
+  tabGhostLayer = null;
+}
+function toggleTabGroup(group) {
+  cancelTabMotion();
+  const list = $('tablist');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const key = node => node.classList.contains('tab') ? `tab:${node.dataset.index}` : `${node.classList.contains('tab-group-rail') ? 'rail' : 'group'}:${node.dataset.group}`;
+  const before = new Map([...list.querySelectorAll('.tab:not([hidden]), .tab-group-header, .tab-group-rail')]
+    .map(node => [key(node), { rect: node.getBoundingClientRect(), node }]));
+  const focused = document.activeElement?.classList.contains('tab-group-header');
+  group.collapsed = !group.collapsed;
+  renderTabs(); saveTabsState();
+  const header = [...list.querySelectorAll('.tab-group-header')].find(node => node.dataset.group === group.id);
+  if (focused) header?.focus({ preventScroll: true });
+  if (reduced || !header) return;
+  const anchor = header.getBoundingClientRect();
+  const animate = (node, frames, ghost = false) => {
+    const animation = node.animate(frames, { duration: 200, easing: 'cubic-bezier(.22,.7,.25,1)' });
+    tabAnimations.add(animation);
+    const clean = () => { tabAnimations.delete(animation); if (ghost) node.remove(); };
+    animation.finished.then(() => { clean(); if (!tabAnimations.size) layoutTabs(); }, clean);
+  };
+  for (const node of list.querySelectorAll('.tab:not([hidden]), .tab-group-header, .tab-group-rail')) {
+    const rect = node.getBoundingClientRect(), old = before.get(key(node));
+    if (!rect.width) continue;
+    animate(node, old ? [
+      { translate: `${old.rect.left - rect.left}px ${old.rect.top - rect.top}px`, scale: `${old.rect.width / rect.width} 1` },
+      { translate: '0 0', scale: '1 1' },
+    ] : [
+      { translate: `${anchor.right - rect.left}px 0`, scale: '.2 1', opacity: 0 },
+      { translate: '0 0', scale: '1 1', opacity: 1 },
+    ]);
+    before.delete(key(node));
+  }
+  if (!before.size) return;
+  const layer = document.createElement('div'); layer.className = `${list.className} tab-motion-overlay`;
+  layer.inert = true; layer.setAttribute('aria-hidden', 'true'); document.body.append(layer); tabGhostLayer = layer;
+  for (const { node, rect } of before.values()) {
+    const ghost = node.cloneNode(true); ghost.hidden = false;
+    Object.assign(ghost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+    layer.append(ghost);
+    animate(ghost, [{ translate: '0 0', scale: '1 1', opacity: 1 },
+      { translate: `${anchor.right - rect.left}px 0`, scale: '.2 1', opacity: 0 }], true);
+  }
+  const pending = [...tabAnimations].map(animation => animation.finished);
+  Promise.allSettled(pending).then(() => { layer.remove(); if (tabGhostLayer === layer) tabGhostLayer = null; });
+}
+
 function renderTabs() {
+  cancelTabMotion();
   tidyTabGroups(state);
   updateEmptyNote();
   tabDragUI.cancel();
@@ -1460,9 +1498,12 @@ function renderTabs() {
     tab.title = isBlankTab(p) ? tabLabel(p) : p;
     tab.dataset.index = String(i);
     const group = groupForTab(state, p);
+    const nextGroup = groupForTab(state, state.tabs[i + 1]);
+    if (group || nextGroup) tab.style.setProperty('--tab-divider-color', groupColor(group || nextGroup));
     if (group) {
       tab.dataset.group = group.id;
       tab.style.setProperty('--group-color', groupColor(group));
+      tab.classList.toggle('group-end', nextGroup?.id !== group.id);
       if (group.tabs[0] === p) list.appendChild(makeGroupHeader(group));
       tab.hidden = group.collapsed;
     }
@@ -1563,6 +1604,7 @@ function pinAllTabs() {
 
 /** 按可用宽度压缩标签，保留末尾加号和独立拖窗区。 */
 function layoutTabs() {
+  cancelTabMotion();
   const list = $('tablist');
   if (!list) return;
   list.removeAttribute('data-overflow');
@@ -1607,7 +1649,7 @@ function makeGroupHeader(group) {
   const label = document.createElement('span'); label.className = 'tab-group-label'; label.textContent = group.name;
   header.setAttribute('aria-label', `${group.name}，${group.tabs.length} 个标签`);
   header.append(label);
-  header.onclick = () => { if (suppressTabClick) return; group.collapsed = !group.collapsed; renderTabs(); saveTabsState(); };
+  header.onclick = () => { if (!suppressTabClick) toggleTabGroup(group); };
   header.oncontextmenu = e => { e.preventDefault(); showGroupEditor(group, e.clientX, e.clientY); };
   tabDragUI.bind(header, { kind: 'group', groupId: group.id });
   return header;
@@ -2542,7 +2584,8 @@ function bindGlobalEvents() {
   };
 
   $('btn-tab-new').onclick = openBlankTab;
-  const tabResize = new ResizeObserver(layoutTabs);
+  // 收放本身会改变标签条宽度，不能让观察器在首帧取消动画；结束时再校正排版。
+  const tabResize = new ResizeObserver(() => { if (!tabAnimations.size) layoutTabs(); });
   tabResize.observe($('tab-strip'));
   window.addEventListener('resize', layoutTabs);
 

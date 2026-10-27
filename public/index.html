@@ -86,13 +86,12 @@
     <!-- 标题栏（Tab 栏即标题栏：标签与窗口按钮同一行，VS Code / Obsidian Tab 标题栏模式） -->
     <header class="titlebar">
       <div class="titlebar-left">
-        <span class="app-logo"><img src="/icon.png" alt="Tracery" /></span>
-        <button class="vault-name" id="vault-name" title="点击切换 / 管理仓库"></button>
         <button id="btn-toggle-left" class="icon-btn" title="折叠左侧栏 (Ctrl+\)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
             <rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M9.5 5v14"/>
           </svg>
         </button>
+        <button class="vault-name" id="vault-name" title="点击切换 / 管理仓库"></button>
       </div>
       <div class="tab-strip" id="tab-strip">
         <div class="tablist" id="tablist" hidden></div>
@@ -281,6 +280,9 @@
 
       <!-- 编辑区 -->
       <main class="editor-area" id="editor-area">
+        <header class="document-header" id="document-header" hidden aria-label="当前文档">
+          <span id="note-path"></span>
+        </header>
         <div class="editor-wrap">
           <section id="empty-note" class="empty-note" aria-label="未打开笔记">
             <div class="empty-note-content">
@@ -298,9 +300,6 @@
         <div class="statusbar">
           <span id="status-words">0 词</span>
           <span id="status-saved"></span>
-          <!-- 当前笔记路径的状态镜像：界面不再显示路径行（Tab 已显示文件名），
-               测试与调试通过它读取当前笔记；不渲染任何可见内容 -->
-          <span id="note-path" hidden aria-hidden="true"></span>
           <button class="mini-btn mode-btn" id="btn-mode" title="切换 实时预览 / 源码 / 阅读 三种模式 (Ctrl+E)">
             <svg class="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
               <path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>

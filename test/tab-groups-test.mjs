@@ -4,6 +4,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { launchBrowser } from './browser.mjs';
+import { waitForApp, waitForNote } from './waits.mjs';
 import { tidyTabGroups, moveTabToGroup, renameTabKeys } from '../public/js/tab-workspace.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..'), HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tracery-tab-groups-'));
@@ -23,12 +24,13 @@ try {
   for (let i = 0; i < 80; i++) { try { if ((await fetch(BASE + '/api/state')).ok) break; } catch {} await sleep(200); }
   browser = await launchBrowser({ width: 1440, height: 900 }); page = await browser.newPage(); page.setDefaultTimeout(10000);
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto(BASE, { waitUntil: 'networkidle0' });
+  await page.goto(BASE, { waitUntil: 'networkidle0' }); await waitForApp(page);
   const menu = async label => { await page.waitForSelector('.context-menu', { visible: true }); await page.evaluate(label => { const button = [...document.querySelectorAll('.context-menu button')].find(node => node.textContent.trim() === label); if (!button) throw new Error(`菜单缺少 ${label}`); button.click(); }, label); };
   const tab = key => page.evaluate(key => [...document.querySelectorAll('#tablist .tab')].find(node => node.querySelector('.tab-name').textContent === key)?.dataset.index, key);
   const context = async key => { const index = await tab(key); await page.click(`#tablist .tab[data-index="${index}"]`, { button: 'right' }); };
-  const open = async i => page.evaluate(i => window.__tracery.openNote(`笔记${i}.md`, null, { newTab: true }), i);
+  const open = async i => { await page.evaluate(i => window.__tracery.openNote(`笔记${i}.md`, null, { newTab: true }), i); await waitForNote(page, `笔记${i}.md`); };
   const snapshot = () => page.evaluate(() => JSON.parse(JSON.stringify({ tabs: window.__tracery.state.tabs, groups: window.__tracery.state.tabGroups, active: window.__tracery.state.activeTab, path: window.__tracery.state.currentPath })));
+  const waitForTabs = () => page.waitForFunction(() => !document.querySelector('.tab-motion-overlay') && !document.getElementById('tablist').getAnimations({ subtree: true }).some(a => a.playState === 'running'));
   await open(1); await open(2); await open(3);
   // + 打开空白标签，不创建文件；快速打开替换该标签。
   const filesBefore = fs.readdirSync(VAULT).filter(name => name.endsWith('.md')).length;
@@ -70,6 +72,7 @@ try {
   await page.screenshot({ path: path.join(OUT, 'group-active-connected.png'), clip: { x: 140, y: 0, width: 1000, height: 52 } });
   await open(4);
   await page.click(`.tab-group-header[data-group="${toolId}"]`);
+  await waitForTabs();
   assert.equal(await page.$$eval(`.tab[data-group="${toolId}"]`, nodes => nodes.every(node => node.hidden)), true);
   assert.equal((await snapshot()).path, '笔记4.md');
   await page.click('#btn-tab-more'); await menu('笔记1');
@@ -91,13 +94,14 @@ try {
   state = await snapshot(); assert.equal(state.groups[0].id, classId); assert.equal(state.path, '笔记1.md');
   await context('笔记4'); await menu('移出分组'); assert.ok(!(await snapshot()).groups.some(group => group.tabs.includes('笔记4.md')));
   await page.click(`.tab-group-header[data-group="${toolId}"]`); // 折叠当前组
+  await waitForTabs();
   await page.screenshot({ path: path.join(OUT, 'groups-collapsed.png') });
-  const saved = await snapshot(); await page.reload({ waitUntil: 'networkidle0' });
+  const saved = await snapshot(); await page.reload({ waitUntil: 'networkidle0' }); await waitForApp(page); await waitForNote(page, saved.path);
   state = await snapshot(); assert.deepEqual(state.groups, saved.groups); assert.deepEqual(state.tabs, saved.tabs); assert.equal(state.path, saved.path);
   // 右键组名可在组内新开空白页；新建笔记会填入空白标签并继承组。
   await page.click(`.tab-group-header[data-group="${toolId}"]`, { button: 'right' }); await menu('在分组中新建标签页');
   await page.waitForSelector('#empty-note', { visible: true });
-  await page.reload({ waitUntil: 'networkidle0' }); await page.waitForSelector('#empty-note', { visible: true });
+  await page.reload({ waitUntil: 'networkidle0' }); await waitForApp(page); await page.waitForSelector('#empty-note', { visible: true });
   assert.ok((await snapshot()).groups.find(group => group.id === toolId).tabs.some(key => key.startsWith('tracery:blank:')));
   const beforeNew = (await snapshot()).tabs.length;
   await page.click('#empty-new-note'); await page.waitForSelector('.dialog-input', { visible: true });

@@ -33,6 +33,8 @@ try {
   await page.goto(BASE, { waitUntil: 'networkidle0' }); await page.waitForSelector('[data-path="普通.md"]');
   assert.equal(await page.$('#file-tree [data-path="普通.md"] .icon'), null);
   assert.equal(await page.$eval('#file-tree [data-path="同名.pdf"] .file-kind', el => el.textContent), 'PDF');
+  assert.equal(await page.$('#file-tree [data-path="image.PNG"] .icon'), null);
+  assert.equal(await page.$eval('#file-tree [data-path="image.PNG"] .file-kind', el => el.textContent), '图片');
   const visible = await page.$$eval('#file-tree [data-path]', nodes => nodes.map(node => node.dataset.path));
   assert.ok(hidden.every(name => !visible.includes(name)));
   await page.screenshot({ path: path.join(OUT, 'files-light.png') });
@@ -53,7 +55,10 @@ try {
     await page.evaluate(async theme => { const { updateSettings } = await import('/js/settings.js'); await updateSettings({ themeMode: theme }); }, theme); await sleep(180);
     await page.evaluate(() => window.__tracery.openNote('普通.md')); const ordinary = await look();
     await page.evaluate(() => window.__tracery.openNote('组内.md')); const grouped = await look();
-    assert.deepEqual(grouped, ordinary, '分组内外活动标签使用同一容器与强调线');
+    const { line: groupLine, ...groupBox } = grouped, { line: ordinaryLine, ...ordinaryBox } = ordinary;
+    assert.deepEqual(groupBox, ordinaryBox, '分组内外活动标签使用同一容器');
+    assert.equal(groupLine, await page.$eval('.tab-group-rail', el => getComputedStyle(el).backgroundColor));
+    assert.notEqual(groupLine, ordinaryLine);
     assert.ok(parseFloat(grouped.radius) >= 8);
     await page.screenshot({ path: path.join(OUT, `tabs-${theme}.png`), clip: { x: 0, y: 0, width: 1200, height: 90 } });
     await page.click('#btn-tab-new'); assert.deepEqual(await look(), ordinary, '空白标签同样使用统一选中样式');

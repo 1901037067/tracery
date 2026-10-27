@@ -1,6 +1,7 @@
 /* 标签压缩，末尾加号与下拉菜单之间留出独立拖窗区。 */
-.titlebar { justify-content: flex-start; }
-.titlebar-left { flex: 0 0 auto; max-width: 260px; margin-right: 8px; }
+.titlebar { justify-content: flex-start; padding-left: 8px; }
+.titlebar-left { flex: 0 0 auto; max-width: 260px; margin-right: 8px; gap: 18px; }
+.titlebar #btn-toggle-left { flex: 0 0 36px; width: 36px; min-width: 36px; padding: 0 8px; }
 .titlebar-left .vault-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .titlebar-right { flex: 0 0 auto; }
 .tab-strip { display: flex; align-items: center; min-width: 32px; flex: 0 1 32px; align-self: stretch; overflow: clip; }
@@ -8,8 +9,10 @@
 .tablist .tab { flex: 1 1 168px; min-width: 0; max-width: 168px; height: 34px; padding: 0 8px 0 12px; border: 1px solid transparent; border-radius: 10px; transform: translateY(3px); }
 .tablist .tab:hover { background: var(--bg-fill); color: var(--text-primary); }
 .tablist .tab.active { background: var(--bg-sheet); color: var(--text-primary); border-color: var(--hairline); border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.07); }
-.tablist .tab.active::after { left: 10px; right: 10px; bottom: 3px; border-radius: 2px; background: var(--accent); }
+.tablist .tab.active::after { left: calc(25% + 5px); right: calc(25% + 5px); bottom: 3px; border-radius: 2px; background: var(--group-color, var(--accent)); }
 .tab-group-rail { position: absolute; top: 5px; height: 2px; border-radius: 2px; background: var(--group-color); pointer-events: none; }
+.tablist.tab-motion-overlay { position: fixed; inset: 0; display: block; z-index: 150; padding: 0; pointer-events: none; -webkit-app-region: no-drag; }
+.tab-motion-overlay .tab { position: absolute; min-width: 0; max-width: none; margin: 0; transform: none; pointer-events: none; }
 .tablist .tab[data-file-kind="pdf"] .tab-name::before { content: 'PDF'; margin-right: 5px; color: var(--text-tertiary); font: 8px var(--font-mono); letter-spacing: .02em; }
 .tablist.is-compact .tab { padding: 0 3px; gap: 2px; }
 .tablist.is-compact .tab.active { min-width: 56px; }
@@ -17,8 +20,9 @@
 .tablist.is-micro .tab { padding: 0; border-left: 0; border-right: 0; gap: 0; }
 .tablist.is-micro .tab .tab-close { display: none; }
 .tablist.is-micro .tab.active .tab-close { display: grid; }
-.tablist.is-compact .tab:not(.active):not(.drop-before):not(.drop-after)::before { content: ''; position: absolute; right: 0; top: 10px; height: 14px; width: 1px; background: var(--hairline-strong); }
-.tablist.is-micro .tab.active::after { left: 0; right: 0; }
+.tablist.is-compact .tab:not(.active):not(.drop-before):not(.drop-after)::before { content: ''; position: absolute; right: 0; top: 10px; height: 14px; width: 1px; background: var(--tab-divider-color, var(--hairline-strong)); }
+.tablist .tab.group-end:not(.drop-before):not(.drop-after)::before { content: ''; position: absolute; right: -3px; top: 10px; height: 14px; width: 1px; background: var(--group-color); }
+.tablist.is-micro .tab.active::after { left: 25%; right: 25%; }
 .tab-new { flex: 0 0 32px; width: 32px; height: 32px; padding: 8px; margin-left: 3px; border-radius: 8px; color: var(--text-secondary); -webkit-app-region: no-drag; }
 .tab-new svg { display: block; width: 16px; height: 16px; }
 .tab-new:hover { color: var(--text-primary); background: var(--bg-fill); }
@@ -57,7 +61,8 @@
 .tab-drop-order > .tab-drop-note.is-active { border-bottom: 2px solid var(--preview-group, var(--accent)); }
 @media(max-width:1100px) and (min-width:901px) { .titlebar-left { max-width: 210px; } .titlebar-left .vault-name { max-width: 120px; } }
 @media(max-width:900px) {
-  .titlebar-left { max-width: none; }
+  .titlebar-left { max-width: none; gap: 10px; }
+  .titlebar #btn-toggle-left { flex-basis: 44px; width: 44px; min-width: 44px; }
   .titlebar-left .vault-name { max-width: min(38vw,180px); }
   .tab-strip { grid-column: 1; grid-row: 2; width: 100%; min-width: 0; }
   .tablist { width: auto; padding: 4px 0; }
@@ -68,10 +73,11 @@
 }
 /* 桌面最小窗口仍使用一行标题栏；手机浏览器保留上方按钮、下方标签的触屏布局。 */
 @media(max-width:900px) {
-  body.electron .titlebar { display: flex; height: 46px; padding: 0 0 0 10px; gap: 0; }
-  body.electron .titlebar-left { flex: 0 0 auto; max-width: 170px; gap: 6px; margin-right: 6px; }
+  body.electron .titlebar { display: flex; height: 46px; padding: 0 0 0 8px; gap: 0; }
+  body.electron .titlebar-left { flex: 0 0 auto; max-width: 170px; gap: 18px; margin-right: 6px; }
   body.electron .titlebar-left .vault-name { max-width: 94px; padding: 3px 18px 3px 8px; }
   body.electron .titlebar .icon-btn { width: 30px; height: 30px; min-width: 30px; padding: 0 6px; align-self: center; }
+  body.electron .titlebar #btn-toggle-left { flex-basis: 36px; width: 36px; min-width: 36px; }
   body.electron .titlebar-right { gap: 0; }
   body.electron .win-btn { width: 36px; }
   body.electron .tab-strip { width: auto; }

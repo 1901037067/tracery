@@ -127,9 +127,8 @@ await page.evaluate(() => {
   btn.click();
 });
 await sleep(400);
-const folderConfirm = await page.evaluate(() => document.querySelector('.dialog-title')?.textContent || '');
-check('删除文件夹前有确认框（说明会移入回收站）', folderConfirm.includes('要删的文件夹'), folderConfirm);
-await page.evaluate(() => document.querySelector('.dialog-ok')?.click());
+const folderConfirm = await page.evaluate(() => !!document.querySelector('.dialog-backdrop:not([hidden])'));
+check('删除文件夹直接移入回收站，无确认框', !folderConfirm);
 await sleep(1200);
 check('删除文件夹后整棵目录消失',
   !fileExists('要删的文件夹') && !fileExists('要删的文件夹/子目录/乙.md'));

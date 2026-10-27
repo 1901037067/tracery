@@ -1,4 +1,5 @@
 /* 一栏一种内容；将低频信息留到主动切换时显示，沿用原有拖宽与移动抽屉。 */
+.layout > .sidebar { background: color-mix(in srgb, var(--bg-sheet) 60%, var(--bg-sidebar)); }
 .sidebar-context-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .library-header, .context-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 10px; min-height: 56px; flex-shrink: 0; }
 .library-header { padding: 9px 10px 6px; letter-spacing: normal; text-transform: none; flex-wrap: wrap; gap: 5px; }
@@ -119,5 +120,6 @@ body[data-access="read"] :is(#btn-new-note,#btn-add-file,#btn-draw) { display:no
   .phone-other-addresses > summary { min-height: 44px; }
   .phone-address input { font-size: 16px; }
 }
+.tree-item .label { flex: 1; min-width: 0; }
 .file-kind { flex: 0 0 auto; margin-left: 6px; padding: 1px 4px; border: 1px solid var(--hairline-strong); border-radius: 4px; color: var(--text-tertiary); font: 9px/1.4 var(--font-mono); letter-spacing: .03em; }
 .tree-item.active .file-kind { color: var(--accent); border-color: currentColor; }
