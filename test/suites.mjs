@@ -1,5 +1,6 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['index', 'index-test.mjs', '千篇/万篇索引、增量缓存、链接与绘图库失效'],
   ['watch', 'watch-test.mjs', '原子替换后外部修改通知与子目录持续监听'],
   ['csp', 'csp-test.mjs', 'CSP 真实拦截、importmap/附件边界与正常读写'],
   ['quality', 'quality-test.mjs', '静态门禁拒绝未处理 Promise 和错误类型'],

@@ -2,7 +2,7 @@
 import fsp from 'node:fs/promises';
 import { noteIndex, resolveNote } from '../public/js/wiki-path.js';
 import path from 'node:path';
-import { readIndex, writeIndex, snapshotIndex, sameStat, fileStat } from './index-cache.js';
+import { IndexCache, snapshotIndex, sameStat, fileStat } from './index-cache.js';
 import { resolveInVault } from './path-guard.js';
 import { isPrivateUserPath } from './user-path.js';
 export const IGNORED_DIRS = new Set(['.tracery', '.evnote', '.obsidian', '.git', 'node_modules', '.trash', '.local']);
@@ -18,6 +18,10 @@ export class Vault {
     this.files = new Map();      // relPath(所有文件) -> { mtimeMs, size, isDir:false }
     this.dirs = new Set();       // relPath 目录
     this.contentCache = new Map(); // relPath -> 内容（搜索用）
+    this._rawSources = new Map(); // 原始链接目标 -> 来源路径，独立于同名消歧结果
+    this._noteOrder = new Map();
+    this._nextOrder = 0;
+    this.cache = new IndexCache(this.root);
     this._queue = Promise.resolve();
     this.stats = { reads: 0, parsed: 0, reused: 0, graphBuilds: 0 };
   }
@@ -32,12 +36,13 @@ export class Vault {
   async _open() {
     const started = performance.now();
     clearTimeout(this._cacheTimer);
-    const cached = this.notes.size ? new Map(snapshotIndex(this)) : await readIndex(this.root);
+    const cached = this.notes.size ? new Map(snapshotIndex(this)) : await this.cache.read();
     // 扫描完成后一次交换，目录改名时 API 不会看到扫描到一半的仓库。
     const staging = new Vault(this.root);
     await staging._loadFiles(cached);
-    for (const key of ['notes', 'byName', 'files', 'dirs', 'contentCache', 'stats']) this[key] = staging[key];
+    for (const key of ['notes', 'byName', 'files', 'dirs', 'contentCache', 'stats', '_rawSources', '_noteOrder', '_nextOrder']) this[key] = staging[key];
     this._tree = null;
+    this._drawings = null;
     if (this.stats.parsed || cached.size !== this.notes.size) await this.persist();
     this.stats.openMs = Math.round(performance.now() - started);
   }
@@ -86,11 +91,11 @@ export class Vault {
   }
 
   _addName(rel, name) {
-    this._linkIndex = null;
+    if (!this._noteOrder.has(rel)) this._noteOrder.set(rel, this._nextOrder++);
     const key = name.toLowerCase();
     if (!this.byName.has(key)) this.byName.set(key, []);
     const paths = this.byName.get(key);
-    if (!paths.includes(rel)) paths.push(rel);
+    if (!paths.includes(rel)) { paths.push(rel); this._linkIndex = null; }
   }
   async _readNote(rel, st, scannedFile) {
     // 批量扫描已验证父目录，lstat 也确认是普通文件；增量入口仍独立验证。
@@ -103,8 +108,17 @@ export class Vault {
   }
   persist() {
     clearTimeout(this._cacheTimer);
-    const notes = snapshotIndex(this);
-    this._writing = (this._writing || Promise.resolve()).then(() => writeIndex(this.root, notes));
+    this._persistPending = true;
+    if (!this._writing) this._writing = Promise.resolve().then(async () => {
+      let ok = true;
+      try {
+        do {
+          this._persistPending = false;
+          ok = await this.cache.write(snapshotIndex(this)) && ok;
+        } while (this._persistPending);
+        return ok;
+      } finally { this._writing = null; }
+    });
     return this._writing;
   }
   _schedulePersist() {
@@ -116,6 +130,8 @@ export class Vault {
   /** 解析单篇笔记的链接/标签/标题，写入索引 */
   indexNote(rel, content, mtimeMs) {
     this.stats.parsed++;
+    this._removeRawSources(rel);
+    this._drawings = null;
     // 文件首行的 UTF-8 BOM 会把整行解析带歪：逐行正则 `^(#{1,6})\s+` 匹配不上 `\uFEFF#`，
     // 于是「# 不隐藏、没有标题样式、右栏大纲漏」，搜索/反链/标签索引同样漏（2026-10-20 用户报障）。
     // 只在**读**的这一个入口剥掉：下游（编辑器、大纲、索引、图谱）拿到的都是干净文本，
@@ -157,14 +173,31 @@ export class Vault {
 
     this.notes.set(rel, note);
     this._addName(rel, name);
+    this._addRawSources(rel, note.links);
+  }
+
+  _removeRawSources(rel) {
+    for (const target of this.notes.get(rel)?.links || []) {
+      const sources = this._rawSources.get(target);
+      sources?.delete(rel);
+      if (!sources?.size) this._rawSources.delete(target);
+    }
+  }
+  _addRawSources(rel, links) {
+    for (const target of links) {
+      if (!this._rawSources.has(target)) this._rawSources.set(target, new Set());
+      this._rawSources.get(target).add(rel);
+    }
   }
 
   /** 反链等派生图数据 */
   rebuildGraph() {
     this._linkIndex = null;
+    this._rawSources.clear();
     this.stats.graphBuilds++;
     for (const n of this.notes.values()) n.backlinks = new Set();
     for (const [rel, note] of this.notes) {
+      this._addRawSources(rel, note.links);
       note.resolved = new Set();
       for (const target of note.links) {
         const resolved = this.resolve(target, rel);
@@ -213,6 +246,7 @@ export class Vault {
 
   /** 图片库由实际文件与引用推导，旧绘图也能进入列表，删掉引用后自然回到「未插入」。 */
   drawings() {
+    if (this._drawings) return this._drawings;
     const drawings = [];
     for (const [scenePath, stat] of this.files) {
       if (!/\.draw\.json$/i.test(scenePath)) continue;
@@ -220,6 +254,7 @@ export class Vault {
       const imagePath = ['png', 'jpg', 'jpeg', 'webp', 'gif'].map((ext) => `${stem}.${ext}`).find((p) => this.files.has(p));
       if (imagePath) drawings.push({ path: imagePath, scenePath, name: path.posix.basename(stem), updatedAt: stat.mtimeMs || stat.mtime || 0, notes: [] });
     }
+    if (!drawings.length) return this._drawings = { drawings: [] };
     const byPath = new Map(drawings.map((d) => [d.path, d]));
     const byName = new Map();
     for (const d of drawings) {
@@ -241,7 +276,7 @@ export class Vault {
         if (drawing && !drawing.notes.includes(notePath)) drawing.notes.push(notePath);
       }
     }
-    return { drawings: drawings.map((d) => ({ ...d, inserted: d.notes.length > 0 })).sort((a, b) => b.updatedAt - a.updatedAt || a.path.localeCompare(b.path)) };
+    return this._drawings = { drawings: drawings.map((d) => ({ ...d, inserted: d.notes.length > 0 })).sort((a, b) => b.updatedAt - a.updatedAt || a.path.localeCompare(b.path)) };
   }
 
   /** 反链 + 出链 + 未解析链接（带上下文行） */
@@ -270,7 +305,8 @@ export class Vault {
     }));
     const unresolved = [...new Set(note.links)]
       .filter((t) => !this.resolve(t, rel))
-      .map((t) => ({ raw: t, sources: [...this.notes.values()].filter((n) => n.links.includes(t)).map((n) => n.name) }));
+      .map((t) => ({ raw: t, sources: [...(this._rawSources.get(t) || [])]
+        .sort((a, b) => this._noteOrder.get(a) - this._noteOrder.get(b)).map((src) => this.notes.get(src).name) }));
     return { backlinks, outgoing, unresolved };
   }
 
@@ -359,6 +395,8 @@ export class Vault {
         this.files.delete(rel);
         const note = this.notes.get(rel);
         if (note) {
+          this._removeRawSources(rel);
+          this._noteOrder.delete(rel);
           this.byName.set(note.name.toLowerCase(), (this.byName.get(note.name.toLowerCase()) || []).filter((p) => p !== rel));
           this.notes.delete(rel); this.contentCache.delete(rel); noteStructure = true;
         }
@@ -381,7 +419,7 @@ export class Vault {
       note.resolved = new Set(note.links.map((t) => this.resolve(t, rel)).filter((t) => t && t !== rel));
       for (const target of note.resolved) this.notes.get(target)?.backlinks.add(rel);
     }
-    if (changed.length) this._tree = null;
+    if (changed.length) { this._tree = null; this._drawings = null; }
     if (changed.length) this._schedulePersist();
     return { paths: changed, treeChanged: structure };
   }

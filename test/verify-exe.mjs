@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import puppeteer from 'puppeteer-core';
+import { IndexCache } from '../server/index-cache.js';
 
 const BASE = process.env.TRACERY_BASE || 'http://localhost:9540';
 const CDP = process.env.TRACERY_CDP || 'http://localhost:9223';
@@ -28,8 +29,8 @@ check('打包版：通过 API 切换仓库', res.ok);
 const graph = await (await fetch(`${BASE}/api/graph`)).json();
 check('打包版：链接索引工作', graph.nodes.length === 5 && graph.links.length >= 10,
   `${graph.nodes.length} 篇 / ${graph.links.length} 条链接`);
-const diskIndex = JSON.parse(fs.readFileSync(path.join(TEST_VAULT, '.tracery/index.json'), 'utf8'));
-check('打包版：生成可复用的仓库索引缓存', diskIndex.version === 1 && diskIndex.root === path.resolve(TEST_VAULT) && diskIndex.notes.length === graph.nodes.length);
+const diskIndex = await new IndexCache(path.resolve(TEST_VAULT)).read();
+check('打包版：生成可复用的仓库索引缓存', diskIndex.size === graph.nodes.length);
 
 const tags = await (await fetch(`${BASE}/api/tags`)).json();
 check('打包版：标签索引工作', tags.tags.length >= 8, `${tags.tags.length} 个标签`);

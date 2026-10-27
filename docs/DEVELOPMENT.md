@@ -9,13 +9,13 @@ npm run check
 npm run test:ci
 ```
 
-`check` 依次检查自有 JavaScript 语法、渐进类型和 lint。`test:ci` 在临时副本中运行安全与编辑回归，包含真正执行的 CSP 攻击样例及故意错误的静态检查样例；原始笔记不会被用作测试仓库。浏览器路径可通过 `TRACERY_BROWSER` 指定。
+`check` 依次检查自有 JavaScript 语法、渐进类型和 lint。`test:ci` 在临时副本中运行索引、安全与编辑回归，包含千篇/万篇真实文件、CSP 攻击样例及故意错误的静态检查样例；原始笔记不会被用作测试仓库。浏览器路径可通过 `TRACERY_BROWSER` 指定。
 
 ## 检查范围
 
 - 语法：`server`、`sync-server`、`electron`、`public/js`、`scripts`、`test`，递归检查，跳过供应商资源。
 - `no-undef`、`no-unused-vars`：`server`、`electron`、`public/js`、`scripts`。服务端与前端使用各自的运行环境全局变量；未使用形参和异常参数不强制报错。
-- `checkJs` 与 `no-floating-promises`：路径、请求来源、用户文件边界、历史、笔记存储、CSP、目录监听、子进程启动、双链路径、快捷键、重连按钮，以及 CodeMirror 补全入口。实际清单在 `tsconfig.json`、`tsconfig.cm.json` 和 `eslint.config.mjs`。
+- `checkJs` 与 `no-floating-promises`：路径、请求来源、用户文件边界、历史、笔记存储、索引缓存、CSP、目录监听、子进程启动、双链路径、快捷键、重连按钮，以及 CodeMirror 补全入口。实际清单在 `tsconfig.json`、`tsconfig.cm.json` 和 `eslint.config.mjs`。
 
 这是分阶段检查，不是全项目严格类型检查。CodeMirror 补全文件通过 `@ts-check` 显式加入，其他编辑器依赖仍保持原有 JavaScript；新增模块或修改相关异步流程时应逐步扩大清单，不能为通过检查随意加 `@ts-nocheck` 或关闭规则。
 
@@ -29,6 +29,14 @@ GitHub Actions 在推送 main/master、PR 和手动触发时运行两项检查�
 工作流使用只读仓库权限、完整提交 SHA 固定官方 Actions，不持久化 Git 凭据。检查失败会让工作流失败，报告和日志保留 7 天；不构建、不上传安装包、不发布 Release。合并前是否强制通过检查由仓库分支保护决定，本次未更改强制 PR 或管理员绕过策略。
 
 完整本机回归仍可运行 `npm run test:all`。长文性能探针有独立的 16ms 目标，受机器和浏览器调度影响，不纳入跨机器 CI 门禁；性能目标未达标必须如实记录，不能把功能回归通过写成性能已达标。
+
+## 仓库索引缓存
+
+原始 Markdown 文件始终是数据来源。`.tracery/index.json` 是版本化清单，最多引用 64 个固定分片 `index-00.json` 至 `index-63.json`；正文副本用于暖启动，不属于备份。小于 256 篇只用一片，小于 4,096 篇用 16 片，更大用 64 片，避免小库承担大量缓存文件的打开开销。单篇变更只重写所在分片，清单在分片写完后原子提交。保存请求排队期间合并为最新快照，不丢弃最后一次变更。
+
+暖启动校验清单、分片哈希和原始文件的 mtime/ctime/大小；丢失或损坏的分片回退读取原笔记，清单损坏或旧格式则重建。缓存无法写入也可打开与搜索。分片更新可能暂时与旧清单不匹配，此时选择重建，不把缓存当成唯一正文。更换缓存版本会在首次打开时重新解析一次。
+
+`node test/run-suite.mjs only index performance` 验证增量写入、合并请求、提交中断、损坏重建、搜索与排序一致、绘图库失效及未解析来源。测试记录字节量、文件写入次数和耗时；耗时只作为测量结果，不设跨机器的毫秒门槛。搜索继续保留中文单字、标点和英文子串匹配。
 
 ## CSP 边界
 
