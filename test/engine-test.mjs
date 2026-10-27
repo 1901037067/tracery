@@ -47,6 +47,7 @@ fs.writeFileSync(path.join(VAULT, NOTE), [
 ].join('\n'));
 fs.writeFileSync(path.join(VAULT, '双链与反链.md'), '# 目标\n\n这里是目标笔记。\n');
 fs.writeFileSync(path.join(VAULT, '任务.md'), '- [ ] 甲任务\n');
+fs.writeFileSync(path.join(HOME, 'tracery.config.json'), JSON.stringify({ currentVault: VAULT, settings: { startup: 'empty' } }));
 
 const results = [];
 const check = (name, ok, extra = '') => {
@@ -97,17 +98,10 @@ async function main() {
     const page = await browser.newPage();
     page.on('pageerror', (e) => browserErrors.push('pageerror: ' + e.message));
     page.on('console', (m) => { if (m.type() === 'error') browserErrors.push('console: ' + m.text()); });
+    page.on('response', response=>{if(response.status()>=400)console.error('HTTP 错误资源',response.status(),response.url());});
 
     await page.goto(`${BASE}`, { waitUntil: 'domcontentloaded' }); await waitForApp(page);
-    // 打开自建临时仓库（避免写仓库里的 demo-vault），然后重载让文件树就位
-    await page.evaluate(async (vp) => {
-      await fetch('/api/vault/open', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: vp }),
-      });
-    }, VAULT.replace(/\\/g, '/'));
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await waitForApp(page);
+    // 直接启动隔离仓库，避免演示库仍在加载时切库、重载产生无关的旧请求。
 
     // 1. app 起来
     const appVisible = await page.evaluate(() => !document.getElementById('app').hidden);

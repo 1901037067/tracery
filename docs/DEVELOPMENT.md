@@ -15,7 +15,7 @@ npm run test:ci
 
 - 语法：`server`、`sync-server`、`electron`、`public/js`、`scripts`、`test`，递归检查，跳过供应商资源。
 - `no-undef`、`no-unused-vars`：`server`、`electron`、`public/js`、`scripts`。服务端与前端使用各自的运行环境全局变量；未使用形参和异常参数不强制报错。
-- `checkJs` 与 `no-floating-promises`：路径、请求来源、用户文件边界、历史、笔记存储、CSP、子进程启动、双链路径、快捷键、重连按钮，以及 CodeMirror 补全入口。实际清单在 `tsconfig.json`、`tsconfig.cm.json` 和 `eslint.config.mjs`。
+- `checkJs` 与 `no-floating-promises`：路径、请求来源、用户文件边界、历史、笔记存储、CSP、目录监听、子进程启动、双链路径、快捷键、重连按钮，以及 CodeMirror 补全入口。实际清单在 `tsconfig.json`、`tsconfig.cm.json` 和 `eslint.config.mjs`。
 
 这是分阶段检查，不是全项目严格类型检查。CodeMirror 补全文件通过 `@ts-check` 显式加入，其他编辑器依赖仍保持原有 JavaScript；新增模块或修改相关异步流程时应逐步扩大清单，不能为通过检查随意加 `@ts-nocheck` 或关闭规则。
 

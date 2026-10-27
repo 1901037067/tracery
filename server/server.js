@@ -20,6 +20,7 @@ import { resolveInDirectory } from './path-guard.js';
 import { resolveUserPath as resolveInVault } from './user-path.js';
 import { publicSettings } from './public-settings.js';
 import { contentSecurityPolicy, attachmentHeaders } from './content-security.js';
+import { watchDirectories } from './directory-watcher.js';
 import { createHistoryStore } from './history-store.js';
 import { createMobileAccess } from './mobile-access.js';
 import { validateRequest, isLocalClient } from './request-guard.js';
@@ -765,26 +766,40 @@ function broadcast(msg) {
 
 /* ---------------- 文件监听（对应 Obsidian 的 vault 监听） ---------------- */
 let watcher = null;
+let watchEpoch = 0;
 let watchTimer = null;
 const pendingChanges = new Set();
 function watchVault(root) {
+  root=path.resolve(root);const epoch=++watchEpoch;let polling=false;
   if (watcher) { if (watcher.close) watcher.close(); else clearInterval(watcher); }
   clearTimeout(watchTimer); pendingChanges.clear();
+  const poll=error=>{
+    if(epoch!==watchEpoch||vault?.root!==root||polling)return;polling=true;
+    if(watcher?.close)watcher.close();
+    clearTimeout(watchTimer);pendingChanges.clear();
+    console.warn('[watch] 监听不可用，退化为轮询:',error.message);
+    let busy=false;
+    watcher=setInterval(async()=>{
+      if(busy||vault?.root!==root)return;busy=true;
+      try { const active=vault;await active.open();if(vault===active)broadcast({type:'fs-change',paths:['*']}); }
+      catch(reason){console.warn('[watch] 轮询失败:',reason.message);}
+      finally{busy=false;}
+    },5000);
+  };
   try {
-    watcher = fs.watch(root, { recursive: true }, (event, filename) => {
+    const changed=(event, filename) => {
+      if(epoch!==watchEpoch||polling)return;
       if (!filename) return;
       const rel = filename.replace(/\\/g, '/');
       if (rel.split('/').some((s) => IGNORED_DIRS.has(s.toLowerCase()))) return;
       pendingChanges.add(rel);
       if (watchTimer) clearTimeout(watchTimer);
       watchTimer = setTimeout(flushChanges, 120);
-    });
-    watcher.on('error', () => {});
+    };
+    watcher = process.platform === 'linux' ? watchDirectories(root,vault.dirs,changed,poll) : fs.watch(root,{recursive:true},changed);
+    if(watcher.on)watcher.on('error',poll);
   } catch (e) {
-    console.warn('[watch] 递归监听不可用，退化为轮询:', e.message);
-    watcher = setInterval(async () => {
-      if (vault) { await vault.open(); broadcast({ type: 'fs-change', paths: ['*'] }); }
-    }, 5000);
+    poll(e);
   }
 }
 async function flushChanges() {
@@ -792,8 +807,11 @@ async function flushChanges() {
   const rels = [...pendingChanges];
   pendingChanges.clear();
   const active = vault;
-  const change = await active.applyChanges(rels);
+  let change;
+  if(rels.includes('*')){await active.open();change={paths:['*'],treeChanged:true};}
+  else change = await active.applyChanges(rels);
   if (vault !== active) return;
+  try { watcher?.sync?.(active.dirs); } catch(error) { watchVault(active.root); }
   if (change.paths.length) broadcast({ type: 'fs-change', ...change });
   // 本地改了东西 → 安排一次同步（刚被同步写盘的文件会被引擎自己忽略）
   // API 保存已更新索引时 watcher 会去重，但磁盘写入仍须触发自动同步。
