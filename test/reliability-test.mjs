@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import http from 'node:http';
 import { launchBrowser } from './browser.mjs';
+import { waitForLayout, waitForNote } from './waits.mjs';
 import { readDiskNote, saveDiskNote, revisionOf } from '../server/note-store.js';
 const ROOT = path.resolve(import.meta.dirname, '..'), HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tracery-reliability-'));
 const VAULT = path.join(HOME, 'vault'), PORT = 9644, BASE = `http://localhost:${PORT}`;
@@ -37,6 +38,7 @@ console.log('PASS 同版本并发拒绝、写失败/外部插入修改/写入进
 const packed = process.env.TRACERY_TEST_EXE;
 const server = spawn(packed || process.execPath, [packed ? path.join(path.dirname(packed), 'resources/app.asar/server/server.js') : path.join(ROOT, 'server/server.js')], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME, ...(packed ? { ELECTRON_RUN_AS_NODE: '1' } : {}) }, windowsHide: true, stdio: 'pipe' });
 let browser;
+let serverLog='';for(const stream of [server.stdout,server.stderr])stream.on('data',chunk=>{serverLog=(serverLog+chunk).slice(-6000);});
 try {
   for (let i = 0; i < 80; i++) { try { if ((await fetch(BASE + '/api/state')).ok) break; } catch {} await sleep(150); }
   const unicode = '# 拆分边界\n世界中文与 emoji 👩‍💻📝';
@@ -48,6 +50,7 @@ try {
   assert.equal(fs.readFileSync(path.join(VAULT, '乙.md'), 'utf8'), unicode);
   console.log('PASS HTTP 分段强制切开汉字 UTF-8 字节，中文与 emoji 落盘无损');
   browser = await launchBrowser({ width: 1440, height: 940 }); let page = await browser.newPage(); const errors = [];
+  await page.evaluateOnNewDocument(()=>{window.__connectionTrace=[];window.addEventListener('tracery:connection',event=>window.__connectionTrace.push(event.detail));document.addEventListener('securitypolicyviolation',event=>window.__connectionTrace.push({directive:event.effectiveDirective,blocked:event.blockedURI}));});
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(BASE, { waitUntil: 'networkidle0' });
   const booted = p => p.waitForFunction(() => window.__tracery && typeof document.getElementById('btn-tab-more').onclick === 'function'); await booted(page);
@@ -124,11 +127,14 @@ try {
   await page.click('.dialog-backdrop:not(#recovery-center):not([hidden]) .dialog-ok');
   await page.waitForFunction(()=>document.querySelector('#recovery-center .recovery-list').textContent.includes('没有待恢复'));
   await page.keyboard.press('Escape'); await page.setViewport({width:1440,height:940});
+  await page.bringToFront();await waitForLayout(page);
   console.log('PASS 外部版本冲突保留双份内容、另存副本、查看磁盘与恢复中心预览');
   // 快速导航串行化；请求期间继续输入也要保存旧笔记的最新内容。
   await page.evaluate(async () => { await Promise.all(['乙.md','丙.md','甲.md'].map(name => window.__tracery.openNote(name, null, {newTab:true}))); });
   assert.equal(await page.evaluate(() => window.__tracery.state.currentPath), '甲.md');
-  for (let i = 0; i < 15; i++) await page.evaluate(async () => { for (const name of ['乙.md','丙.md','甲.md']) await window.__tracery.openNote(name); });
+  for (let i = 0; i < 15; i++) for (const name of ['乙.md','丙.md','甲.md']) {
+    await page.evaluate(name=>window.__tracery.openNote(name),name);await waitForNote(page,name);
+  }
   await page.evaluate(() => window.__editor.setMode('source'));
   const undoBefore = await page.evaluate(() => { window.__editor.insertText('撤销基线'); return window.__editor.getContent(); });
   await page.evaluate(() => window.__editor.flush()); await sleep(350);
@@ -138,10 +144,13 @@ try {
   await page.evaluate(() => window.__editor.flush());
   console.log('PASS 连续导航后标签与内容一致，自身保存通知不清空撤销历史');
   staleReply = await (await fetch(BASE + '/api/note?path=' + encodeURIComponent('甲.md'))).json();
+  // 监听可回退为 5 秒轮询；等待真实读取请求，不能用 80×30ms 抢在轮询前判失败。
+  const awaitedRefresh = page.waitForRequest(request => { const url = new URL(request.url()); return request.method() === 'GET' && url.pathname === '/api/note' && url.searchParams.get('path') === '甲.md'; }, { timeout: 15000 });
   // Linux 的递归文件监听不一定转发仅 utimes 的属性事件；实际重写同一正文，保持版本不变。
   fs.writeFileSync(path.join(VAULT, '甲.md'), fs.readFileSync(path.join(VAULT, '甲.md')));
   fs.utimesSync(path.join(VAULT, '甲.md'), new Date(), new Date(Date.now() + 3000));
-  for (let i = 0; i < 80 && !refreshHeld; i++) await sleep(30); assert.ok(refreshHeld);
+  try { await awaitedRefresh; assert.ok(refreshHeld); }
+  catch(error){console.error('刷新请求诊断',await page.evaluate(()=>({path:window.__tracery.state.currentPath,dirty:window.__editor.dirty,connection:window.__connectionTrace})),serverLog);throw error;}
   await page.evaluate(async () => { window.__editor.insertText('晚到刷新不回滚'); await window.__editor.flush(); });
   await releaseRefresh(); await sleep(200);
   assert.ok(await page.evaluate(() => window.__editor.getContent().includes('晚到刷新不回滚') && !window.__editor.dirty));

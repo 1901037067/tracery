@@ -68,7 +68,9 @@ try {
   const expected=await page.evaluate(()=>window.__tracery.editor.getContent());await waitForSaved(page,'note.md',expected);
   await page.evaluate(()=>new Promise((resolve,reject)=>{const ws=new WebSocket(location.origin.replace('http:','ws:')+'/ws');ws.onopen=()=>{ws.close();resolve(true);};ws.onerror=()=>reject(Error('same-origin WebSocket blocked'));}));
   console.log('PASS 浏览器阻止内联/事件/eval/外站脚本和连接/仓库 JS，正常图片、保存和 WebSocket 可用');
-  const offline=await browser.newPage();await offline.bringToFront();await offline.goto(BASE+'/offline.html',{waitUntil:'domcontentloaded'});await offline.waitForSelector('[data-reconnect]',{visible:true});
+  await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
+  // 此处验证离线 HTML 自身；service worker 的导航缓存另由 PWA 套件覆盖。
+  const offline=await browser.newPage();await offline.setBypassServiceWorker(true);await offline.bringToFront();await offline.goto(BASE+'/offline.html',{waitUntil:'domcontentloaded'});await offline.waitForSelector('[data-reconnect]',{visible:true});
   await offline.waitForFunction(()=>{const button=document.querySelector('[data-reconnect]'),r=button.getBoundingClientRect();return r.width>0&&r.height>0&&document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('[data-reconnect]')===button;});
   const point=await offline.$eval('[data-reconnect]',button=>{const r=button.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};});
   const navigation=offline.waitForNavigation({waitUntil:'domcontentloaded'});await offline.mouse.click(point.x,point.y);await navigation;
