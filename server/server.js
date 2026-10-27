@@ -22,6 +22,7 @@ import { publicSettings } from './public-settings.js';
 import { contentSecurityPolicy, attachmentHeaders } from './content-security.js';
 import { watchDirectories } from './directory-watcher.js';
 import { createHistoryStore } from './history-store.js';
+import { createHistoryBackup } from './history-backup.js';
 import { createMobileAccess } from './mobile-access.js';
 import { validateRequest, isLocalClient } from './request-guard.js';
 import { readDiskNote, saveDiskNote, revisionOf } from './note-store.js';
@@ -37,6 +38,7 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
  */
 const HOME = process.env.TRACERY_HOME || process.env.EVNOTE_HOME || ROOT;
 const history = createHistoryStore(HOME);
+const historyBackup = createHistoryBackup(HOME, history);
 const snapshotHistory = (root, rel, content) => history.snapshot(root, rel, content);
 
 /* ================= 回收站 =================
@@ -511,6 +513,17 @@ async function handleRequest(req, res) {
       if (target === vault) broadcast({ type: 'fs-change', paths: [rel], treeChanged: change.treeChanged });
       const { mtimeMs, size } = target.files.get(rel) || {};
       return sendJson(res, 200, { ok: true, mtimeMs, size, revision });
+    }
+    if (p === '/api/history/backup' && req.method === 'GET') {
+      if (!isLocalClient(req)) return sendJson(res, 403, { error: '请在电脑本机管理历史备份' });
+      res.setHeader('Cache-Control', 'no-store');
+      return sendJson(res, 200, historyBackup.export(vault.root));
+    }
+    if (p === '/api/history/import' && req.method === 'POST') {
+      if (!isLocalClient(req)) return sendJson(res, 403, { error: '请在电脑本机管理历史备份' });
+      const { archive, allowRebind, vaultRoot } = await readBody(req);
+      if (vaultRoot !== vault.root) return sendJson(res, 409, { error: '当前仓库已改变，请重新选择备份' });
+      return sendJson(res, 200, historyBackup.import(vault.root, archive, { allowRebind: allowRebind === true }));
     }
     if (p === '/api/history' && req.method === 'GET') {
       const rel = u.searchParams.get('path');

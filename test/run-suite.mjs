@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { suites } from './suites.mjs';
 import { runtimeDependencies } from '../scripts/runtime-deps.mjs';
+import { directoryBytes } from '../scripts/clean.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const args = process.argv.slice(2), mode = args[0] || 'smoke';
@@ -21,6 +22,10 @@ const OUT = path.join(ROOT, 'dist/test-runs', runId);
 fs.mkdirSync(OUT, { recursive: true });
 const report = { runId, mode, startedAt: new Date().toISOString(), appVersion: JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'))).version,
   isolation: '每个套件使用独立工作区副本与 TEMP/TMP；不向源笔记或源截图写入', results: [] };
+try {
+  report.sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  report.sourceDirty = !!execFileSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+} catch { report.sourceRevision = 'unavailable'; }
 console.log(`验收目录：${OUT}\n模式：${mode}，${selected.length} 个套件（串行执行）`);
 
 function writeReport() {
@@ -88,5 +93,6 @@ for (const [index, suite] of selected.entries()) {
 }
 report.finishedAt = new Date().toISOString(); writeReport();
 const failed = report.results.filter(result => result.status !== 'PASS');
+try { console.log(`本轮占用 ${(directoryBytes(OUT, { rejectLinks: false }) / 1048576).toFixed(1)} MiB（不跟随链接）；清理预览：npm run clean（默认不删除）`); } catch (error) { console.log('磁盘统计跳过：' + error.message); }
 console.log(`\n${report.results.length - failed.length}/${report.results.length} 套件通过\n报告：${path.join(OUT, 'REPORT.md')}`);
 process.exitCode = failed.length ? 1 : 0;

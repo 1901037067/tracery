@@ -1,5 +1,7 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['history-backup', 'history-backup-test.mjs', '历史备份界面、旧历史保留与本机管理边界'],
+  ['maintenance', 'maintenance-test.mjs', '磁盘保留、历史备份迁移与失败回滚'],
   ['workspace-chrome', 'workspace-chrome-test.mjs', '分组动画、文档名称、导航层次、图片标识与删除确认'],
   ['index', 'index-test.mjs', '千篇/万篇索引、增量缓存、链接与绘图库失效'],
   ['watch', 'watch-test.mjs', '原子替换后外部修改通知与子目录持续监听'],

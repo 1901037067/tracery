@@ -6,6 +6,12 @@ import { resolveUserPath } from './user-path.js';
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const failure = (message, status = 409) => Object.assign(new Error(message), { status });
 let lastId = 0;
+function writeExclusive(file, content) {
+  const fd = fs.openSync(file, 'wx');
+  try { fs.writeFileSync(fd, content, 'utf8'); }
+  catch (error) { fs.closeSync(fd); fs.unlinkSync(file); throw error; }
+  fs.closeSync(fd);
+}
 export function createHistoryStore(home) {
   function locations(root, rel) {
     resolveUserPath(root, rel, home);
@@ -22,8 +28,9 @@ export function createHistoryStore(home) {
   function verify(location, create = false) {
     const file = path.join(location.directory, 'identity.json');
     if (create) {
+      if (!fs.existsSync(file) && fs.existsSync(location.directory) && fs.readdirSync(location.directory).some(name => /^\d+\.md$/.test(name))) throw failure('历史来源信息缺失，拒绝为旧内容补认身份');
       fs.mkdirSync(location.directory, {recursive:true});
-      try { fs.writeFileSync(file, JSON.stringify(location.identity), {flag:'wx'}); } catch(error) { if(error.code !== 'EEXIST') throw error; }
+      try { writeExclusive(file, JSON.stringify(location.identity)); } catch(error) { if(error.code !== 'EEXIST') throw error; }
     }
     if (!fs.existsSync(file)) {
       if (fs.existsSync(location.directory)) throw failure('历史来源信息缺失，未读取或恢复');
@@ -42,11 +49,35 @@ export function createHistoryStore(home) {
     });
   }
   return {
+    importVersions(root, rel, versions, { legacy = false } = {}) {
+      const location = locations(root, rel), directory = legacy ? location.legacy : location.directory;
+      const directoryExisted = fs.existsSync(directory);
+      const identityExisted = fs.existsSync(path.join(directory, 'identity.json'));
+      if (legacy) fs.mkdirSync(directory, { recursive: true }); else verify(location, true);
+      const created = [];
+      const rollback = () => {
+        for (const file of created) fs.unlinkSync(file);
+        if (!legacy && !identityExisted && !fs.readdirSync(directory).some(name => /^\d+\.md$/.test(name))) fs.unlinkSync(path.join(directory, 'identity.json'));
+        if (!directoryExisted && fs.readdirSync(directory).length === 0) fs.rmdirSync(directory);
+      };
+      try {
+        for (const item of versions) {
+          if (!Number.isSafeInteger(item.time) || item.time < 1 || typeof item.content !== 'string') throw failure('历史版本格式错误', 400);
+          const file = resolveInDirectory(directory, `${item.time}.md`);
+          if (fs.existsSync(file)) {
+            if (fs.readFileSync(file, 'utf8') !== item.content) throw failure('相同时间的历史内容冲突，未覆盖');
+          } else {
+            writeExclusive(file, item.content); created.push(file);
+          }
+        }
+        return { added: created.length, rollback };
+      } catch (error) { rollback(); throw error; }
+    },
     snapshot(root, rel, content) {
       if(content == null) return;
       const location=locations(root,rel); verify(location,true);
       const id=lastId=Math.max(Date.now(),lastId+1);
-      fs.writeFileSync(resolveInDirectory(location.directory,`${id}.md`),content,{encoding:'utf8',flag:'wx'});
+      writeExclusive(resolveInDirectory(location.directory,`${id}.md`),content);
       for(const item of entries(location.directory,false).sort((a,b)=>b.time-a.time).slice(20)) fs.unlinkSync(resolveInDirectory(location.directory,`${item.time}.md`));
     },
     list(root,rel) {

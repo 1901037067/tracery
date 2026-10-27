@@ -1,0 +1,54 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { createHistoryStore } from '../server/history-store.js';
+import { createHistoryBackup } from '../server/history-backup.js';
+import { launchBrowser } from './browser.mjs';
+import { waitForApp } from './waits.mjs';
+const ROOT = path.resolve(import.meta.dirname, '..'), HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tracery-backup-'));
+const VAULT = path.join(HOME, 'vault'); fs.mkdirSync(VAULT); fs.writeFileSync(path.join(VAULT, 'note.md'), '# current');
+fs.writeFileSync(path.join(HOME, 'tracery.config.json'), JSON.stringify({ currentVault: VAULT, settings: { startup: 'empty' } }));
+const store = createHistoryStore(HOME); store.snapshot(VAULT, 'note.md', '# old');
+const legacy = path.join(HOME, 'history', createHash('sha1').update(VAULT).digest('hex').slice(0, 12), 'note.md');
+fs.mkdirSync(legacy, { recursive: true }); fs.writeFileSync(path.join(legacy, '1000.md'), '# uncertain legacy');
+const archive = createHistoryBackup(HOME, store).export(VAULT); assert.equal(archive.legacy.length, 1);
+const targetHome = path.join(HOME, 'other'); fs.mkdirSync(targetHome);
+const targetStore = createHistoryStore(targetHome); createHistoryBackup(targetHome, targetStore).import(VAULT, archive);
+assert.ok(targetStore.list(VAULT, 'note.md').some(row => row.legacy && !row.restorable));
+assert.throws(() => targetStore.read(VAULT, 'note.md', 'legacy-1000', { restore: true }), /阻止/);
+const PORT = 9670, BASE = `http://127.0.0.1:${PORT}`, LAN = `http://127.0.0.1:${PORT + 1}`;
+const packed = process.env.TRACERY_TEST_EXE, entry = packed ? path.join(path.dirname(packed), 'resources/app.asar/server/server.js') : path.join(ROOT, 'server/server.js');
+const server = spawn(packed || process.execPath, [entry], { cwd: ROOT, env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME, ...(packed ? { ELECTRON_RUN_AS_NODE: '1' } : {}) }, windowsHide: true, stdio: 'pipe' });
+let browser;
+const post = (base, route, body, cookie) => fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body) });
+try {
+  for (let i = 0; i < 100; i++) { try { if ((await fetch(BASE + '/api/state')).ok) break; } catch {} await new Promise(resolve => setTimeout(resolve, 100)); }
+  const response = await fetch(BASE + '/api/history/backup'); assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+  const exported = await response.json(); assert.equal(exported.notes[0].versions[0].content, '# old');
+  assert.equal((await post(BASE, '/api/history/import', { archive: exported, vaultRoot: 'wrong' })).status, 409);
+  assert.equal((await post(BASE, '/api/history/import', { archive: exported, vaultRoot: VAULT })).status, 200);
+  const access = await (await post(BASE, '/api/access/start', { mode: 'write' })).json();
+  const pairing = await post(LAN, '/api/access/pair', { code: access.invitation.code });
+  const cookie = pairing.headers.get('set-cookie').split(';')[0];
+  assert.equal((await fetch(LAN + '/api/history/backup', { headers: { Cookie: cookie } })).status, 403);
+  assert.equal((await post(LAN, '/api/history/import', { archive: exported, vaultRoot: VAULT }, cookie)).status, 403);
+  browser = await launchBrowser({ width: 1280, height: 900 }); const page = await browser.newPage();
+  const downloads = path.join(HOME, 'downloads'); fs.mkdirSync(downloads);
+  await (await page.createCDPSession()).send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
+  await page.goto(BASE, { waitUntil: 'networkidle0' }); await waitForApp(page);
+  await page.click('#btn-settings'); await page.click('.settings-nav button[data-pane="general"]');
+  // 用实际下载 Blob 验证导出内容，并在相同设置入口选择文件导入。
+  await page.evaluate(() => { const original = URL.createObjectURL; URL.createObjectURL = function(blob) { window.backupBlob = blob; return original.call(this, blob); }; });
+  await page.click('#history-backup-export');
+  await page.waitForFunction(() => document.getElementById('history-backup-result').textContent.includes('已导出'));
+  assert.equal(await page.evaluate(async () => JSON.parse(await window.backupBlob.text()).notes[0].versions[0].content), '# old');
+  const file = path.join(HOME, 'backup.json'); fs.writeFileSync(file, JSON.stringify(exported));
+  await (await page.$('#history-backup-file')).uploadFile(file);
+  await page.waitForSelector('.dialog-backdrop:not([hidden]) .dialog-ok'); await page.click('.dialog-ok');
+  await page.waitForFunction(() => document.getElementById('history-backup-result').textContent.includes('已补充'));
+  assert.equal(fs.readFileSync(path.join(VAULT, 'note.md'), 'utf8'), '# current');
+  console.log('PASS 历史备份实际导出/文件导入、旧历史仅预览、本机权限、手机拒绝与切库身份保护');
+} finally { await browser?.close(); server.kill(); }

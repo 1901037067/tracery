@@ -7,8 +7,28 @@
     "checkJs": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"],
-    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+    "types": [
+      "node"
+    ],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ]
   },
-  "include": ["server/path-guard.js", "server/user-path.js", "server/request-guard.js", "server/history-store.js", "server/note-store.js", "server/content-security.js", "server/directory-watcher.js", "server/index-cache.js", "electron/server-process.cjs", "public/js/wiki-path.js", "public/js/hotkeys.js", "public/js/reconnect.js"]
+  "include": [
+    "server/path-guard.js",
+    "server/user-path.js",
+    "server/request-guard.js",
+    "server/history-store.js",
+    "server/note-store.js",
+    "server/content-security.js",
+    "server/directory-watcher.js",
+    "server/index-cache.js",
+    "electron/server-process.cjs",
+    "public/js/wiki-path.js",
+    "public/js/hotkeys.js",
+    "public/js/reconnect.js",
+    "server/history-backup.js"
+  ]
 }
