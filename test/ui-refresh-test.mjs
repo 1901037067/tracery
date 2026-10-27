@@ -49,11 +49,15 @@ try{
   await page.evaluate(names=>{const root=window.__tracery.state.vault.root;localStorage.setItem(`tracery.tabs.${root}`,JSON.stringify({tabs:names,active:0,groups:[{id:'g1',name:'课程',color:'teal',tabs:names.slice(0,2),collapsed:false},{id:'g2',name:'资料',color:'orange',tabs:[names[2]],collapsed:false}]}));},names);
   await page.reload({waitUntil:'networkidle0'});await page.waitForFunction(()=>document.querySelectorAll('.tab-group-header').length===2);await sleep(150);
   const state=()=>page.evaluate(()=>({tabs:[...window.__tracery.state.tabs],groups:JSON.parse(JSON.stringify(window.__tracery.state.tabGroups))}));
+  const settled=()=>page.waitForFunction(()=>!document.getAnimations().some(animation=>animation.playState==='running'||animation.pending));
   const drag=async(source,target,ratio,file)=>{
+    await settled();
     const before=await state(),a=await page.$eval(source,el=>el.getBoundingClientRect().toJSON()),b=await page.$eval(target,el=>el.getBoundingClientRect().toJSON());
     await page.mouse.move(a.left+a.width/2,a.top+a.height/2);await page.mouse.down();await page.mouse.move(b.left+b.width*ratio,b.top+b.height/2,{steps:16});await sleep(170);
     assert.deepEqual(await state(),before);
-    const planned=await page.$$eval('.tab-drop-note',els=>els.map(el=>el.dataset.key));assert.ok(planned.length);
+    const planned=await page.$$eval('.tab-drop-note',els=>els.map(el=>el.dataset.key));
+    if(!planned.length){await page.screenshot({path:path.join(OUT,'drag-failure.png')});console.log('drag geometry',JSON.stringify({source,target,a,b,hit:await page.evaluate(({a,b,ratio})=>({source:document.elementFromPoint(a.left+a.width/2,a.top+a.height/2)?.outerHTML,target:document.elementFromPoint(b.left+b.width*ratio,b.top+b.height/2)?.outerHTML,animations:document.getAnimations().map(animation=>animation.playState)}),{a,b,ratio})}));}
+    assert.ok(planned.length);
     assert.ok(await page.$('.tab-drop-marker'));assert.ok(await page.$eval('.tab-drop-caption',el=>el.textContent.includes('松开后')));
     await page.screenshot({path:path.join(OUT,file)});await page.mouse.up();await sleep(80);
     const after=await state(),visible=after.tabs.filter(key=>!after.groups.some(g=>g.collapsed&&g.tabs.includes(key)));assert.deepEqual(visible,planned);
@@ -62,6 +66,7 @@ try{
   let after=await drag('.tab[data-index="3"]','.tab[data-index="0"]',.1,'tab-drop-preview.png');assert.equal(after.tabs[0],names[3]);
   after=await drag('.tab-group-header[data-group="g1"]','.tab-group-header[data-group="g2"]',.9,'group-drop-preview.png');assert.equal(after.tabs[0],names[2]);
   await page.click('.tab-group-header[data-group="g2"]');
+  await page.waitForFunction(()=>window.__tracery.state.tabGroups.find(group=>group.id==='g2').collapsed);await settled();
   const index=after.tabs.indexOf(names[0]);after=await drag(`.tab[data-index="${index}"]`,'.tab-group-header[data-group="g2"]',.5,'join-group-preview.png');assert.ok(after.groups.find(g=>g.id==='g2').tabs.includes(names[0]));
   const beforeCancel=await state(),source=await page.$eval('.tab:not([hidden])',el=>el.getBoundingClientRect().toJSON());
   await page.mouse.move(source.left+source.width/2,source.top+source.height/2);await page.mouse.down();await page.mouse.move(800,300,{steps:10});await page.mouse.up();assert.deepEqual(await state(),beforeCancel);

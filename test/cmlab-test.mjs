@@ -49,12 +49,23 @@ try {
   });
   const page = await browser.newPage();
   await page.bringToFront();
+  // P3/P4 使用明确的图片 URL 桩；提供有效图片，避免 404 被当作丢图卡片后再测图片拖宽。
+  const imageFixture = fs.readFileSync(path.join(ROOT, 'public/icons/favicon-16.png'));
+  let fixtureLoads = 0;
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    const pathname = decodeURIComponent(new URL(request.url()).pathname);
+    if (['/demo-vault/pics/demo.png', '/files/附件/pics/demo.png'].includes(pathname)) {
+      fixtureLoads++; void request.respond({ status: 200, contentType: 'image/png', body: imageFixture });
+    } else void request.continue();
+  });
   page.on('pageerror', (e) => browserErrors.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') browserErrors.push('console: ' + m.text()); });
 
   await page.goto(`http://localhost:${PORT}/cmlab.html`, { waitUntil: 'networkidle0' });
   await page.waitForFunction('window.__probe && window.__probe.view', { timeout: 20000 });
   await page.waitForFunction('window.__probe.done === true', { timeout: 90000 });
+  if (fixtureLoads < 2) throw Error('图片 URL 桩未加载有效夹具');
 
   /* ---------- IME 组词探针（CDP 驱动） ---------- */
   const client = await page.createCDPSession();

@@ -8,7 +8,7 @@ import { CmEditor } from './cm/engine.js';
 import { ForceGraph } from './graph.js';
 import {
   initSettings, receiveSettings, updateSettings, getSettings, openSettings, close as closeSettings,
-  isOpen as settingsIsOpen, onApplied, resolveAssetDir, configureWorkspaces,
+  isOpen as settingsIsOpen, onApplied, resolveAssetDir, configureWorkspaces, flushPendingSettings,
 } from './settings.js';
 import { onSyncStatus } from './sync-ui.js';
 import { askText, askConfirm } from './dialog.js';
@@ -21,19 +21,22 @@ import { initPwa } from './pwa.js';
 import { rememberDraft, clearSavedDraft, recoverDraft, archiveDraft, showRecovery } from './recovery.js';
 import { VirtualTree, flattenTree } from './virtual-tree.js';
 import { FILE_SORTS, validSort, sortTree } from './file-sort.js';
-import { noteIndex, resolveNote, missingNotePath, normalizeNotePath, wikiParts } from './wiki-path.js';
+import { noteIndex, resolveNote, missingNotePath, normalizeNotePath, wikiParts, isAttachmentTarget } from './wiki-path.js';
 import { noteAnchors, selectNoteContent } from './note-embed.js';
 import { createSidebarContext, initLibraryTabs, initPhoneAccess, copyLocalText } from './sidebar.js';
 import { HOTKEY_COMMANDS, bindingFor, shortcutFromEvent, shortcutLabel } from './hotkeys.js';
 import { toggleBold, toggleItalic, toggleStrike, insertWikilink } from './cm/editing.js';
 import { GROUP_COLORS, isBlankTab, newBlankKey, groupForTab, tidyTabGroups, moveTabToGroup, renameTabKeys } from './tab-workspace.js';
+import { configureFullBackup } from './full-backup.js';
+import { captureBrowserState, applyBrowserState } from './workspace-backup.js';
+import { initChromeLayout } from './chrome-layout.js';
 import { createSavedGroups } from './saved-groups.js';
 import { DEFAULT_LAYOUT, LAYOUT_FIELDS } from './layout-settings.js';
 import { createTabDrag } from './tab-drag.js';
 import { uiIcon } from './ui-icons.js';
 import { sidebarForSide, applyWorkspaceLayout } from './workspace-layout.js';
 import { panelDock } from './pane-docking.js';
-import { setWorkspaceRoot, readPresets, normalizeSession } from './layout-presets.js';
+import { setWorkspaceRoot, readPresets, writePresets, normalizeSession } from './layout-presets.js';
 import { initTooltips } from './tooltip.js';
 
 initTooltips();
@@ -92,6 +95,38 @@ let sidebars = null;
 let libraryTabs = null;
 setWorkspaceRoot(() => state.vault?.root || '');
 configureWorkspaces({ capture: captureWorkspaceSession, apply: item => navigate(() => applyWorkspaceNow(item)) });
+let backupNavigation = false, explicitRestoreAtBoot = sessionStorage.getItem('tracery.restoreSession');
+configureFullBackup({
+  async prepare() {
+    if (!suspendDraw() || !await editor.flush()) return null;
+    await flushPendingSettings();
+    rememberReadingPosition(); saveTabsState();
+    return { vaultRoot: state.vault.root, clientState: captureBrowserState(state.vault.root) };
+  },
+  async open(result, restoreSettings) {
+    return navigate(async () => {
+      if (!result?.verified || !suspendDraw() || !await editor.flush()) return;
+      await flushPendingSettings();
+      const oldRoot = state.vault.root, previousSettings = getSettings(), host = $('editor-live'); let rollback = () => {}, switched = false, settingsChanged = false;
+      backupNavigation = true; host.inert = true;
+      try {
+        await Api.openVault(result.path); switched = true;
+        if (restoreSettings) {
+          settingsChanged = true;
+          const response = await Api.saveSettings(result.settings); receiveSettings(response.settings);
+          rollback = applyBrowserState(result.path, result.clientState);
+          sessionStorage.setItem('tracery.restoreSession', result.path);
+        }
+        location.reload();
+      } catch (error) {
+        rollback(); sessionStorage.removeItem('tracery.restoreSession');
+        if (settingsChanged) await Api.saveSettings(previousSettings).then(response => receiveSettings(response.settings)).catch(() => {});
+        if (switched) await Api.openVault(oldRoot).catch(() => {});
+        backupNavigation = false; host.inert = false; throw error;
+      }
+    });
+  },
+});
 const savedGroups = createSavedGroups({ state, openNote,
   prepare: async () => suspendDraw() && await editor.flush(), activate: activateTab,
   changed: () => { renderTabs(); saveTabsState(); },
@@ -103,6 +138,7 @@ async function boot() {
   window.__tracery = { editor, state, Api, openNote, switchPanel, switchRightPanel, exportHtml, exportPdf, togglePin, openTrash, revealInTree, prepareClose, openRecoveryCenter };
   const st = await Api.state();
   state.access = st.access || {local:true,mode:'write'};
+  if (st.storageWarnings?.length) toast(st.storageWarnings.join('；'), 12000);
   setAccess(state.access);
   if (!state.access.local) {
     document.body.dataset.client = 'mobile';
@@ -139,6 +175,7 @@ async function boot() {
     showWelcome(st.recentVaults || []);
   }
   bindGlobalEvents();
+  initChromeLayout();
   connectWs(onWsMessage);
 }
 
@@ -260,7 +297,9 @@ async function enterApp(vault) {
  */
 async function restoreTabsAfterVaultSwitch() {
   loadTabsState();
-  const startup = getSettings().startup;
+  const explicit = explicitRestoreAtBoot === state.vault?.root;
+  if (explicit) { explicitRestoreAtBoot = null; sessionStorage.removeItem('tracery.restoreSession'); }
+  const startup = explicit ? 'last' : getSettings().startup;
   if (startup === 'empty') state.activeTab = -1;
   renderTabs();
   if (startup === 'empty') return;
@@ -456,6 +495,7 @@ function openEmbeddedLink(raw, from = editor.path) {
   else {
     const file = resolveEmbeddedFile(wikiParts(raw).target, from);
     if (file && PDF_FILE_RE.test(file)) openPdfViewer(Api.fileUrl(file));
+    else if (file && IMG_FILE_RE.test(file)) openLightbox(Api.fileUrl(file), state.files.get(file)?.name || file);
     else if (file) window.open(Api.fileUrl(file), '_blank', 'noopener');
     else toast('找不到引用的笔记或附件');
   }
@@ -573,8 +613,19 @@ function pushRecent(relPath) {
 
 function renameShortcuts(oldPath, newPath) {
   const map = p => p === oldPath ? newPath : p.startsWith(`${oldPath}/`) ? `${newPath}${p.slice(oldPath.length)}` : p;
-  savedGroups.rename(map);
-  state.pinned = new Set([...state.pinned].map(map)); state.recent = state.recent.map(map); saveShortcuts();
+  let warning = false;
+  try { savedGroups.rename(map); } catch { warning = true; }
+  state.pinned = new Set([...state.pinned].map(map)); state.recent = state.recent.map(map);
+  try { saveShortcuts(); } catch { warning = true; }
+  const items = readPresets().map(item => {
+    if (!item.session) return item;
+    const session = item.session;
+    return { ...item, session: { ...session, tabs: session.tabs.map(map), active: session.active && map(session.active),
+      groups: session.groups.map(group => ({ ...group, tabs: group.tabs.map(map) })),
+      positions: Object.fromEntries(Object.entries(session.positions).map(([key, value]) => [map(key), value])) } };
+  });
+  try { if (items.length) writePresets(items); } catch { warning = true; }
+  return warning;
 }
 
 function renderDirItem(d, rel) {
@@ -713,6 +764,7 @@ function showFileMenu(e, f) {
     items.push('-');
   }
   items.push({ label: '重命名', icon: ICON.pencil, action: () => renameNote(f) });
+  items.push({ label: '移动到…', icon: ICON.folder, action: () => moveEntry(f.path) });
   items.push({ label: '删除', icon: ICON.trash, danger: true, action: () => deleteNote(f) });
   showMenu(e.clientX, e.clientY, items, e.currentTarget);
 }
@@ -749,49 +801,51 @@ function showDirMenu(e, rel) {
   }
   items.push('-');
   items.push({ label: '重命名', icon: ICON.pencil, action: () => renameFolder(rel) });
+  items.push({ label: '移动到…', icon: ICON.folder, action: () => moveEntry(rel) });
   items.push({ label: '删除', icon: ICON.trash, danger: true, action: () => deleteFolder(rel) });
   showMenu(e.clientX, e.clientY, items, e.currentTarget);
 }
 
-/** 重命名文件夹：目录里的笔记路径整体前缀替换，打开中的标签/当前笔记跟着改 */
+/** 移动和改名使用相同的引用事务及会话映射。 */
+async function relocateEntry(rel, next) {
+  return navigate(async () => {
+    if (!suspendDraw() || !await editor.flush()) return;
+    const root = state.vault.root, host = $('editor-live'), wasInert = host.inert;
+    host.inert = true;
+    try {
+      const result = await Api.rename(rel, next, { vaultRoot: root });
+      const map = value => value === rel || value.startsWith(rel + '/') ? next + value.slice(rel.length) : value;
+      const storageWarning = renameShortcuts(rel, next); renameTabKeys(state, map);
+      if (state.currentPath) { state.currentPath = map(state.currentPath); editor.path = map(editor.path); }
+      await refreshTree(); refreshGraph(); refreshTags();
+      if (state.currentPath && !PDF_FILE_RE.test(state.currentPath) && !editor.dirty) {
+        const loaded = await Api.note(state.currentPath);
+        editor.load(state.currentPath, loaded.content, { keepMode: true, revision: loaded.revision, vaultRoot: root });
+        refreshRightPanels(loaded.content);
+      } else if (PDF_FILE_RE.test(state.currentPath || '')) {
+        hidePdfViewer(); showPdfViewer(Api.fileUrl(state.currentPath), state.files.get(state.currentPath)?.name, vaultAbs(state.currentPath));
+      }
+      renderTabs(); saveTabsState();
+      toast(`已移动或重命名，更新 ${result.references || 0} 处引用${storageWarning ? '；工作区记录存储失败，请检查本机存储空间' : ''}`);
+    } catch (error) { await refreshTree(); toast(error.message); }
+    finally { host.inert = wasInert; updateEmptyNote(); }
+  });
+}
+async function moveEntry(rel) {
+  const directory = await askText({ title: '移动到文件夹', desc: '输入仓库内的目标目录，输入 / 表示根目录。相关引用会同步更新。', value: rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '/',
+    suggestions: ['/', ...new Set([...state.files.keys()].filter(file => file.includes('/')).map(file => file.slice(0, file.lastIndexOf('/'))))], okText: '移动' });
+  if (!directory) return;
+  const clean = directory.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  const next = [clean, rel.split('/').pop()].filter(Boolean).join('/');
+  if (next !== rel) await relocateEntry(rel, next);
+}
 async function renameFolder(rel) {
   const oldName = rel.split('/').pop();
-  const input = await askText({
-    title: '重命名文件夹',
-    desc: '文件夹里笔记的路径会跟着变；指向它们的 [[双链]] 不会自动更新。',
-    value: oldName,
-    okText: '重命名',
-  });
+  const input = await askText({ title: '重命名文件夹', desc: '目录路径及相关笔记、附件引用会同步更新。', value: oldName, okText: '重命名' });
   if (!input) return;
-  // Windows 文件名不允许这些字符，直接替换成 -（与冲突副本/绘图文件同口径）
   const clean = input.replace(/[\\/:*?"<>|]/g, '-').replace(/^\.+$/, '');
   if (!clean || clean === oldName) return;
-  const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
-  const newRel = dir + clean;
-  try {
-    if (!await editor.flush()) return;
-    await Api.rename(rel, newRel);
-    renameShortcuts(rel, newRel);
-    const prefix = rel + '/';
-    const under = (p) => p === rel || p.startsWith(prefix);
-    const mapped = (p) => (p === rel ? newRel : `${newRel}/${p.slice(prefix.length)}`);
-    renameTabKeys(state, p => under(p) ? mapped(p) : p);
-    if (state.currentPath && under(state.currentPath)) {
-      const np = mapped(state.currentPath);
-      if (editor.path === state.currentPath) editor.path = np;
-      state.currentPath = np;
-      localStorage.setItem('tracery.lastNote', np);
-      $('note-path').textContent = np;
-    }
-    await refreshTree(); refreshGraph(); refreshTags();
-    saveTabsState();
-    renderTabs();
-    if (PDF_FILE_RE.test(state.currentPath || '')) {
-      hidePdfViewer(); showPdfViewer(Api.fileUrl(state.currentPath), state.files.get(state.currentPath)?.name, vaultAbs(state.currentPath));
-      refreshRightPanels(null);
-    }
-    toast('已重命名文件夹');
-  } catch (e) { toast(e.message); }
+  await relocateEntry(rel, (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '') + clean);
 }
 
 /** 删除文件夹（连同里面的内容一起移入回收站，可整体恢复） */
@@ -1086,7 +1140,7 @@ async function renderTrashList() {
     const meta = document.createElement('div');
     meta.className = 'trash-meta';
     const when = new Date(it.deletedAt).toLocaleString('zh-CN', { hour12: false });
-    meta.textContent = `${it.path} · ${when} · ${fmtSize(it.size || 0)}`;
+    meta.textContent = `${it.path}${it.originalPathUnknown ? '（原路径未知，将恢复到仓库根目录）' : ''} · ${when} · ${fmtSize(it.size || 0)}`;
     main.append(name, meta);
     const restore = document.createElement('button');
     restore.className = 'mini-btn';
@@ -1276,38 +1330,13 @@ async function deleteAssetFile(rel) {
 }
 
 async function renameNote(f) {
-  const isMd = /\.md$/i.test(f.name);
   const ext = (f.name.match(/\.[^.]+$/) || [])[0] || '';
-  const oldName = isMd ? f.name.replace(/\.md$/i, '') : f.name.replace(/\.[^.]+$/, '');
-  const input = await askText({
-    title: isMd ? '重命名笔记' : '重命名文件',
-    desc: isMd ? '指向这篇笔记的 [[双链]] 会自动更新' : '文档里引用这个文件的地方可能不会自动更新',
-    value: oldName,
-    okText: '重命名',
-  });
+  const oldName = f.name.slice(0, f.name.length - ext.length);
+  const input = await askText({ title: /\.md$/i.test(f.name) ? '重命名笔记' : '重命名文件', desc: '指向此文件的笔记和附件引用会同步更新。', value: oldName, okText: '重命名' });
   if (!input || input === oldName) return;
-  const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/') + 1) : '';
-  const bare = input.replace(/\.[^.]+$/, '');
-  const newPath = dir + bare + ext;
-  try {
-    if (!await editor.flush()) return;
-    await Api.rename(f.path, newPath);
-    renameShortcuts(f.path, newPath);
-    renameTabKeys(state, p => p === f.path ? newPath : p);
-    if (state.currentPath === f.path) {
-      state.currentPath = newPath;
-      if (editor.path === f.path) editor.path = newPath;
-      localStorage.setItem('tracery.lastNote', newPath);
-      $('note-path').textContent = newPath;
-    }
-    await refreshTree(); refreshGraph(); refreshTags();
-    if (state.currentPath === newPath && PDF_FILE_RE.test(newPath)) {
-      hidePdfViewer(); showPdfViewer(Api.fileUrl(newPath), state.files.get(newPath)?.name, vaultAbs(newPath));
-      refreshRightPanels(null);
-    }
-    renderTabs(); saveTabsState();
-    toast('已重命名');
-  } catch (e) { toast(e.message); }
+  const bare = (ext && input.toLowerCase().endsWith(ext.toLowerCase()) ? input.slice(0, -ext.length) : input).replace(/[\\/:*?"<>|]/g, '-');
+  const directory = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/') + 1) : '';
+  await relocateEntry(f.path, directory + bare + ext);
 }
 
 async function deleteNote(f) {
@@ -1408,7 +1437,7 @@ function updateEmptyNote() {
   $('editor-area').classList.toggle('is-empty', empty);
   $('editor-area').classList.toggle('is-pdf', pdf);
   $('btn-mode').disabled = empty || pdf;
-  $('document-header').hidden = empty;
+  $('document-header').hidden = empty || pdf;
   $('note-path').textContent = state.currentPath || '';
   $('note-path').title = state.currentPath || '';
   if (!pdf) hidePdfViewer();
@@ -1608,7 +1637,8 @@ function layoutTabs() {
   const list = $('tablist');
   if (!list) return;
   list.removeAttribute('data-overflow');
-  const count = list.querySelectorAll('.tab:not([hidden])').length;
+  const tabs = [...list.querySelectorAll('.tab:not([hidden])')];
+  const count = tabs.length;
   const headers = [...list.querySelectorAll('.tab-group-header')];
   const measure = document.createElement('canvas').getContext('2d');
   const preferred = headers.map(header => {
@@ -1616,14 +1646,22 @@ function layoutTabs() {
     return Math.min(180, Math.ceil(measure.measureText(header.querySelector('.tab-group-label').textContent).width) + 34);
   });
   const groups = preferred.reduce((sum, width) => sum + width, 0);
-  const desired = 35 + count * 168 + groups + Math.max(0, count + state.tabGroups.length - 1) * 4;
+  const widths = tabs.map(tab => {
+    measure.font = getComputedStyle(tab.querySelector('.tab-name')).font;
+    const width = Math.min(168, Math.max(80, Math.ceil(measure.measureText(tab.querySelector('.tab-name').textContent).width) + 52));
+    tab.style.flexBasis = `${width}px`;
+    tab.style.maxWidth = `${width}px`;
+    return width;
+  });
+  const desired = 35 + widths.reduce((sum, width) => sum + width, 0) + groups + Math.max(0, count + headers.length - 1) * 4;
   $('tab-strip').style.flexBasis = `${desired}px`;
   const average = list.clientWidth / Math.max(1, count + state.tabGroups.length);
   const available = Math.max(0, list.clientWidth - (count ? 56 + (count - 1) * 8 : 0));
   const scale = groups ? Math.min(1, available / groups) : 1;
   headers.forEach((header, index) => { header.style.width = `${preferred[index] * scale}px`; });
-  list.classList.toggle('is-compact', average < 86);
-  list.classList.toggle('is-micro', average < 28);
+  const squeezed = list.clientWidth + 1 < desired - 35;
+  list.classList.toggle('is-compact', squeezed && average < 86);
+  list.classList.toggle('is-micro', squeezed && average < 28);
   list.style.gap = `${Math.min(4, average / 8)}px`;
   const origin = list.getBoundingClientRect();
   for (const rail of list.querySelectorAll('.tab-group-rail')) {
@@ -1929,7 +1967,28 @@ function wikilinkTarget(raw) {
 /** 点「还不存在的笔记」的双链 → 问一句就当场创建并打开。
  *  为什么要有：demo-vault/双链与反链.md 把这条写成入口功能（「链接先行」工作流：先织网再填内容），
  *  反链面板的「未创建的链接」本来就是这套动作——两处共用这里，提示语和行为不会走偏。 */
+async function relinkMissingAttachment(raw) {
+  if (state.access?.mode === 'read' || !state.currentPath) return;
+  const source = state.currentPath, root = state.vault.root, missing = String(raw).split('|')[0].trim();
+  const images = IMG_FILE_RE.test(wikiParts(missing).target);
+  const options = [...state.files.keys()].filter(file => images ? IMG_FILE_RE.test(file) : isAttachmentTarget(file));
+  const target = await askText({ title: '重新关联附件', desc: `为 ${missing} 选择仓库内的文件。当前笔记中的该引用会更新，别名与图片宽度保留。`, suggestions: options, placeholder: '输入或选择仓库内的相对路径', okText: '关联' });
+  if (!target) return;
+  if (!options.includes(target)) { toast('请选择列表中仓库内的文件'); return; }
+  await navigate(async () => {
+    if (source !== state.currentPath || root !== state.vault.root || !await editor.flush()) return;
+    const host = $('editor-live'); host.inert = true;
+    try {
+      const result = await Api.relink({ path: source, raw: missing, target, expectedRevision: editor.revision, vaultRoot: root });
+      const data = await Api.note(source); editor.load(source, data.content, { keepMode: true, revision: data.revision, vaultRoot: root });
+      refreshRightPanels(data.content); toast(`已重新关联 ${result.references} 处引用`);
+    } catch (error) { toast(error.message); }
+    finally { host.inert = false; updateEmptyNote(); }
+  });
+}
+
 async function createMissingNote(raw, newTab = false) {
+  if (isAttachmentTarget(raw)) { openEmbeddedLink(raw); return; }
   const name = wikilinkTarget(raw);
   if (!name) return;
   const ok = await askConfirm({
@@ -2293,6 +2352,7 @@ editor = new CmEditor({
   }),
   onNavigate: (path, heading) => openNote(path, heading),
   onFileClick: name => openEmbeddedLink(name),
+  onRelinkAttachment: raw => relinkMissingAttachment(raw),
   onCreateNote: (name) => {
     const path = name.replace(/\.md$/i, '') + '.md';
     Api.createNote(path, '').then(async () => {
@@ -2731,6 +2791,7 @@ function bindGlobalEvents() {
 
 /* ================= WebSocket 同步 ================= */
 function onWsMessage(msg) {
+  if (backupNavigation && ['vault-opened', 'fs-change'].includes(msg.type)) return;
   if (msg.type === 'connection-ready') {
     const root = state.vault?.root;
     Api.state().then(snapshot => {

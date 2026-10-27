@@ -22,6 +22,7 @@ import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { createLivePreview, createFenceHiding, refreshLivePreview } from './decorations.js';
 import { editingExtensions, editingKeymap } from './editing.js';
 import { widgetExtensions, setEmbedWidth } from './widgets.js';
+import { isAttachmentTarget } from '../wiki-path.js';
 import { wikiCompletion } from './wiki-completion.js';
 import { noteAnchors } from '../note-embed.js';
 import { mathPreview } from './math.js';
@@ -146,9 +147,11 @@ export class CmEditor {
         openNote: this.opts.openEmbedNote,
         onImageClick: this.opts.onImageClick,
         onFileClick: this.opts.onFileClick,
+        onRelinkAttachment: this.accessReadOnly ? null : this.opts.onRelinkAttachment,
         // 双链点击：解析得到就跳过去；解析不到（这篇笔记还不存在）→ 交给 onCreateWikilink
         // 走「问一句就当场创建」那条路（demo-vault/双链与反链.md 承诺的行为，反链面板同口径）。
         onOpenWikilink: (target) => {
+          if (isAttachmentTarget(target)) { this.opts.onFileClick?.(target); return; }
           const resolved = this.opts.resolveLink?.(target) || null;
           if (resolved) this.opts.onNavigate?.(resolved, target.includes('#') ? target.split('|')[0].split('#').slice(1).join('#') : undefined);
           else this.opts.onCreateWikilink?.(target);

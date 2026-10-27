@@ -6,11 +6,11 @@
 .titlebar-right { flex: 0 0 auto; }
 .tab-strip { display: flex; align-items: center; min-width: 32px; flex: 0 1 32px; align-self: stretch; overflow: clip; }
 .tablist { position: relative; flex: 1; min-width: 0; gap: 4px; align-items: center; padding: 5px 0; overflow: clip; mask-image: none !important; -webkit-app-region: drag; }
-.tablist .tab { flex: 1 1 168px; min-width: 0; max-width: 168px; height: 34px; padding: 0 8px 0 12px; border: 1px solid transparent; border-radius: 10px; transform: translateY(3px); }
+.tablist .tab { flex: 1 1 168px; min-width: 0; max-width: 168px; height: var(--chrome-tab-height); padding: 0 8px 0 12px; border: 1px solid transparent; border-radius: var(--chrome-tab-radius); }
 .tablist .tab:hover { background: var(--bg-fill); color: var(--text-primary); }
-.tablist .tab.active { background: var(--bg-sheet); color: var(--text-primary); border-color: var(--hairline); border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.07); }
+.tablist .tab.active { background: var(--bg-sheet); color: var(--text-primary); border-color: var(--hairline); border-radius: var(--chrome-tab-radius); box-shadow: 0 1px 4px rgba(0,0,0,.07); }
 .tablist .tab.active::after { left: calc(25% + 5px); right: calc(25% + 5px); bottom: 3px; border-radius: 2px; background: var(--group-color, var(--accent)); }
-.tab-group-rail { position: absolute; top: 5px; height: 2px; border-radius: 2px; background: var(--group-color); pointer-events: none; }
+.tab-group-rail { position: absolute; top: 2px; height: 2px; border-radius: 2px; background: var(--group-color); pointer-events: none; }
 .tablist.tab-motion-overlay { position: fixed; inset: 0; display: block; z-index: 150; padding: 0; pointer-events: none; -webkit-app-region: no-drag; }
 .tab-motion-overlay .tab { position: absolute; min-width: 0; max-width: none; margin: 0; transform: none; pointer-events: none; }
 .tablist .tab[data-file-kind="pdf"] .tab-name::before { content: 'PDF'; margin-right: 5px; color: var(--text-tertiary); font: 8px var(--font-mono); letter-spacing: .02em; }
@@ -23,17 +23,14 @@
 .tablist.is-compact .tab:not(.active):not(.drop-before):not(.drop-after)::before { content: ''; position: absolute; right: 0; top: 10px; height: 14px; width: 1px; background: var(--tab-divider-color, var(--hairline-strong)); }
 .tablist .tab.group-end:not(.drop-before):not(.drop-after)::before { content: ''; position: absolute; right: -3px; top: 10px; height: 14px; width: 1px; background: var(--group-color); }
 .tablist.is-micro .tab.active::after { left: 25%; right: 25%; }
-.tab-new { flex: 0 0 32px; width: 32px; height: 32px; padding: 8px; margin-left: 3px; border-radius: 8px; color: var(--text-secondary); -webkit-app-region: no-drag; }
+.tab-new { flex: 0 0 32px; width: 32px; height: var(--chrome-compact-action); padding: 8px; margin-left: 3px; border-radius: 8px; color: var(--text-secondary); -webkit-app-region: no-drag; }
 .tab-new svg { display: block; width: 16px; height: 16px; }
 .tab-new:hover { color: var(--text-primary); background: var(--bg-fill); }
 .window-drag-space { flex: 1 0 96px; min-width: 96px; height: 100%; align-self: stretch; -webkit-app-region: drag; user-select: none; }
-.tab-more { flex: 0 0 32px; align-self: center; height: 32px; border-radius: 8px; margin: 0 4px; }
-.tab-group-header { position: relative; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; max-width: 180px; height: 34px; padding: 0 8px; border-radius: 8px; background: transparent; color: white; font-size: 12px; -webkit-app-region: no-drag; }
-.tab-group-label { display: block; min-width: 0; height: 24px; line-height: 24px; padding: 0 8px; border-radius: 5px; background: var(--group-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-group-header[aria-expanded="true"] .tab-group-label { transform: translateY(3px); }
-.tab-group-header[aria-expanded="false"] .tab-group-label { transform: translateY(1px); }
-.tab-group-header[aria-expanded="false"]:not(.is-current) .tab-group-label { transform: translateY(3px); }
-.tab-group-header.is-current { align-self: center; height: 34px; margin-bottom: 0; border: 1px solid var(--hairline); border-radius: 10px; background: var(--bg-sheet); transform: translateY(3px); }
+.tab-more { flex: 0 0 32px; align-self: center; height: var(--chrome-compact-action); border-radius: 8px; margin: 0 4px; }
+.tab-group-header { position: relative; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; max-width: 180px; height: var(--chrome-tab-height); padding: 0 8px; border-radius: 8px; background: transparent; color: white; font-size: 12px; -webkit-app-region: no-drag; }
+.tab-group-label { display: block; min-width: 0; height: var(--chrome-group-label-height); line-height: var(--chrome-group-label-height); padding: 0 8px; border-radius: 5px; background: var(--group-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-group-header.is-current { align-self: center; height: var(--chrome-tab-height); margin-bottom: 0; border: 1px solid var(--hairline); border-radius: var(--chrome-tab-radius); background: var(--bg-sheet); }
 .tab-group-header:hover { filter: brightness(1.12); }
 .tab-group-header.dragging { opacity: .45; }
 .tab-group-header.drop-target { outline: 2px solid var(--text-primary); outline-offset: 2px; }
@@ -66,14 +63,14 @@
   .titlebar-left .vault-name { max-width: min(38vw,180px); }
   .tab-strip { grid-column: 1; grid-row: 2; width: 100%; min-width: 0; }
   .tablist { width: auto; padding: 4px 0; }
-  .tablist .tab { height: 34px; }
+  .tablist .tab { height: var(--chrome-tab-height); }
   .tablist .tab-close { width: 22px; height: 28px; }
   .window-drag-space { display: none; }
   .tab-more { height: 36px; }
 }
 /* 桌面最小窗口仍使用一行标题栏；手机浏览器保留上方按钮、下方标签的触屏布局。 */
 @media(max-width:900px) {
-  body.electron .titlebar { display: flex; height: 46px; padding: 0 0 0 8px; gap: 0; }
+  body.electron .titlebar { display: flex; height: var(--chrome-title-height); padding: 0 0 0 8px; gap: 0; }
   body.electron .titlebar-left { flex: 0 0 auto; max-width: 170px; gap: 18px; margin-right: 6px; }
   body.electron .titlebar-left .vault-name { max-width: 94px; padding: 3px 18px 3px 8px; }
   body.electron .titlebar .icon-btn { width: 30px; height: 30px; min-width: 30px; padding: 0 6px; align-self: center; }

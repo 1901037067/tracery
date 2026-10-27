@@ -1,0 +1,24 @@
+/* 界面几何的唯一默认值；主题仍只提供颜色，布局设置仍可覆盖栏宽/显示状态。 */
+:root {
+  --chrome-title-height: 46px;
+  --chrome-tab-height: 34px;
+  --chrome-tab-radius: 10px;
+  --chrome-group-label-height: 24px;
+  --chrome-action-height: 30px;
+  --chrome-compact-action: 32px;
+  --chrome-ribbon-width: 52px;
+  --chrome-ribbon-control: 36px;
+  --chrome-window-control-width: 46px;
+  --chrome-boundary-radius: 18px;
+  --chrome-paper-top: 8px;
+  --chrome-paper-gap: 10px;
+  --chrome-document-inset: 22px;
+  --chrome-dock-top: 13px;
+  --chrome-dock-bottom: 6px;
+  --chrome-dock-inset: 10px;
+  --chrome-dock-gap: 5px;
+  --chrome-dock-button: 32px;
+  --chrome-dock-button-width: 30px;
+  --chrome-sidebar-surface: rgb(from color-mix(in srgb, var(--bg-sheet) 60%, var(--bg-sidebar)) r g b);
+  --chrome-default-divider: calc(var(--chrome-dock-top) + var(--chrome-dock-button) + var(--chrome-dock-gap));
+}

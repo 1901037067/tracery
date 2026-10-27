@@ -1,5 +1,15 @@
 /* 一栏一种内容；将低频信息留到主动切换时显示，沿用原有拖宽与移动抽屉。 */
-.layout > .sidebar { background: color-mix(in srgb, var(--bg-sheet) 60%, var(--bg-sidebar)); }
+.layout::before {
+  /* 侧栏和纸张外围缝隙共享一整层底色；状态栏继续使用纸张底色。 */
+  content: ''; position: absolute; inset: 0 0 0 var(--ribbon-width);
+  border-top-left-radius: var(--chrome-boundary-radius); z-index: -1; pointer-events: none;
+  background: var(--panel-surface);
+}
+@media (max-width: 900px) { .layout::before { inset: 0; border-radius: 0; } }
+@media (min-width: 901px) {
+  :root:not([data-navigation-side="right"]) .layout > #sidebar,
+  :root[data-navigation-side="right"] .layout > #sidebar-right { border-top-left-radius: var(--chrome-boundary-radius); }
+}
 .sidebar-context-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .library-header, .context-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 10px; min-height: 56px; flex-shrink: 0; }
 .library-header { padding: 9px 10px 6px; letter-spacing: normal; text-transform: none; flex-wrap: wrap; gap: 5px; }
@@ -8,7 +18,7 @@
 .library-header #btn-new-note-2 { margin-right: auto; }
 .tree-item.context-target { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--accent-soft); }
 .sidebar-tabs { display: flex; align-items: center; gap: 3px; min-width: 0; }
-.sidebar-tab { height: 32px; padding: 0 12px; border-radius: var(--r-sm); color: var(--text-secondary); font-size: 13px; font-weight: 400; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.sidebar-tab { height: var(--chrome-dock-button); padding: 0 12px; border-radius: var(--r-sm); color: var(--text-secondary); font-size: 13px; font-weight: 400; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .sidebar-tab:hover { background: var(--bg-fill); color: var(--text-primary); }
 .sidebar-tab[aria-selected="true"] { background: var(--bg-sheet); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .icon-tab { width: 32px; padding: 0; }
@@ -38,9 +48,9 @@
 .library-view[hidden], .sidebar-sections > [hidden] { display: none; }
 .context-tabs { flex: 1; }
 .context-tabs .icon-tab { margin-left: auto; color: var(--text-tertiary); }
-.dock-header { display: flex; flex-wrap: wrap; align-content: flex-start; align-items: flex-start; gap: 5px; padding: 13px 10px 6px; }
-.dock-tabs { flex: 1 0 100%; flex-wrap: wrap; align-content: flex-start; min-height: 32px; gap: 2px; }
-.dock-tabs .icon-tab { width: 30px; margin-left: 0; }
+.dock-header { display: flex; flex-wrap: wrap; align-content: flex-start; align-items: flex-start; gap: var(--chrome-dock-gap); padding: var(--chrome-dock-top) var(--chrome-dock-inset) var(--chrome-dock-bottom); }
+.dock-tabs { flex: 1 0 100%; flex-wrap: wrap; align-content: flex-start; min-height: var(--chrome-dock-button); gap: 2px; }
+.dock-tabs .icon-tab { width: var(--chrome-dock-button-width); margin-left: 0; }
 .dock-header .panel-actions { width: 100%; justify-content: flex-end; border-top: 1px solid var(--hairline); padding-top: 5px; }
 .dock-body { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
 .dock-body > [role="tabpanel"] { flex: 1; min-height: 0; }

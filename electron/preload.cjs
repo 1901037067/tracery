@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.send('tracery:win-maximize'),
   close: () => ipcRenderer.send('tracery:win-close'),
   pickVault: () => ipcRenderer.invoke('tracery:pick-vault'),
+  pickBackupDirectory: purpose => ipcRenderer.invoke('tracery:pick-backup-directory', purpose),
   reveal: (p) => ipcRenderer.send('tracery:reveal', p),
   openPath: (p) => ipcRenderer.send('tracery:open-path', p),
   exportPdf: (html, name) => ipcRenderer.invoke('tracery:export-pdf', { html, name }),

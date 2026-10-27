@@ -209,7 +209,7 @@ input, textarea { font-family: inherit; color: inherit; }
 
 /* --- 标题栏（Tab 栏即标题栏：46px，容纳标签行 + 窗口按钮） --- */
 .titlebar {
-  height: 46px;
+  height: var(--chrome-title-height);
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 14px;
   background: var(--bg-sidebar);
@@ -262,7 +262,7 @@ body.electron .titlebar { padding-right: 0; }
 body.electron .titlebar-right { align-self: stretch; }
 body.electron .win-controls { align-self: stretch; align-items: stretch; margin-left: 6px; -webkit-app-region: no-drag; }
 .win-btn {
-  width: 46px; height: auto;
+  width: var(--chrome-window-control-width); height: auto;
   display: grid; place-items: center;
   color: var(--text-secondary);
   border-radius: 0;
@@ -278,7 +278,7 @@ body.electron .win-controls { align-self: stretch; align-items: stretch; margin-
   /* 标题栏是拖拽区；按钮可能被放在 .titlebar-left（原本靠 .titlebar-right 的
      no-drag 继承），必须自己声明 no-drag，否则点击变成拖窗口 */
   -webkit-app-region: no-drag;
-  height: 30px; min-width: 30px; padding: 0 8px;
+  height: var(--chrome-action-height); min-width: var(--chrome-action-height); padding: 0 8px;
   border-radius: var(--r-sm);
   font-size: 14px; line-height: 1;
   display: inline-flex; align-items: center; justify-content: center;
@@ -302,13 +302,15 @@ body.electron .win-controls { align-self: stretch; align-items: stretch; margin-
 .electron-only { display: none !important; }
 body.electron .electron-only { display: inline-flex !important; }
 
-/* 整个主区（含左侧功能栏、两侧栏、以及编辑区四周的缝隙）统一刷**侧栏底色**：
-   编辑区是一张浮在这层底色之上的纸，左右缝隙不再是更暗的窗口底色（用户 2026-10-19 要求）。
-   底色由 .layout 一家承担，.sidebar 改成透明——否则侧栏上会再叠一层半透明色，
-   颜色比缝隙深一档，「缝隙和侧栏同色」就不成立了。 */
+/* 导航底色保留在最外层；侧栏与纸张缝隙由共享的圆角底层承担。 */
 .layout {
-  --ribbon-width: 52px;
+  --ribbon-width: var(--chrome-ribbon-width);
+  --panel-surface: var(--chrome-sidebar-surface);
+  --dock-divider-offset: var(--chrome-default-divider);
+  --paper-top: var(--chrome-paper-top);
+  --chrome-document-height: calc(var(--dock-divider-offset) - var(--paper-top) + 1px);
   position: relative;
+  isolation: isolate;
   flex: 1; display: flex; min-height: 0; gap: 0; background: var(--bg-sidebar);
 }
 /* 一条连续边界同时对齐图标栏右缘与标签栏下缘；独立描边不挤动纸张或拖拽热区。 */
@@ -317,7 +319,7 @@ body.electron .electron-only { display: inline-flex !important; }
   position: absolute; inset: 0 0 0 var(--ribbon-width);
   border-top: 1px solid var(--hairline-strong);
   border-left: 1px solid var(--hairline-strong);
-  border-top-left-radius: 18px;
+  border-top-left-radius: var(--chrome-boundary-radius);
   pointer-events: none;
   z-index: 10;
 }
@@ -330,7 +332,7 @@ body.electron .electron-only { display: inline-flex !important; }
   flex-shrink: 0;
 }
 .ribbon-btn {
-  width: 36px; height: 36px;
+  width: var(--chrome-ribbon-control); height: var(--chrome-ribbon-control);
   border-radius: var(--r-sm);
   font-size: 16px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -546,6 +548,7 @@ body.electron .electron-only { display: inline-flex !important; }
   overflow: hidden;
 }
 .pdf-head {
+  min-height: var(--chrome-document-height);
   display: flex; align-items: center; gap: 12px;
   padding: 7px 10px 7px 16px;
   border-bottom: 1px solid var(--hairline);
@@ -625,19 +628,20 @@ body.electron .electron-only { display: inline-flex !important; }
 .editor-area {
   flex: 1; display: flex; flex-direction: column; min-width: 0;
   /* 底边不留缝、下半部不圆角：内容区直接和窗口底部相连（不再是浮在中间的一张卡） */
-  margin: 8px 10px 0 10px;
+  margin: var(--paper-top) var(--chrome-paper-gap) 0;
   background: var(--bg-sheet);
   border-radius: var(--r-lg) var(--r-lg) 0 0;
-  box-shadow: var(--shadow-sheet);
+  /* 外投影会把窄缝染深；纸张用自身底色与外围区分。 */
+  box-shadow: none;
   overflow: hidden;
 }
 /* ============ 状态栏 ============ */
-.document-header { display: flex; align-items: center; min-height: 38px; padding: 8px 22px; flex-shrink: 0; border-bottom: 1px solid var(--hairline); color: var(--text-secondary); font-size: 12px; }
+.document-header { display: flex; align-items: center; min-height: var(--chrome-document-height); padding: 8px var(--chrome-document-inset); flex-shrink: 0; border-bottom: 1px solid var(--hairline); color: var(--text-secondary); font-size: 12px; }
 .document-header[hidden] { display: none; }
 .document-header #note-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .statusbar {
   display: flex; align-items: center; gap: 18px;
-  padding: 8px 22px;
+  padding: 8px var(--chrome-document-inset);
   font-size: 11.5px; color: var(--text-tertiary);
   border-top: 1px solid var(--hairline);
   flex-shrink: 0; user-select: none;
@@ -1286,7 +1290,7 @@ body.electron .electron-only { display: inline-flex !important; }
 /* ============ 图谱全屏 ============ */
 body.graph-focus #sidebar {
   flex: 1; width: auto !important; min-width: 0;
-  margin: 8px 10px 0 10px;
+  margin: var(--paper-top) var(--chrome-paper-gap) 0;
   background: var(--bg-sheet);
   border-radius: var(--r-lg) var(--r-lg) 0 0;
   box-shadow: var(--shadow-sheet);
@@ -1814,3 +1818,9 @@ body.resizing * { transition: none !important; user-select: none !important; }
 }
 .lan-input:focus { background: var(--bg-sheet); box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent) inset; }
 .lan-join .btn-primary { padding: 9px 16px; font-size: 12.5px; white-space: nowrap; }
+
+/* 备份路径与状态沿用设置面板布局，不影响文档排版。 */
+.backup-path-label { display: grid; gap: 6px; margin-block: 12px 6px; color: var(--text-secondary); font-size: 12px; }
+.backup-path { min-width: 0; width: 100%; padding: 7px 9px; border: 1px solid var(--hairline); border-radius: var(--r-sm); background: var(--bg-sheet); color: var(--text-primary); }
+.backup-result { white-space: pre-wrap; overflow-wrap: anywhere; }
+.attachment-relink { margin-left: 10px; color: var(--accent); text-decoration: underline; }

@@ -70,14 +70,24 @@ function blockEmbed(content) {
   block.append(content);
   return block;
 }
+function showMissingImage(host, name, raw, relink, view) {
+  host.replaceChildren(); host.classList.add('cm-lp-img-missing');
+  const label = document.createElement('span'); label.textContent = `图片未找到：${name}`; host.append(label);
+  if (relink && !/^(https?:|data:|blob:)/i.test(name)) {
+    const button = document.createElement('button'); button.className = 'mini-btn attachment-relink'; button.textContent = '重新关联…';
+    button.onclick = event => { event.preventDefault(); event.stopPropagation(); relink(raw); }; host.append(button);
+  }
+  view.requestMeasure();
+}
 
 class ImageEmbedWidget extends WidgetType {
-  constructor(embed, from, onImageClick, onFileClick) {
+  constructor(embed, from, onImageClick, onFileClick, onRelinkAttachment) {
     super();
     this.embed = embed;
     this.from = from;
     this.onImageClick = onImageClick || null;
     this.onFileClick = onFileClick || null;
+    this.onRelinkAttachment = onRelinkAttachment;
   }
   eq(o) { return o.from === this.from && o.embed.raw === this.embed.raw && o.embed.src === this.embed.src; }
   get estimatedHeight() { return this.embed.isImage ? (this.embed.width ? Math.min(this.embed.width * 0.62, 900) : 240) : 36; }
@@ -98,11 +108,11 @@ class ImageEmbedWidget extends WidgetType {
       }
       return blockEmbed(fig);
     }
-    if (!src) { fig.innerHTML = `<div class="cm-lp-img-missing">图片不存在：<code>${name}</code></div>`; return blockEmbed(fig); }
+    if (!src) { showMissingImage(fig, name, this.embed.raw, this.onRelinkAttachment, view); return blockEmbed(fig); }
     const img = document.createElement('img');
     img.src = src; img.alt = name; img.draggable = false; img.loading = 'lazy';
     img.addEventListener('load', () => view.requestMeasure());
-    img.addEventListener('error', () => view.requestMeasure());
+    img.addEventListener('error', () => showMissingImage(fig, name, this.embed.raw, this.onRelinkAttachment, view));
     if (width) { img.style.width = `${width}px`; img.style.maxWidth = '100%'; }
     const grip = document.createElement('span');
     grip.className = 'cm-lp-img-grip';
@@ -150,11 +160,12 @@ class ImageEmbedWidget extends WidgetType {
  *   - 拖宽基准用 `img.style.width`（逻辑宽度），图未加载时 rect 可能是 0（P3 结论 5）。 */
 class InlineImageWidget extends WidgetType {
   /** @param embed {raw,name,width,src,isImage,wiki} */
-  constructor(embed, from, onImageClick) {
+  constructor(embed, from, onImageClick, onRelinkAttachment) {
     super();
     this.embed = embed;
     this.from = from;
     this.onImageClick = onImageClick || null;
+    this.onRelinkAttachment = onRelinkAttachment;
   }
   eq(o) { return o.from === this.from && o.embed.raw === this.embed.raw && o.embed.src === this.embed.src; }
   toDOM(view) {
@@ -168,8 +179,7 @@ class InlineImageWidget extends WidgetType {
     box.dataset.target = wiki ? raw : name;
     box.dataset.from = String(this.from);
     if (!src) {
-      box.classList.add('cm-lp-img-missing');
-      box.textContent = `🖼 ${name}（未找到）`;
+      showMissingImage(box, name, wiki ? raw : name, this.onRelinkAttachment, view);
       return box;
     }
     const img = document.createElement('img');
@@ -177,6 +187,7 @@ class InlineImageWidget extends WidgetType {
     // 行内 widget 没有 estimatedHeight（图片尺寸要等加载才知道），图加载完行高会变 →
     // 必须请 CM 重测一次，否则行号槽会停在「图还没加载」时的旧位置（实测行号挤在图中间）。
     img.addEventListener('load', () => { try { view.requestMeasure(); } catch { /* view 已销毁 */ } });
+    img.addEventListener('error', () => showMissingImage(box, name, wiki ? raw : name, this.onRelinkAttachment, view));
     if (wiki) img.dataset.embed = name;
     else { img.dataset.mdSrc = name; img.classList.add('md-image'); }
     if (width) { img.style.width = `${width}px`; img.style.maxWidth = '100%'; }
@@ -325,7 +336,7 @@ export function embedWidgets(opts = {}) {
       if (line.from >= line.to) continue;
       let widget;
       if (emb.isImage || emb.isAsset) {
-        widget = new ImageEmbedWidget({ raw: m[1], ...emb }, line.from, opts.onImageClick, opts.onFileClick);
+        widget = new ImageEmbedWidget({ raw: m[1], ...emb }, line.from, opts.onImageClick, opts.onFileClick, opts.onRelinkAttachment);
       } else if (opts.loadNote) {
         widget = new NoteEmbedWidget({ name: m[1], from: line.from, md: cache?.get(m[1]) ?? null, opts, scope: state.field(noteScope) });
         widget.load = (view) => load(view, m[1]);
@@ -586,20 +597,20 @@ function inlineImageDecos(state, lo, hi, opts, out) {
       out.push({
         from, to: from + m[0].length, kind: 'replace', always: true,
         // raw 用 token **内容**（`名字|宽`），与块级 widget 的 dataset.target 同口径
-        widget: new InlineImageWidget({ raw, ...emb, wiki: true }, from, opts.onImageClick),
+        widget: new InlineImageWidget({ raw, ...emb, wiki: true }, from, opts.onImageClick, opts.onRelinkAttachment),
       });
     }
     MD_IMG_RE.lastIndex = 0;
     while ((m = MD_IMG_RE.exec(text))) {
       if (inInlineCode(text, m.index)) continue;
       const info = mdImageSrc(m[2], opts);
-      if (!info || !info.src) continue;
+      if (!info) continue;
       const from = line.from + m.index;
       out.push({
         from, to: from + m[0].length, kind: 'replace', always: true,
         widget: new InlineImageWidget(
           { raw: m[0], name: info.url, width: 0, src: info.src, isImage: true, isAsset: false, wiki: false },
-          from, opts.onImageClick,
+          from, opts.onImageClick, opts.onRelinkAttachment,
         ),
       });
     }

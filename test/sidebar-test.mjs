@@ -5,6 +5,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { launchBrowser } from './browser.mjs';
+import { waitForApp, waitForNote } from './waits.mjs';
 import { phoneAccess } from '../server/access.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -24,14 +25,15 @@ const packedExe = process.env.TRACERY_TEST_EXE;
 const serverScript = packedExe ? path.join(path.dirname(packedExe), 'resources/app.asar/server/server.js') : path.join(ROOT, 'server/server.js');
 const server = spawn(packedExe || process.execPath, [serverScript], { cwd: ROOT,
   env: { ...process.env, PORT: String(PORT), TRACERY_HOME: HOME, ...(packedExe ? { ELECTRON_RUN_AS_NODE: '1' } : {}) }, stdio: 'pipe', windowsHide: true });
-let browser;
+let browser, page;
 try {
   for (let i = 0; i < 80; i++) { try { if ((await fetch(BASE + '/api/state')).ok) break; } catch {} await sleep(250); }
   const lan = phoneAccess(9521, { wifi: [{ family: 'IPv4', internal: false, address: '192.168.1.20' }, { family: 'IPv6', internal: false, address: '::1' }], lo: [{ family: 'IPv4', internal: true, address: '127.0.0.1' }] });
   assert.equal(lan.addresses.length, 1); assert.equal(lan.addresses[0].url, 'http://192.168.1.20:9521'); assert.equal(lan.requiresComputer,true); assert.equal('access' in lan,false);
-  browser = await launchBrowser(); const page = await browser.newPage(), errors = [];
+  browser = await launchBrowser(); page = await browser.newPage(); const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(BASE, { waitUntil: 'networkidle0' });
+  await waitForApp(page);
   assert.equal(await page.$('#btn-new-note'), null);
   assert.equal(await page.$$eval('#panel-files .library-view:not([hidden])', es => es.length), 1);
   assert.equal(await page.$eval('#section-library', e => e.hidden), false);
@@ -66,22 +68,26 @@ try {
   await page.evaluate(async () => { await window.__tracery.Api.remove('空白菜单创建.md'); await window.__tracery.Api.remove('根目录文件夹'); });
   await page.waitForFunction(() => window.__tracery.state.files.size === 3);
   console.log('PASS 首屏仅文件树与大纲、移除冗余标题和底部加号、手机按钮顺序、空白右键创建根目录文件及文件夹');
-  await page.click('#file-tree [data-path="主笔记.md"]');
+  await page.locator('#file-tree [data-path="主笔记.md"]').click();
+  await waitForNote(page, '主笔记.md');
   await page.waitForFunction(() => document.querySelectorAll('#outline-list .outline-item').length === 4);
   await page.waitForFunction(() => document.getElementById('backlinks-list').textContent.includes('尚未创建'));
   assert.ok(await page.$eval('#backlinks-list', e => e.textContent.includes('来源') && e.textContent.includes('目标')));
   await page.click('#tab-info');
+  await page.waitForFunction(() => document.querySelector('#note-tags-list').textContent.includes('#计划') && document.querySelector('#note-info-modified').textContent !== '—');
   assert.ok(await page.$eval('#note-tags-list', e => e.textContent.includes('#计划')));
   assert.notEqual(await page.$eval('#note-info-modified', e => e.textContent), '—');
   await page.click('#tab-links');
   assert.equal(await page.$eval('#panel-outline', e => e.hidden), true);
   assert.equal(await page.$$eval('.sidebar-sections > section:not([hidden])', es => es.length), 1);
   await page.reload({ waitUntil: 'networkidle0' });
+  await waitForApp(page);
   assert.equal(await page.$eval('#panel-backlinks', e => e.hidden), false);
   assert.equal(await page.$eval('#panel-note-tags', e => e.hidden), true);
   // startup=empty：刷新后仍是空工作区，不能残留上篇笔记的大纲或标签。
   assert.equal(await page.$$eval('#outline-list .outline-item', es => es.length), 0);
-  await page.click('#file-tree [data-path="主笔记.md"]');
+  await page.locator('#file-tree [data-path="主笔记.md"]').click();
+  await waitForNote(page, '主笔记.md');
   await page.click('#tab-outline');
   await page.waitForSelector('#outline-list [data-line="9"]');
   await page.click('#outline-list [data-line="9"]');
@@ -113,7 +119,7 @@ try {
     window.__tracery.switchRightPanel('backlinks');
   });
   await sleep(250);
-  await page.click('#file-tree [data-path="目标.md"]');
+  await page.locator('#file-tree [data-path="目标.md"]').click();
   await sleep(1200);
   assert.equal(await page.$eval('#note-info-path', e => e.textContent), '目标.md');
   const groups = await page.$$eval('#backlinks-list .relation-heading', es => es.map(e => e.textContent));
@@ -122,7 +128,7 @@ try {
   assert.ok(!(await page.$eval('#note-tags-list', e => e.textContent)).includes('#计划'));
   console.log('PASS 切换笔记后忽略迟到的关联响应，信息和标签同步更新');
   // 恢复一个有内容的桌面画面用于视觉检查。
-  await page.click('#file-tree [data-path="主笔记.md"]');
+  await page.locator('#file-tree [data-path="主笔记.md"]').click();
   await page.waitForFunction(() => window.__tracery.state.currentPath === '主笔记.md' && document.querySelector('#backlinks-list .relation-heading')?.textContent.includes('链接到此笔记'));
   await page.click('#tab-outline');
   await page.screenshot({ path: screenshot('desktop-dark') });
@@ -207,6 +213,9 @@ try {
   console.log('PASS 190px桌面栏与320px手机按钮不溢出，空仓背景右键可创建第一篇笔记');
   assert.deepEqual(errors, []);
   console.log('PASS 无浏览器脚本错误');
+} catch (error) {
+  if (page) { await page.screenshot({ path: screenshot('failure') }); console.error('侧栏失败状态', await page.evaluate(() => ({ current: window.__tracery?.state.currentPath, editor: window.__editor?.path, loading: window.__editor?._loading, dirty: window.__editor?.dirty, content: window.__editor?.getContent(), outline: document.querySelector('#outline-list')?.textContent }))); }
+  throw error;
 } finally {
   await browser?.close();
   const stopped = new Promise(resolve => server.once('exit', resolve)); server.kill(); await stopped;

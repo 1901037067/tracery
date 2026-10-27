@@ -1,5 +1,5 @@
 /**
- * Tracery 服务端 —— 对应 Obsidian 架构中的「主进程」职责：
+ * Tracery 服务端职责：
  *   vault 文件系统访问 / 文件监听 / 链接与标签索引（metadataCache）/ 配置持久化
  * 前端（渲染进程）只通过 HTTP API + WebSocket 与这里交互，不直接碰文件系统。
  */
@@ -26,6 +26,10 @@ import { createHistoryBackup } from './history-backup.js';
 import { createMobileAccess } from './mobile-access.js';
 import { validateRequest, isLocalClient } from './request-guard.js';
 import { readDiskNote, saveDiskNote, revisionOf } from './note-store.js';
+import { readJson, writeJson } from './durable-json.js';
+import { createTrashStore } from './trash-store.js';
+import { createReferenceStore } from './reference-store.js';
+import { createFullBackup } from './full-backup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -39,6 +43,9 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
 const HOME = process.env.TRACERY_HOME || process.env.EVNOTE_HOME || ROOT;
 const history = createHistoryStore(HOME);
 const historyBackup = createHistoryBackup(HOME, history);
+const references = createReferenceStore({ home: HOME, history });
+let mutationQueue = Promise.resolve();
+const runMutation = job => { const result = mutationQueue.then(job); mutationQueue = result.catch(() => {}); return result; };
 const snapshotHistory = (root, rel, content) => history.snapshot(root, rel, content);
 
 /* ================= 回收站 =================
@@ -46,97 +53,12 @@ const snapshotHistory = (root, rel, content) => history.snapshot(root, rel, cont
  * 每项 id__原文件名 + index.json 记录原始相对路径，可恢复。
  * 放在数据目录而不是仓库里：不污染笔记目录、不会被同步、文件树也看不见。
  */
-function trashDir(root) {
-  const h = crypto.createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 12);
-  return path.join(HOME, 'trash', h);
-}
-function readTrashIndex(dir) {
-  try { return JSON.parse(fs.readFileSync(path.join(dir, 'index.json'), 'utf8')) || []; } catch { return []; }
-}
-function writeTrashIndex(dir, items) {
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'index.json'), JSON.stringify(items, null, 2), 'utf8');
-}
-const TRASH_LIMIT = 200;
-async function moveToTrash(root, rel, abs) {
-  const dir = trashDir(root);
-  fs.mkdirSync(dir, { recursive: true });
-  const id = `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-  const name = path.basename(abs);
-  const dest = path.join(dir, `${id}__${name}`);
-  // 目录也能整体进回收站（删除文件夹时连内容一起搬走，恢复时整棵树回来）。
-  // 注意：跨盘的 EXDEV 兜底不能对目录用 copyFile（会抛 EISDIR），必须 recursive 复制 + 整树删除。
-  const isDir = fs.statSync(abs).isDirectory();
-  let size = 0;
-  try { size = (await fsp.stat(abs)).size; } catch { /* ignore */ }
-  try {
-    await fsp.rename(abs, dest);          // 同盘：秒移
-  } catch (e) {
-    if (e.code !== 'EXDEV') throw e;      // 跨盘（仓库在 D/E，数据目录在 C）：复制后删
-    if (isDir) {
-      await fsp.cp(abs, dest, { recursive: true });
-      await fsp.rm(abs, { recursive: true, force: true });
-    } else {
-      await fsp.copyFile(abs, dest);
-      await fsp.unlink(abs);
-    }
-  }
-  const items = readTrashIndex(dir);
-  items.unshift({ id, path: rel.replace(/\\/g, '/'), name, deletedAt: Date.now(), size });
-  const trimmed = items.slice(0, TRASH_LIMIT);
-  for (const drop of items.slice(TRASH_LIMIT)) {
-    try { await fsp.rm(path.join(dir, `${drop.id}__${drop.name}`), { recursive: true, force: true }); } catch { /* ignore */ }
-  }
-  writeTrashIndex(dir, trimmed);
-}
-async function restoreFromTrash(root, id) {
-  const dir = trashDir(root);
-  const items = readTrashIndex(dir);
-  const i = items.findIndex((x) => x.id === id);
-  if (i < 0) return null;
-  const item = items[i];
-  const src = path.join(dir, `${item.id}__${item.name}`);
-  if (!fs.existsSync(src)) { items.splice(i, 1); writeTrashIndex(dir, items); return null; }
-  const dest = resolveInVault(root, item.path);
-  let target = dest;
-  let n = 1;
-  while (fs.existsSync(target)) {
-    const ext = path.extname(dest);
-    target = `${dest.slice(0, dest.length - ext.length)} (${n})${ext}`;
-    n += 1;
-  }
-  await fsp.mkdir(path.dirname(target), { recursive: true });
-  try { await fsp.rename(src, target); } catch (e) {
-    if (e.code !== 'EXDEV') throw e;
-    if (fs.statSync(src).isDirectory()) {
-      await fsp.cp(src, target, { recursive: true });
-      await fsp.rm(src, { recursive: true, force: true });
-    } else {
-      await fsp.copyFile(src, target);
-      await fsp.unlink(src);
-    }
-  }
-  items.splice(i, 1);
-  writeTrashIndex(dir, items);
-  return path.relative(root, target).replace(/\\/g, '/');
-}
-async function purgeTrashItem(root, id) {
-  const dir = trashDir(root);
-  const items = readTrashIndex(dir);
-  const i = items.findIndex((x) => x.id === id);
-  if (i < 0) return;
-  const item = items[i];
-  try { await fsp.rm(path.join(dir, `${item.id}__${item.name}`), { recursive: true, force: true }); } catch { /* ignore */ }
-  items.splice(i, 1);
-  writeTrashIndex(dir, items);
-}
-async function emptyTrash(root) {
-  const dir = trashDir(root);
-  for (const item of readTrashIndex(dir)) {
-    try { await fsp.rm(path.join(dir, `${item.id}__${item.name}`), { recursive: true, force: true }); } catch { /* ignore */ }
-  }
-  writeTrashIndex(dir, []);
-}
+const trash = createTrashStore(HOME);
+const readTrashIndex = () => trash.list(vault.root);
+const moveToTrash = (...args) => trash.move(...args);
+const restoreFromTrash = (...args) => trash.restore(...args);
+const purgeTrashItem = (...args) => trash.purge(...args);
+const emptyTrash = root => trash.empty(root);
 const CONFIG_FILE = path.join(HOME, 'tracery.config.json');
 const LEGACY_CONFIG_FILE = path.join(HOME, 'evnote.config.json');
 const DEFAULT_VAULT = path.join(ROOT, 'demo-vault');
@@ -181,21 +103,17 @@ function normalizeConfig(cfg) {
   if (!cfg.settings && cfg.themeName) settings.themeName = cfg.themeName;
   return { currentVault: null, recentVaults: [], ...cfg, settings };
 }
+const storageWarnings = [];
+function validConfig(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && (value.currentVault == null || typeof value.currentVault === 'string')
+    && (value.recentVaults === undefined || (Array.isArray(value.recentVaults) && value.recentVaults.every(root => typeof root === 'string')))
+    && (value.settings === undefined || (value.settings && typeof value.settings === 'object' && !Array.isArray(value.settings)));
+}
 function loadConfig() {
-  // 一次性迁移：旧版 evnote.config.json → tracery.config.json（保住用户的最近仓库与设置）
-  if (!fs.existsSync(CONFIG_FILE) && fs.existsSync(LEGACY_CONFIG_FILE)) {
-    try { fs.renameSync(LEGACY_CONFIG_FILE, CONFIG_FILE); }
-    catch { /* 迁不动就原地读旧文件，下面有回退 */ }
-  }
-  for (const file of [CONFIG_FILE, LEGACY_CONFIG_FILE]) {
-    try { return normalizeConfig(JSON.parse(fs.readFileSync(file, 'utf8'))); } catch { /* 试下一个 */ }
-  }
-  return { currentVault: null, recentVaults: [], settings: { ...DEFAULT_SETTINGS, sync: { ...DEFAULT_SETTINGS.sync } } };
+  return normalizeConfig(readJson(CONFIG_FILE, {}, { validate: validConfig, legacy: LEGACY_CONFIG_FILE, warn: message => { console.warn(message); storageWarnings.push(message); } }));
 }
-function saveConfig(cfg) {
-  fs.mkdirSync(HOME, { recursive: true });
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
-}
+function saveConfig(cfg) { writeJson(CONFIG_FILE, cfg, { validate: validConfig }); }
 
 /** 校验并合并设置补丁（不合法字段直接忽略） */
 function mergeSettings(patch = {}) {
@@ -225,8 +143,8 @@ function mergeSettings(patch = {}) {
       if (clean) s.attachment.folder = clean.slice(0, 60);
     }
   }
+  saveConfig({ ...config, settings: s });
   config.settings = s;
-  saveConfig(config);
   return s;
 }
 
@@ -285,6 +203,7 @@ let vault = null;
 
 /* ---------------- 同步引擎（对应 Obsidian Sync 的主进程侧） ---------------- */
 const syncEngine = new SyncEngine({
+  runExclusive: runMutation,
   getVaultRoot: () => vault?.root || null,
   notify: (status) => broadcast({ type: 'sync-status', status }),
   onApplied: async () => {
@@ -294,6 +213,7 @@ const syncEngine = new SyncEngine({
     broadcast({ type: 'fs-change', paths: ['*'], source: 'sync' });
   },
 });
+const backups = createFullBackup({ home: HOME, getVault: () => vault, getSettings: () => config.settings, runExclusive: runMutation });
 
 /* ---------------- 局域网直连（六位通行码） ---------------- */
 const lanShare = createLanShare({
@@ -323,6 +243,7 @@ function sendJson(res, code, obj) {
 
 function readBody(req, limit = 32 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
+    if (req.aborted || req.destroyed) { reject(new Error('请求已中断')); return; }
     const chunks = []; let bytes = 0;
     req.on('data', (c) => {
       bytes += c.length;
@@ -345,7 +266,22 @@ function readBody(req, limit = 32 * 1024 * 1024) {
 }
 
 /* ---------------- HTTP 路由 ---------------- */
+let shutdownStarted = false;
+const activeRequests = new Set();
 async function handleRequest(req, res) {
+  if (shutdownStarted) { sendJson(res, 503, { error: '服务正在退出，请稍后重试' }); return; }
+  const route = new URL(req.url, 'http://localhost').pathname;
+  const locked = req.method !== 'GET' && ['/api/note','/api/note/create','/api/settings','/api/theme','/api/asset','/api/rename','/api/delete','/api/replace','/api/vault/open','/api/history/restore','/api/trash/restore','/api/trash/purge','/api/trash/empty','/api/references/relink'].includes(route);
+  const root = vault?.root;
+  const operation = locked ? runMutation(() => {
+    if (req.aborted || res.destroyed) return;
+    if (root !== vault?.root) { sendJson(res, 409, { error: '仓库已经切换，请在原仓库重试' }); return; }
+    return processRequest(req, res);
+  }) : processRequest(req, res);
+  activeRequests.add(operation);
+  try { await operation; } finally { activeRequests.delete(operation); }
+}
+async function processRequest(req, res) {
   const u = new URL(req.url, `http://localhost:${PORT}`);
   const p = u.pathname;
 
@@ -375,6 +311,7 @@ async function handleRequest(req, res) {
         recentVaults: req.mobile ? [] : config.recentVaults,
         access: req.mobile ? {local:false,mode:req.mobileSession.mode} : {local:true,mode:'write'},
         settings: config.settings,
+        storageWarnings: req.mobile ? [] : storageWarnings,
       });
     }
 
@@ -400,6 +337,7 @@ async function handleRequest(req, res) {
       if (vault?.root !== path.resolve(vaultPath)) await lanShare.stop();
       if (vault?.root !== path.resolve(vaultPath)) mobileAccess.revoke();
       vault = new Vault(path.resolve(vaultPath));
+      storageWarnings.push(...await references.recover(vault.root));
       await vault.open();
       config.currentVault = vault.root;
       config.recentVaults = [vault.root, ...config.recentVaults.filter((v) => v !== vault.root)].slice(0, 8);
@@ -519,6 +457,16 @@ async function handleRequest(req, res) {
       res.setHeader('Cache-Control', 'no-store');
       return sendJson(res, 200, historyBackup.export(vault.root));
     }
+    if (p.startsWith('/api/backup/')) {
+      if (!isLocalClient(req)) return sendJson(res, 403, { error: '完整备份与恢复仅限电脑本机' });
+      if (p === '/api/backup/status' && req.method === 'GET') return sendJson(res, 200, backups.status(u.searchParams.get('id')));
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        if (p === '/api/backup/cancel') { backups.cancel(body.id); return sendJson(res, 200, { ok: true }); }
+        const kind = p.slice('/api/backup/'.length);
+        if (['create', 'verify', 'restore'].includes(kind)) return sendJson(res, 202, { id: backups.start(kind, body) });
+      }
+    }
     if (p === '/api/history/import' && req.method === 'POST') {
       if (!isLocalClient(req)) return sendJson(res, 403, { error: '请在电脑本机管理历史备份' });
       const { archive, allowRebind, vaultRoot } = await readBody(req);
@@ -632,32 +580,21 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { ok: true, path: rel });
     }
     if (p === '/api/rename' && req.method === 'POST') {
-      const { path: rel, newPath } = await readBody(req);
+      const { path: rel, newPath, vaultRoot } = await readBody(req);
       if (!rel || !newPath) return sendJson(res, 400, { error: '参数缺失' });
-      const abs = resolveInVault(vault.root, rel);
-      const newAbs = resolveInVault(vault.root, newPath);
-      if (!fs.existsSync(abs)) return sendJson(res, 404, { error: '文件不存在' });
-      // 目录重命名：不参与双链自动更新（目录名不是 [[链接]] 的目标；
-      // 否则「日记」这种同名目录会把指向 日记.md 的双链一起改掉）
-      const isDir = fs.statSync(abs).isDirectory();
-      await fsp.mkdir(path.dirname(newAbs), { recursive: true });
-      await fsp.rename(abs, newAbs);
-      // Obsidian 行为：重命名后自动更新指向它的双链
-      const oldName = path.basename(rel, path.extname(rel));
-      const newName = path.basename(newPath, path.extname(newPath));
-      const touched = new Set([rel]);
-      if (!isDir && oldName !== newName) {
-        for (const [srcRel, note] of vault.notes) {
-          if (srcRel === rel || !note.links.includes(oldName)) continue;
-          const srcAbs = resolveInVault(vault.root, srcRel);
-          const c = vault.contentCache.get(srcRel) || '';
-          const updated = c.replace(new RegExp(`\\[\\[${escapeRe(oldName)}(\\|[^\\]]*)?\\]\\]`, 'g'), `[[${newName}$1]]`);
-          if (updated !== c) { await fsp.writeFile(srcAbs, updated, 'utf8'); touched.add(srcRel); }
-        }
-      }
-      await vault.open();
-      broadcast({ type: 'fs-change', paths: [...touched] });
-      return sendJson(res, 200, { ok: true, path: newPath });
+      const target = vault;
+      if (vaultRoot !== undefined && vaultRoot !== target.root) return sendJson(res, 409, { error: '仓库已经切换' });
+      try {
+        const result = await references.rename(target.root, rel, newPath);
+        return sendJson(res, 200, { ok: true, ...result });
+      } finally { await target.open(); broadcast({ type: 'fs-change', paths: ['*'], treeChanged: true }); }
+    }
+    if (p === '/api/references/relink' && req.method === 'POST') {
+      const { path: rel, raw, target: next, expectedRevision, vaultRoot } = await readBody(req), current = vault;
+      if (vaultRoot !== current.root) return sendJson(res, 409, { error: '仓库已经切换' });
+      const result = await references.relink(current.root, rel, raw, next, expectedRevision);
+      await current.open(); broadcast({ type: 'fs-change', paths: result.paths });
+      return sendJson(res, 200, { ok: true, ...result });
     }
     if (p === '/api/delete' && req.method === 'POST') {
       const { path: rel } = await readBody(req);
@@ -678,7 +615,7 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { ok: true });
     }
     if (p === '/api/trash' && req.method === 'GET') {
-      return sendJson(res, 200, { items: readTrashIndex(trashDir(vault.root)) });
+      return sendJson(res, 200, { items: readTrashIndex() });
     }
     if (p === '/api/trash/restore' && req.method === 'POST') {
       const { id } = await readBody(req);
@@ -758,7 +695,6 @@ const mobileAccess = createMobileAccess({ handler:handleRequest, upgrade:upgrade
   onRevoke(id) { for(const client of wss.clients) if(client.mobileSession && (!id || client.mobileSession === id)) client.terminate(); },
 });
 
-function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /* ---------------- WebSocket ---------------- */
 const wss = new WebSocketServer({ noServer:true });
@@ -783,6 +719,7 @@ let watchEpoch = 0;
 let watchTimer = null;
 const pendingChanges = new Set();
 function watchVault(root) {
+  if (shutdownStarted) return;
   root=path.resolve(root);const epoch=++watchEpoch;let polling=false;
   if (watcher) { if (watcher.close) watcher.close(); else clearInterval(watcher); }
   clearTimeout(watchTimer); pendingChanges.clear();
@@ -793,7 +730,7 @@ function watchVault(root) {
     console.warn('[watch] 监听不可用，退化为轮询:',error.message);
     let busy=false;
     watcher=setInterval(async()=>{
-      if(busy||vault?.root!==root)return;busy=true;
+      if(shutdownStarted||busy||vault?.root!==root)return;busy=true;
       try { const active=vault;await active.open();if(vault===active)broadcast({type:'fs-change',paths:['*']}); }
       catch(reason){console.warn('[watch] 轮询失败:',reason.message);}
       finally{busy=false;}
@@ -816,7 +753,7 @@ function watchVault(root) {
   }
 }
 async function flushChanges() {
-  if (!vault) return;
+  if (!vault || shutdownStarted) return;
   const rels = [...pendingChanges];
   pendingChanges.clear();
   const active = vault;
@@ -832,6 +769,10 @@ async function flushChanges() {
 }
 
 /* ---------------- 启动 ---------------- */
+function startupProgress(data) {
+  console.log('[index]', JSON.stringify(data));
+  process.send?.({ ...data, type: 'tracery-progress', nonce: process.env.TRACERY_START_TOKEN, pid: process.pid });
+}
 async function start() {
   // 首次启动：没有仓库就用内置演示仓库，保证开箱即用
   let root = config.currentVault;
@@ -843,8 +784,11 @@ async function start() {
   // 保证当前仓库一定出现在「最近打开」里（首启动的演示仓库也能一键切回）
   config.recentVaults = [root, ...config.recentVaults.filter((v) => v !== root)].slice(0, 8);
   saveConfig(config);
-  vault = new Vault(root);
-  await vault.open();
+  vault = new Vault(root, { onProgress: startupProgress });
+  storageWarnings.push(...await references.recover(root));
+  const pulse = setInterval(() => process.send?.({ type: 'tracery-progress', nonce: process.env.TRACERY_START_TOKEN, pid: process.pid, phase: 'working', message: '正在准备笔记仓库，请稍候' }), 2000);
+  try { await vault.open(); } finally { clearInterval(pulse); }
+  if (shutdownStarted) return;
   watchVault(root);
 
   server.listen(PORT, '127.0.0.1', () => {
@@ -856,4 +800,41 @@ async function start() {
     if (syncEngine.configured) console.log(`同步:          ${syncEngine.cfg.serverUrl}`);
   });
 }
-start();
+let shutdownPromise;
+function shutdown() {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownStarted = true;
+  shutdownPromise = (async () => {
+    console.log('[shutdown] 正在等待已接受的写入与同步任务');
+    const deadline = setTimeout(() => { console.error('[shutdown] 收尾超时，强制退出；索引将在下次启动核对'); process.exit(1); }, 15000);
+    server.close(); server.closeIdleConnections();
+    syncEngine.stopAuto();
+    // 请求切库期间仍可能重建监听，关闭标志同时阻止这些入口重新安排任务。
+    ++watchEpoch; clearTimeout(watchTimer); pendingChanges.clear();
+    if (watcher?.close) watcher.close(); else clearInterval(watcher);
+    await Promise.allSettled([...activeRequests]);
+    await backups.close();
+    syncEngine.stopAuto();
+    await syncEngine.running?.catch(error => console.warn('[shutdown] 同步任务未完成:', error.message));
+    await trash.drain();
+    if (vault) await vault.close();
+    await lanShare.dispose();
+    await mobileAccess.dispose();
+    for (const client of wss.clients) client.terminate();
+    await new Promise(resolve => wss.close(resolve));
+    server.closeAllConnections();
+    clearTimeout(deadline);
+    console.log('[shutdown] 收尾完成');
+    process.exit(0);
+  })().catch(error => { console.error('[shutdown] 收尾失败:', error.message); process.exit(1); });
+  return shutdownPromise;
+}
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { void shutdown(); });
+process.on('message', data => { if (data?.type === 'tracery-shutdown' && data.nonce === process.env.TRACERY_START_TOKEN) void shutdown(); });
+// 主进程异常退出时，不遗留监听子进程。
+if (process.connected) process.on('disconnect', () => { void shutdown(); });
+start().catch(error => {
+  console.error('[startup]', error.message);
+  const message = { type: 'tracery-start-error', nonce: process.env.TRACERY_START_TOKEN, pid: process.pid, code: error.code };
+  if (process.send) process.send(message, () => process.exit(1)); else process.exit(1);
+});

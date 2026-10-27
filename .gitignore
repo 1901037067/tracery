@@ -26,3 +26,5 @@ test/build*.log
 /docs/OBSIDIAN_ANALYSIS.md
 /docs/ROADMAP.md
 /test/screenshots/
+/scripts/extract-rea.mjs
+/test/rea-evidence.json

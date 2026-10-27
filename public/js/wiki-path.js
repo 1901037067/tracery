@@ -1,4 +1,7 @@
 const EXT = /\.(md|markdown|txt)$/i;
+const ATTACHMENT_EXT = /\.(?:png|jpe?g|gif|webp|svgz?|bmp|avif|ico|tiff?|pdf|mp[34]|m4[av]|wav|ogg|ogv|webm|mov|avi|flac|aac|docx?|xlsx?|pptx?|odt|ods|odp|rtf|csv|zip|rar|7z|gz|tar|epub)$/i;
+/** 显式附件目标不参与缺失笔记推断，也不能被追加 .md。 */
+export function isAttachmentTarget(raw) { return ATTACHMENT_EXT.test(wikiParts(raw).target.split('?')[0]); }
 export function wikiParts(raw) {
   const [link, ...aliases] = String(raw || '').split('|');
   const hash = link.indexOf('#');
@@ -24,6 +27,7 @@ export function noteIndex(paths) {
   return { exact, folded, names };
 }
 export function resolveNote(raw, from = '', index) {
+  if (isAttachmentTarget(raw)) return null;
   const { target } = wikiParts(raw);
   if (!target) return String(raw || '').includes('#') && index.exact.has(from) ? from : null;
   const folder = from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : '';
@@ -43,6 +47,7 @@ export function resolveNote(raw, from = '', index) {
   return matches?.length === 1 ? matches[0] : null;
 }
 export function missingNotePath(raw, from = '') {
+  if (isAttachmentTarget(raw)) return null;
   const { target } = wikiParts(raw);
   const folder = from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : '';
   const path = normalizeNotePath(/^\.{1,2}\//.test(target) ? `${folder}/${target}` : target);

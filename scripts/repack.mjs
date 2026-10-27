@@ -8,6 +8,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { runtimeDependencies } from './runtime-deps.mjs';
 import { patchWindowsIcon } from './lib/windows-icon.mjs';
+import { writePackageNotices } from './lib/package-notices.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const OUT = path.join(ROOT, 'dist', 'win-unpacked');
@@ -29,6 +30,7 @@ for (const item of ['electron', 'server', 'public', 'demo-vault', 'sync-server']
   });
 }
 fs.copyFileSync(path.join(ROOT, 'package.json'), path.join(STAGE, 'package.json'));
+for (const file of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) fs.copyFileSync(path.join(ROOT, file), path.join(STAGE, file));
 // 运行时依赖（ws、node-diff3…）必须一起进去，否则 asar 里 import 会失败
 fs.mkdirSync(path.join(STAGE, 'node_modules'), { recursive: true });
 for (const src of runtimeDependencies(ROOT)) {
@@ -41,6 +43,7 @@ fs.copyFileSync(path.join(ROOT, 'build', 'icon.png'), path.join(STAGE, 'build', 
 
 execFileSync(process.execPath, [ASAR_BIN, 'pack', STAGE, ASAR], { stdio: 'inherit' });
 patchWindowsIcon(path.join(OUT, 'Tracery.exe'), ROOT);
+writePackageNotices(OUT, ROOT);
 fs.rmSync(STAGE, { recursive: true, force: true });
 
 const size = (fs.statSync(ASAR).size / 1024).toFixed(0);

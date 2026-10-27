@@ -20,6 +20,7 @@ function ensureEl() {
       <div class="dialog-title"></div>
       <div class="dialog-desc"></div>
       <input class="dialog-input" type="text" spellcheck="false" autocomplete="off" />
+      <datalist id="dialog-suggestions"></datalist>
       <div class="dialog-error" hidden></div>
       <div class="dialog-actions">
         <button class="dialog-cancel btn-ghost">取消</button>
@@ -38,7 +39,7 @@ function ensureEl() {
   return overlay;
 }
 
-function open({ title, desc = '', value = '', placeholder = '', okText = '确定', danger = false, input = true }) {
+function open({ title, desc = '', value = '', placeholder = '', okText = '确定', danger = false, input = true, suggestions = [] }) {
   const el = ensureEl();
   el.querySelector('.dialog-title').textContent = title;
   const d = el.querySelector('.dialog-desc');
@@ -48,6 +49,9 @@ function open({ title, desc = '', value = '', placeholder = '', okText = '确定
   inp.hidden = !input;
   inp.value = value;
   inp.placeholder = placeholder;
+  const options = el.querySelector('datalist'); options.replaceChildren();
+  for (const value of suggestions) { const option = document.createElement('option'); option.value = value; options.append(option); }
+  if (suggestions.length) inp.setAttribute('list', options.id); else inp.removeAttribute('list');
   el.querySelector('.dialog-error').hidden = true;
   const ok = el.querySelector('.dialog-ok');
   ok.textContent = okText;

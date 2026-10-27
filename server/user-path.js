@@ -6,7 +6,10 @@ const reserved = new Set(['.tracery', '.evnote', '.obsidian', '.git', '.trash', 
 const dataHome = path.resolve(process.env.TRACERY_HOME || process.env.EVNOTE_HOME || path.join(import.meta.dirname,'..'));
 export function isPrivateUserPath(root,rel,home=dataHome) {
   const parts=String(rel).replaceAll('\\','/').split('/');
-  if(parts.some(part=>reserved.has(part.toLowerCase())||['tracery.config.json','evnote.config.json'].includes(part.toLowerCase())))return true;
+  if(parts.some(part=>{
+    const name=part.toLowerCase();
+    return reserved.has(name)||['tracery.config.json','evnote.config.json'].some(config=>name===config||name.startsWith(config+'.'));
+  }))return true;
   const absolute=path.resolve(root,...parts);
   return ['history','history-v2','trash'].some(name=>isWithin(path.join(home,name),absolute));
 }

@@ -1,6 +1,6 @@
 {
   "name": "tracery",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "Tracery · 开源的本地 Markdown 笔记软件，支持双链、搜索、绘图和同网手机访问",
   "type": "module",
   "license": "MIT",
@@ -62,7 +62,7 @@
     "check:types": "tsc -p tsconfig.json && tsc -p tsconfig.cm.json",
     "lint": "eslint server electron public/js scripts --max-warnings=0",
     "check": "npm run check:syntax && npm run check:types && npm run lint",
-    "test:ci": "node test/run-suite.mjs only maintenance history-backup workspace-chrome index watch csp quality correctness fence-selection access-boundary mobile-access mobile-access-ui security reliability engine merge embeds-colors"
+    "test:ci": "node test/run-suite.mjs only reference-integrity full-backup full-backup-ui chrome-matrix link-targets storage-lifecycle maintenance history-backup workspace-chrome index watch csp quality correctness fence-selection access-boundary mobile-access mobile-access-ui security reliability engine merge embeds-colors"
   },
   "dependencies": {
     "bonjour-service": "^1.4.4",
@@ -102,6 +102,8 @@
       "!**/.evnote{,/**}",
       "sync-server/**/*",
       "build/icon.png",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
       "package.json"
     ],
     "asar": true,

@@ -194,12 +194,16 @@ const seamless = await page.evaluate(() => {
     layoutBg: norm(getComputedStyle(ly).backgroundColor),
     ribbonBg: norm(getComputedStyle(document.querySelector('.ribbon')).backgroundColor),
     sidebarBg: norm(getComputedStyle(document.getElementById('sidebar')).backgroundColor),
+    rightBg: norm(getComputedStyle(document.getElementById('sidebar-right')).backgroundColor),
+    sharedSurface: norm(getComputedStyle(ly, '::before').backgroundColor),
+    sharedOpacity: getComputedStyle(ly, '::before').opacity,
   };
 });
-check('导航栏保持连续底色，侧栏使用独立底色',
+check('导航栏保持连续底色，侧栏和编辑区缝隙共用底色层',
   seamless.titlebarBorderBottom === '0px'
   && seamless.titlebarBg === seamless.layoutBg
-  && seamless.ribbonBg === 'rgba(0,0,0,0)' && seamless.sidebarBg !== 'rgba(0,0,0,0)' && seamless.sidebarBg !== seamless.layoutBg,
+  && seamless.ribbonBg === 'rgba(0,0,0,0)' && seamless.sidebarBg === 'rgba(0,0,0,0)' && seamless.rightBg === seamless.sidebarBg
+  && seamless.sharedSurface !== 'rgba(0,0,0,0)' && seamless.sharedSurface !== seamless.layoutBg && seamless.sharedOpacity === '1',
   JSON.stringify(seamless));
 
 for (const theme of ['light', 'dark']) {

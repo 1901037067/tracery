@@ -14,6 +14,7 @@ import { askText } from './dialog.js';
 import { uiIcon } from './ui-icons.js';
 import { upgradeSelects, refreshSelect, closeSelect } from './select-control.js';
 import { initHistoryBackup } from './history-backup.js';
+import { initFullBackup, fullBackupMarkup } from './full-backup.js';
 
 export const DEFAULT_SETTINGS = {
   themeName: 'apple',
@@ -235,6 +236,16 @@ export function updateSettings(patch) {
   return getSettings();
 }
 
+/** 备份前确认最新界面设置落盘；不把仍在防抖队列中的旧值当作备份。 */
+export async function flushPendingSettings() {
+  const started = Date.now();
+  while (savingPatch) { if (Date.now() - started > 30000) throw Error('设置仍在保存，请稍后重试备份'); await new Promise(resolve => setTimeout(resolve, 20)); }
+  pendingPatch = {};
+  const result = await Api.saveSettings(settings);
+  if (result?.settings) { settings = mergePatch(result.settings, pendingPatch); applySettings(); }
+  return settings;
+}
+
 export function onApplied(fn) { onSettingsApplied = fn; }
 
 /* ---------------- 面板 UI ---------------- */
@@ -350,6 +361,7 @@ function build() {
         <div class="settings-pane" data-pane="general">
           <h2>通用</h2>
           ${ROW('启动时', '打开应用时自动打开的笔记', SEG('startup', [['last', '上次的笔记'], ['empty', '不自动打开']], settings.startup))}
+          ${fullBackupMarkup}
           <div class="set-section-title">历史备份</div>
           <p class="set-note">历史默认保存在本机用户数据目录。导出包含旧正文，请妥善保存；它不替代笔记和附件的仓库备份。支持 32 MiB 以内的备份，更大的历史请关闭应用后复制用户数据目录中的 history-v2 和 history 文件夹。</p>
           <div class="set-actions"><button id="history-backup-export" data-history-backup class="btn-ghost">导出当前仓库历史</button><button id="history-backup-import" data-history-backup class="btn-ghost">导入历史备份</button></div>
@@ -397,6 +409,7 @@ function build() {
   }
   bind(el);
   initHistoryBackup(el);
+  initFullBackup(el);
   initSyncPane();
   return el;
 }

@@ -66,11 +66,11 @@ export function createLanShare({ getVaultRoot, getEngine, home, notify }) {
       throw error;
     }
   }
-  async function stopInternal() {
+  async function stopInternal(disconnect = true) {
     const engine = getEngine(), previous = session; session = null;
     if (previous) {
       await previous.publisher.stop(); close(previous.udp); previous.server.close();
-      if (getVaultRoot() === previous.root) await engine.disconnect();
+      if (disconnect && getVaultRoot() === previous.root) await engine.disconnect();
       notify(engine.status());
     }
     return { lan: status(), sync: engine.status() };
@@ -118,5 +118,5 @@ export function createLanShare({ getVaultRoot, getEngine, home, notify }) {
       });
     });
   }
-  return { start: () => serial(startInternal), stop: () => serial(stopInternal), status, find, discover };
+  return { start: () => serial(startInternal), stop: () => serial(stopInternal), dispose: () => serial(() => stopInternal(false)), status, find, discover };
 }

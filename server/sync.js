@@ -1,3 +1,4 @@
+import { readJson, writeJson } from './durable-json.js';
 /**
  * Tracery 同步引擎（v1：文件级 + 冲突副本）
  * ------------------------------------------------------------------
@@ -74,6 +75,7 @@ export class SyncEngine {
    */
   constructor(opts) {
     this.getVaultRoot = opts.getVaultRoot;
+    this.runExclusive = opts.runExclusive || (job => job());
     this.getDefaultSettings = opts.getSettings || (() => ({}));
     this.notify = opts.notify || (() => {});
     this.onApplied = opts.onApplied || (() => {});
@@ -104,14 +106,16 @@ export class SyncEngine {
     let mtime = 0;
     try { mtime = fs.statSync(file).mtimeMs; } catch { mtime = 0; }
     if (this._cfgCache && this._cfgFor === file && this._cfgMtime === mtime) return this._cfgCache;
-    let data = {};
-    try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { data = {}; }
+    const recovered = readJson(file, null);
+    this._cfgDamaged = recovered === null && (fs.existsSync(file) || fs.existsSync(`${file}.bak`));
+    const data = recovered || {};
     this._cfgCache = {
       serverUrl: '', token: '', vaultId: '', serverName: '', deviceName: '',
       autoSync: true, autoMerge: true, interval: 60, lastSyncAt: null, lastError: null,
       encryption: null,
       ...data,
     };
+    if (this._cfgDamaged) this._cfgCache.lastError = '同步配置损坏，请从备份恢复；损坏副本已保留';
     this._cfgFor = file;
     this._cfgMtime = mtime;
     return this._cfgCache;
@@ -121,8 +125,8 @@ export class SyncEngine {
     const next = { ...this.cfg, ...patch };
     const file = this._configFile();
     if (!file) return next;
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(next, null, 2), 'utf8');
+    if (this._cfgDamaged) throw new Error('同步配置损坏，请从备份恢复；损坏副本已保留');
+    writeJson(file, next);
     this._cfgCache = next;
     this._cfgFor = file;
     try { this._cfgMtime = fs.statSync(file).mtimeMs; } catch { this._cfgMtime = 0; }
@@ -338,7 +342,11 @@ export class SyncEngine {
     if (!this.getVaultRoot()) throw new Error('尚未打开仓库');
     if (this.running) return this.running;
 
-    this.running = this._syncLoop(reason)
+    const scheduledRoot = this.getVaultRoot();
+    this.running = Promise.resolve().then(() => this.runExclusive(() => {
+      if (this.getVaultRoot() !== scheduledRoot) throw new Error('仓库已经切换，未执行排队的同步');
+      return this._syncLoop(reason);
+    }))
       .catch((e) => {
         const msg = e.message || String(e);
         this._saveCfg({ lastError: msg });

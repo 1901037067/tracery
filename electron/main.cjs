@@ -10,7 +10,7 @@ const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
-const { startServerProcess } = require('./server-process.cjs');
+const { startServerProcess, stopServerProcess } = require('./server-process.cjs');
 
 // 环境自愈：某些环境（如把 Electron 当 Node 用的沙箱/CI）会预设 ELECTRON_RUN_AS_NODE，
 // 这会让 Electron 退化成纯 Node（require('electron') 拿不到 API）。此时去掉它重启自己。
@@ -56,6 +56,7 @@ if (!process.env.TRACERY_HOME && !process.env.EVNOTE_HOME
 let mainWindow = null;
 let serverProc = null;
 let startupWindow = null, ipcRegistered = false;
+let quittingRequested = false, stoppingServer = false, startupStatus = '正在准备笔记仓库…';
 app.on('second-instance',()=>{
   const win=mainWindow||startupWindow;
   if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}
@@ -64,7 +65,7 @@ app.on('second-instance',()=>{
 function startServer() {
   if(!Number.isInteger(PORT)||PORT<1||PORT>65535) return Promise.reject(Error('端口必须为 1 到 65535 的整数'));
   const serverPath = path.join(__dirname, '..', 'server', 'server.js');
-  const processState = startServerProcess({executable:process.execPath,entry:serverPath,port:PORT,onLog:log,
+  const processState = startServerProcess({executable:process.execPath,entry:serverPath,port:PORT,onLog:log,onProgress:updateStartupProgress,
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',   // 让 Electron 二进制以纯 Node 模式运行服务端
@@ -76,13 +77,31 @@ function startServer() {
   return processState.ready;
 }
 
+function updateStartupProgress(data) {
+  if (data.phase !== 'working') startupStatus = data.message + (Number.isInteger(data.total) ? `（${data.completed}/${data.total}）` : '');
+  if (startupWindow && !startupWindow.isDestroyed() && !startupWindow.webContents.isLoading()) {
+    startupWindow.webContents.executeJavaScript(`document.getElementById('startup-status')?.replaceChildren(document.createTextNode(${JSON.stringify(startupStatus)}))`).catch(() => {});
+  }
+}
+function showStartupProgress() {
+  startupWindow = new BrowserWindow({width:480,height:230,title:'Tracery 正在启动',resizable:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  const html='<!doctype html><meta charset="utf-8"><title>Tracery 正在启动</title><style>:root{color-scheme:light dark}html,body{margin:0;height:100%;box-sizing:border-box}body{font:14px "Segoe UI","Microsoft YaHei",sans-serif;padding:20px 24px;line-height:1.5;overflow:hidden}h3{margin:0 0 14px;font-size:18px}p{margin:0 0 12px}small{display:block;opacity:.65;font-size:12px}</style><h3>正在打开 Tracery</h3><p id="startup-status">正在准备笔记仓库…</p><small>首次打开或索引恢复可能需要一些时间。关闭此窗口可取消启动。</small>';
+  startupWindow.webContents.once('did-stop-loading', () => updateStartupProgress({phase:'working'}));
+  startupWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html)).catch(error=>{if(!win.isDestroyed())log(error.message);});
+  const win = startupWindow;
+  win.on('closed',()=>{if(startupWindow===win)startupWindow=null;});
+}
+
 function showStartupError(error) {
   log('启动失败：',error.message);
+  const previous = startupWindow;
   startupWindow=new BrowserWindow({width:620,height:330,title:'Tracery 启动失败',webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  previous?.destroy();
   const escape=text=>String(text).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const html=`<!doctype html><meta charset="utf-8"><title>Tracery 启动失败</title><main style="font:16px system-ui;padding:30px;line-height:1.7"><h2>暂时无法启动 Tracery</h2><p id="startup-error">${escape(error.message)}</p><p>关闭此窗口，处理问题后再重新启动。笔记仍保留在原仓库。</p></main>`;
   startupWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html)).catch(reason=>log(reason.message));
-  startupWindow.on('closed',()=>{startupWindow=null;});
+  const win = startupWindow;
+  win.on('closed',()=>{if(startupWindow===win)startupWindow=null;});
 }
 
 function createWindow() {
@@ -184,11 +203,18 @@ function createWindow() {
     if (res.canceled || !res.filePaths?.length) return null;
     return res.filePaths[0];
   });
+  ipcMain.handle('tracery:pick-backup-directory', async (event, purpose) => {
+    const labels = { destination: '选择备份存放文件夹', source: '选择完整备份文件夹', restore: '选择恢复仓库存放文件夹' };
+    if (!Object.hasOwn(labels, purpose)) return null;
+    const result = await dialog.showOpenDialog(mainWindow, { title: labels[purpose], properties: ['openDirectory', 'createDirectory'], buttonLabel: '选择此文件夹' });
+    return result.canceled ? null : result.filePaths[0] || null;
+  });
 }
 
 app.whenReady().then(async () => {
-  try { await startServer(); if(!mainWindow)createWindow(); }
-  catch(error){showStartupError(error);}
+  showStartupProgress();
+  try { await startServer(); if(!quittingRequested && !mainWindow) { createWindow(); startupWindow?.destroy(); } }
+  catch(error){if(!quittingRequested)showStartupError(error);}
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -204,8 +230,15 @@ app.on('before-quit', event => {
     event.preventDefault(); mainWindow.close(); return;
   }
   if (serverProc && !serverProc.killed) {
-    serverProc.kill();
-    serverProc = null;
+    event.preventDefault();
+    quittingRequested = true;
+    if (stoppingServer) return;
+    stoppingServer = true;
+    stopServerProcess(serverProc).then(result => {
+      log(result.graceful ? '仓库服务已正常退出' : '仓库服务收尾失败或超时，已结束子进程');
+      serverProc = null;
+      app.quit();
+    });
   }
 });
 app.on('window-all-closed', () => {

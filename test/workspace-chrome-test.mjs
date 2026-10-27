@@ -28,7 +28,11 @@ try {
   await page.goto(BASE, { waitUntil: 'networkidle0' }); await waitForApp(page);
   await page.evaluate(() => { window.animationErrors = []; addEventListener('unhandledrejection', e => window.animationErrors.push(String(e.reason))); });
   const open = async rel => { await page.evaluate(rel => window.__tracery.openNote(rel, null, { newTab: true }), rel); await waitForNote(page, rel); };
-  await open('一.md'); await open('二.md'); await open('三.md');
+  await open('一.md');
+  const shortTab = await page.$eval('.tab.active', el => el.getBoundingClientRect().width);
+  assert.ok(shortTab >= 80 && shortTab < 130, `短标签宽度 ${shortTab}`);
+  assert.equal(await page.$eval('#tablist', el => el.classList.contains('is-compact')), false);
+  await open('二.md'); await open('三.md');
   await page.evaluate(async () => {
     window.__tracery.state.tabGroups = [{ id: 'motion', name: '资料', color: 'teal', collapsed: false, tabs: ['一.md', '二.md'] }];
     await window.__tracery.openNote('一.md');
@@ -66,6 +70,9 @@ try {
       workspace: box('#vault-name').left, panel: box('#sidebar .dock-tabs .icon-tab').left };
   });
   assert.ok(Math.abs(alignment.toggle - alignment.ribbon) < 1 && Math.abs(alignment.workspace - alignment.panel) < 1, JSON.stringify(alignment));
+  const centers = await page.evaluate(() => [...document.querySelectorAll('#vault-name,.tab:not([hidden]),.tab-group-label,.tab-new,.tab-more,.titlebar-right .icon-btn')]
+    .map(el => el.getBoundingClientRect()).filter(rect => rect.height && rect.width).map(rect => rect.top + rect.height / 2));
+  assert.ok(Math.max(...centers) - Math.min(...centers) < 1, JSON.stringify(centers));
   for (const theme of ['light', 'dark']) {
     await page.evaluate(async theme => { const { updateSettings } = await import('/js/settings.js'); await updateSettings({ themeMode: theme }); }, theme);
     await open('子目录/同名.md');
@@ -73,6 +80,29 @@ try {
     assert.equal(await page.$eval('#note-path', el => el.textContent), '子目录/同名.md');
     const colors = await page.evaluate(() => ['#sidebar', '#sidebar-right', '.titlebar'].map(selector => getComputedStyle(document.querySelector(selector)).backgroundColor));
     assert.equal(colors[0], colors[1]); assert.notEqual(colors[0], colors[2]);
+    const chrome = await page.evaluate(() => {
+      const style = selector => getComputedStyle(document.querySelector(selector));
+      const header = document.querySelector('#document-header').getBoundingClientRect();
+      const divider = document.querySelector('#sidebar .panel-actions').getBoundingClientRect();
+      return { delta: header.bottom - 1 - divider.top, sidebar: style('#sidebar').background, footer: style('.statusbar').background,
+        radius: style('#sidebar').borderTopLeftRadius };
+    });
+    assert.ok(Math.abs(chrome.delta) < 1, JSON.stringify(chrome));
+    assert.equal(chrome.footer, 'rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box');
+    assert.equal(chrome.radius, '18px');
+    await page.mouse.move(0, 0);
+    const pixels = await page.evaluate(async screenshot => {
+      const img = new Image(); img.src = 'data:image/png;base64,' + screenshot; await img.decode();
+      const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
+      const context = canvas.getContext('2d'); context.drawImage(img, 0, 0);
+      const rect = selector => document.querySelector(selector).getBoundingClientRect();
+      const editor = rect('.editor-area'), layout = rect('.layout'), left = rect('#sidebar'), right = rect('#sidebar-right'), footer = rect('.statusbar');
+      const points = [[left.left + 8, left.bottom - 70], [right.right - 8, right.bottom - 70], [editor.left - 3, editor.top + 150],
+        [editor.right + 3, editor.top + 150], [editor.left + editor.width / 2, layout.top + 3], [editor.left + editor.width / 2, footer.top + 12]];
+      return points.map(([x, y]) => [...context.getImageData(Math.floor(x * img.width / innerWidth), Math.floor(y * img.height / innerHeight), 1, 1).data]);
+    }, await page.screenshot({ encoding: 'base64' }));
+    for (const color of pixels.slice(1, 5)) assert.deepEqual(color, pixels[0], JSON.stringify(pixels));
+    assert.notDeepEqual(pixels[5], pixels[0], '底栏恢复纸张底色，外围缝隙沿用侧栏颜色');
     assert.equal(await page.$('#file-tree [data-path="图片.PNG"] .icon'), null);
     assert.equal(await page.$eval('#file-tree [data-path="图片.PNG"] .file-kind', el => el.textContent), '图片');
     const badgeEdges = await page.$$eval('#file-tree .file-kind', nodes => nodes.map(el => el.getBoundingClientRect().right));
@@ -84,6 +114,8 @@ try {
   await page.evaluate(() => window.__tracery.openNote('说明.pdf', null, { newTab: true }));
   await page.waitForFunction(() => window.__tracery.state.currentPath === '说明.pdf');
   assert.equal(await page.$eval('#note-path', el => el.textContent), '说明.pdf');
+  assert.equal(await page.$eval('#document-header', el => el.hidden), true);
+  assert.equal(await page.$eval('.pdf-head', el => el.getBoundingClientRect().height > 0), true);
   await open('三.md');
   const menu = async label => page.evaluate(label => {
     const button = [...document.querySelectorAll('.context-menu button')].find(el => el.textContent.trim() === label);

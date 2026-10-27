@@ -1,6 +1,6 @@
 /* 仓库索引独立于 HTTP 生命周期，便于用临时大仓库测量启动与增量更新。 */
 import fsp from 'node:fs/promises';
-import { noteIndex, resolveNote } from '../public/js/wiki-path.js';
+import { noteIndex, resolveNote, isAttachmentTarget } from '../public/js/wiki-path.js';
 import path from 'node:path';
 import { IndexCache, snapshotIndex, sameStat, fileStat } from './index-cache.js';
 import { resolveInVault } from './path-guard.js';
@@ -11,8 +11,9 @@ const TEXT_EXT = new Set(['.md', '.markdown', '.txt']);
 const VISIBLE_EXT = new Set([...TEXT_EXT, '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.avif']);
 
 export class Vault {
-  constructor(root) {
+  constructor(root, { onProgress = () => {} } = {}) {
     this.root = path.resolve(root);
+    this.onProgress = onProgress;
     this.notes = new Map();      // relPath -> { name, mtimeMs, links:[rawTarget], tags:Set, headings:[], backlinks:Set }
     this.byName = new Map();     // 小写文件名(不含.md) -> [relPath]
     this.files = new Map();      // relPath(所有文件) -> { mtimeMs, size, isDir:false }
@@ -35,23 +36,30 @@ export class Vault {
 
   async _open() {
     const started = performance.now();
+    this.onProgress({ phase: 'cache', message: '正在检查笔记索引' });
     clearTimeout(this._cacheTimer);
     const cached = this.notes.size ? new Map(snapshotIndex(this)) : await this.cache.read();
+    this.onProgress({ phase: 'scan', reason: this.cache.readReason || 'memory', message: cached.size ? '正在核对笔记索引' : '正在重建笔记索引' });
     // 扫描完成后一次交换，目录改名时 API 不会看到扫描到一半的仓库。
-    const staging = new Vault(this.root);
+    const staging = new Vault(this.root, { onProgress: this.onProgress });
     await staging._loadFiles(cached);
     for (const key of ['notes', 'byName', 'files', 'dirs', 'contentCache', 'stats', '_rawSources', '_noteOrder', '_nextOrder']) this[key] = staging[key];
     this._tree = null;
     this._drawings = null;
-    if (this.stats.parsed || cached.size !== this.notes.size) await this.persist();
+    if (this.stats.parsed || cached.size !== this.notes.size || staging._linksRepaired) {
+      this.onProgress({ phase: 'persist', message: '正在保存索引缓存' });
+      if (!await this.persist()) this.onProgress({ phase: 'cache-warning', message: '索引缓存无法写入，本次仍可使用，下次将重新核对' });
+    }
     this.stats.openMs = Math.round(performance.now() - started);
+    this.onProgress({ phase: 'complete', message: '笔记索引已就绪', notes: this.notes.size, reused: this.stats.reused, parsed: this.stats.parsed, elapsedMs: this.stats.openMs });
   }
 
   async _loadFiles(cached) {
     const files = [];
     await this.walk(this.root, '', files);
+    this.onProgress({ phase: 'load', message: '正在读取笔记索引', total: files.length, completed: 0 });
     // 限制并发，减少逐文件 I/O 往返，也避免同时打开一万份文件。
-    let next = 0;
+    let next = 0, completed = 0, lastReport = performance.now();
     await Promise.all(Array.from({ length: Math.min(16, files.length) }, async () => {
       while (next < files.length) {
         const rel = files[next++];
@@ -62,10 +70,19 @@ export class Vault {
           if (!TEXT_EXT.has(path.extname(rel).toLowerCase())) continue;
           const e = cached.get(rel);
           if (sameStat(e, st)) {
-            this.notes.set(rel, { name: e.name, links: e.links, tags: new Set(e.tags), headings: e.headings, mtimeMs: st.mtimeMs, backlinks: new Set() });
+            const links = e.links.filter(link => !isAttachmentTarget(link));
+            if (links.length !== e.links.length) this._linksRepaired = true;
+            this.notes.set(rel, { name: e.name, links, tags: new Set(e.tags), headings: e.headings, mtimeMs: st.mtimeMs, backlinks: new Set() });
             this.contentCache.set(rel, e.content); this._addName(rel, e.name); this.stats.reused++;
           } else await this._readNote(rel, st, abs);
         } catch { /* 瞬时不可读的文件下次重试，缓存不冒充真实文件 */ }
+        finally {
+          completed++;
+          if (completed === files.length || performance.now() - lastReport > 500) {
+            lastReport = performance.now();
+            this.onProgress({ phase: 'load', message: '正在读取笔记索引', completed, total: files.length });
+          }
+        }
       }
     }));
     this.rebuildGraph();
@@ -127,6 +144,12 @@ export class Vault {
     this._cacheTimer.unref?.();
   }
 
+  async close() {
+    clearTimeout(this._cacheTimer);
+    await this._queue;
+    return this.persist();
+  }
+
   /** 解析单篇笔记的链接/标签/标题，写入索引 */
   indexNote(rel, content, mtimeMs) {
     this.stats.parsed++;
@@ -152,7 +175,7 @@ export class Vault {
     const codeFree = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]+`/g, '');
     const linkRe = /\[\[([^\]\|#]+)(?:#[^\]\|]*)?(?:\|[^\]]*)?\]\]/g;
     let m;
-    while ((m = linkRe.exec(codeFree))) note.links.push(m[1].trim());
+    while ((m = linkRe.exec(codeFree))) if (!isAttachmentTarget(m[1])) note.links.push(m[1].trim());
 
     // #标签（排除代码块内的，简化处理：跳过 ``` 围栏）
     const tagRe = /(^|[\s\(（])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;

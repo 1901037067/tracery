@@ -3,7 +3,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { phoneAccess } from './access.js';
 const readApis = new Set(['/api/state','/api/tree','/api/drawings','/api/note','/api/links','/api/search','/api/tags','/api/graph','/api/file','/api/history','/api/history/content','/api/trash']);
-const writeApis = new Map([['/api/note','PUT'],['/api/note/create','POST'],['/api/asset','POST'],['/api/rename','POST'],['/api/delete','POST'],['/api/history/restore','POST'],['/api/replace','POST'],['/api/trash/restore','POST']]);
+const writeApis = new Map([['/api/note','PUT'],['/api/note/create','POST'],['/api/asset','POST'],['/api/rename','POST'],['/api/delete','POST'],['/api/history/restore','POST'],['/api/replace','POST'],['/api/trash/restore','POST'],['/api/references/relink','POST']]);
 const denied = (message,status=403) => Object.assign(new Error(message),{status});
 export function createMobileAccess({handler,upgrade,onRevoke=()=>{},now=Date.now,port=0}) {
   let listener=null, invitation=null, operation=Promise.resolve();
@@ -21,6 +21,7 @@ export function createMobileAccess({handler,upgrade,onRevoke=()=>{},now=Date.now
   function queue(job){const result=operation.then(job);operation=result.catch(()=>{});return result;}
   const timer=setInterval(()=>{for(const [id,item] of sessions)if(item.expiresAt<=now()){sessions.delete(id);onRevoke(id);}for(const [ip,item]of attempts)if(item.resetAt<=now())attempts.delete(ip);},10000);timer.unref();
   return {
+    async dispose() { clearInterval(timer); await this.stop(); attempts.clear(); },
     status() {
       const port=listener?.address()?.port;
       return {enabled:!!port,addresses:port?phoneAccess(port).addresses:[],requiresComputer:true,sessions:[...sessions.values()].filter(s=>s.expiresAt>now()).length,

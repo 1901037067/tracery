@@ -88,6 +88,8 @@ try {
       return { bar: rect('.titlebar'), active: rect('.tab.active'), strip: rect('.tab-strip'), more: rect('.tab-more'), right: rect('.titlebar-right'), leftButton: rect('#btn-toggle-left') };
     });
     assert.equal(geometry.bar.height, 46); assert.ok(geometry.active.top >= geometry.bar.top && geometry.active.bottom <= geometry.bar.bottom + 1, JSON.stringify(geometry));
+    const center = rect => rect.top + rect.height / 2;
+    for (const rect of [geometry.active, geometry.more, geometry.leftButton]) assert.ok(Math.abs(center(rect) - center(geometry.bar)) < 1, JSON.stringify(geometry));
     assert.ok(geometry.strip.right <= geometry.more.left + 1 && geometry.more.right <= geometry.right.left + 1, JSON.stringify(geometry));
     assert.ok(geometry.leftButton.height <= 32);
     await page.screenshot({ path: path.join(OUT, `tabs-${width}.png`) });
@@ -108,6 +110,7 @@ try {
     return { inline: !!el.closest('#editor-area'), position: getComputedStyle(el).position, width: r.width, hostWidth: host.width, top: r.top, hostTop: host.top, hidden: document.querySelector('#editor-live').hidden, path: window.__editor.path, dirty: window.__editor.dirty };
   });
   assert.ok(inline.inline && inline.position === 'absolute' && inline.hidden && !inline.dirty && !inline.path);
+  assert.equal(await page.$eval('#document-header', el => el.hidden), true);
   assert.ok(Math.abs(inline.width - inline.hostWidth) < 1 && Math.abs(inline.top - inline.hostTop) < 1);
   assert.ok(await page.$eval('.tab.active', el => el.textContent.includes('说明.pdf')));
   assert.equal(fs.readFileSync(path.join(VAULT, '笔记.md'), 'utf8'), original + '未保存测试');

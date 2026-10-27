@@ -5,6 +5,7 @@ import http from 'node:http';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
 import puppeteer from 'puppeteer-core';
 import {waitForApp} from './waits.mjs';
 import {pdfFixture} from './pdf-fixture.mjs';
@@ -23,9 +24,11 @@ const env={...process.env,TRACERY_HOME:HOME,PORT:String(PORT)};delete env.ELECTR
 const APP=path.join(HOME,'app'),restoredFile=path.join(HOME,'restored.json'),childrenFile=path.join(HOME,'children.txt');fs.mkdirSync(APP);
 fs.writeFileSync(path.join(APP,'package.json'),JSON.stringify({name:'tracery-startup-fixture',version:'1.0.0',main:'main.cjs'}));
 const wrapperError=path.join(HOME,'wrapper-error.txt');
-fs.writeFileSync(path.join(APP,'main.cjs'),`const fs=require('node:fs');try{const cp=require('node:child_process'),{app}=require('electron');const spawn=cp.spawn;cp.spawn=(...args)=>{const child=spawn(...args);fs.appendFileSync(${JSON.stringify(childrenFile)},String(child.pid)+'\\n');return child;};app.on('browser-window-created',(_,win)=>win.on('restore',()=>fs.writeFileSync(${JSON.stringify(restoredFile)},JSON.stringify({restored:true}))));require(${JSON.stringify(path.join(ROOT,'electron/main.cjs'))});}catch(error){fs.writeFileSync(${JSON.stringify(wrapperError)},error.stack);process.exit(1);}`);
+const slowPreload=path.join(HOME,'slow-index.mjs');
+fs.writeFileSync(slowPreload,`import fs from 'node:fs/promises';const read=fs.readFile;fs.readFile=async(...args)=>{if(String(args[0]).includes('index.json'))await new Promise(resolve=>setTimeout(resolve,2500));return read(...args);};`);
+fs.writeFileSync(path.join(APP,'main.cjs'),`const fs=require('node:fs');try{const cp=require('node:child_process'),{app}=require('electron');const spawn=cp.spawn;cp.spawn=(...args)=>{if(process.env.TRACERY_SLOW_BOOT&&args[1]?.some(value=>value.endsWith('server.js')))args[1]=['--import',${JSON.stringify(pathToFileURL(slowPreload).href)},...args[1]];const child=spawn(...args);fs.appendFileSync(${JSON.stringify(childrenFile)},String(child.pid)+'\\n');return child;};app.on('browser-window-created',(_,win)=>win.on('restore',()=>fs.writeFileSync(${JSON.stringify(restoredFile)},JSON.stringify({restored:true}))));require(${JSON.stringify(path.join(ROOT,'electron/main.cjs'))});}catch(error){fs.writeFileSync(${JSON.stringify(wrapperError)},error.stack);process.exit(1);}`);
 const apps=[],browsers=[];
-function launch(profile,cdp){const app=spawn(require('electron'),[APP,'--disable-gpu','--no-sandbox','--user-data-dir='+path.join(HOME,profile),'--remote-debugging-port='+cdp],{cwd:ROOT,env,windowsHide:true,stdio:['ignore','pipe','pipe']});apps.push(app);let log='';app.stdout.on('data',c=>log+=c);app.stderr.on('data',c=>log+=c);app.trace=()=>log;return app;}
+function launch(profile,cdp,extraEnv={}){const app=spawn(require('electron'),[APP,'--disable-gpu','--no-sandbox','--user-data-dir='+path.join(HOME,profile),'--remote-debugging-port='+cdp],{cwd:ROOT,env:{...env,...extraEnv},windowsHide:true,stdio:['ignore','pipe','pipe']});apps.push(app);let log='';app.stdout.on('data',c=>log+=c);app.stderr.on('data',c=>log+=c);app.trace=()=>log;return app;}
 async function connect(port){let browser;await until(async()=>{try{browser=await puppeteer.connect({browserURL:'http://127.0.0.1:'+port,defaultViewport:null});return true;}catch{return false;}},'原生调试连接');browsers.push(browser);return browser;}
 let occupied;
 try{
@@ -42,8 +45,16 @@ try{
  await page.evaluate(()=>window.electronAPI.close());await until(()=>primary.exitCode!==null,'主实例正常关闭');assert.equal(primary.exitCode,0);browser.disconnect();
  await until(async()=>{try{await fetch(`http://127.0.0.1:${PORT}/api/state`);return false;}catch{return true;}},'服务随窗口退出');
  console.log('PASS 重复实例退出并恢复已有窗口，不产生第二窗口；正常关闭仍结束服务');
+ const slowApp=launch('slow-browser',9257,{TRACERY_SLOW_BOOT:'1'}),slowBrowser=await connect(9257);
+ const progressTarget=await slowBrowser.waitForTarget(target=>target.url().startsWith('data:text/html')&&target.url().includes('startup-status'));
+ const progressPage=await progressTarget.page();await progressPage.waitForFunction(()=>document.getElementById('startup-status')?.textContent.includes('索引'));
+ await progressPage.screenshot({path:path.join(OUT,'index-progress.png')});
+ assert.ok((await slowBrowser.pages()).every(page=>!page.url().startsWith(`http://localhost:${PORT}`)));
+ await progressPage.close();await until(()=>slowApp.exitCode!==null,'取消索引启动');assert.equal(slowApp.exitCode,0);slowBrowser.disconnect();
+ await until(async()=>{try{await fetch(`http://127.0.0.1:${PORT}/api/state`);return false;}catch{return true;}},'取消启动后释放服务');
+ console.log('PASS 慢索引时显示原生进度，关闭启动窗口可取消，未就绪前不打开编辑器');
  let foreignRequests=0;occupied=http.createServer((req,res)=>{foreignRequests++;res.setHeader('Content-Type','application/json');res.end('{"vault":{"name":"foreign"}}');});await new Promise((r,j)=>{occupied.once('error',j);occupied.listen(PORT,'127.0.0.1',r);});
- const failed=launch('failed-browser',9256),errorBrowser=await connect(9256);const errorTarget=await errorBrowser.waitForTarget(target=>target.url().startsWith('data:text/html'));const errorPage=await errorTarget.page();await errorPage.waitForSelector('#startup-error');
+ const failed=launch('failed-browser',9256),errorBrowser=await connect(9256);const errorTarget=await errorBrowser.waitForTarget(target=>target.url().startsWith('data:text/html')&&target.url().includes('startup-error'));const errorPage=await errorTarget.page();await errorPage.waitForSelector('#startup-error');
  assert.match(await errorPage.$eval('#startup-error',el=>el.textContent),/被占用/);assert.equal(foreignRequests,0);assert.ok((await errorBrowser.pages()).every(page=>!page.url().startsWith('http://localhost:'+PORT)));
  await errorPage.bringToFront();await errorPage.screenshot({path:path.join(OUT,'occupied-port.png')});await errorPage.close();await until(()=>failed.exitCode!==null,'错误窗口关闭');errorBrowser.disconnect();
  assert.equal(fs.readFileSync(path.join(VAULT,'safe.md'),'utf8'),'# safe fixture');

@@ -42,7 +42,12 @@ try{
  const identity=fs.readFileSync(identityFile);fs.writeFileSync(identityFile,JSON.stringify({version:2,root:VAULT,path:'a_b.md'}));assert.equal((await request('/api/history?path='+encodeURIComponent('空 格.md'))).status,409);fs.writeFileSync(identityFile,identity);
  console.log('PASS 空格/下划线/Unicode/同名历史隔离、恢复、20 份保留；旧历史可读但禁止不确定恢复，元数据串改拒绝');
  assert.equal((await request('/api/vault/open','POST',{path:HOME})).status,200);
- for(const rel of ['tracery.config.json',path.relative(HOME,identityFile).replaceAll('\\','/'),path.relative(HOME,path.join(oldDir,'123.md')).replaceAll('\\','/')])assert.equal((await request('/api/file?path='+encodeURIComponent(rel))).status,403,rel);
+ assert.ok(fs.existsSync(path.join(HOME,'tracery.config.json.bak')));
+ for(const name of ['tracery.config.json.corrupt-fixture','evnote.config.json.bak','tracery.config.json.123.fixture.tmp'])fs.writeFileSync(path.join(HOME,name),secret);
+ for(const rel of ['tracery.config.json','tracery.config.json.bak','tracery.config.json.corrupt-fixture','evnote.config.json.bak','tracery.config.json.123.fixture.tmp',path.relative(HOME,identityFile).replaceAll('\\','/'),path.relative(HOME,path.join(oldDir,'123.md')).replaceAll('\\','/')]){
+  for(const route of ['/api/file?path=','/api/note?path='])assert.equal((await request(route+encodeURIComponent(rel))).status,403,route+rel);
+  assert.equal((await request('/api/delete','POST',{path:rel})).status,403,rel);
+ }
  assert.equal((await request('/api/search?q='+encodeURIComponent('retention 24'))).data.results.length,0);
  assert.equal((await request('/api/search?q='+secret)).data.results.length,0);
  console.log('PASS 仓库与应用数据目录重叠时，配置及本机历史仍不可下载或搜索');

@@ -38,7 +38,8 @@ export const Api = {
   saveNote: (path, content, options = {}) => api('/api/note', { method: 'PUT', timeout: 30000, body: { path, content, ...options } }),
   createNote: (path, content, options = {}) => api('/api/note/create', { method: 'POST', body: { path, content, ...options } }),
   saveAsset: (payload) => api('/api/asset', { method: 'POST', body: payload }),
-  rename: (path, newPath) => api('/api/rename', { method: 'POST', body: { path, newPath } }),
+  rename: (path, newPath, options = {}) => api('/api/rename', { method: 'POST', body: { path, newPath, ...options } }),
+  relink: (payload) => api('/api/references/relink', { method: 'POST', body: payload }),
   remove: (path) => api('/api/delete', { method: 'POST', body: { path } }),
   // 回收站：删除先进这里，可恢复
   trash: () => api('/api/trash'),

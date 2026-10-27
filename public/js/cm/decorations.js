@@ -18,6 +18,7 @@
  * 列表、引用、代码块（围栏隐藏）、分割线、表格（行装饰；完整表格是 P3）。
  */
 import { parseMarkdown, codeTokens } from '../markdown.js';
+import { isAttachmentTarget } from '../wiki-path.js';
 import { inlineMath } from '../math.js';
 import { externalLinks } from '../external-link.js';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
@@ -89,7 +90,7 @@ function scanInline(text, base, out, opts = {}) {
       if (p.embed && isImage(String(m[1] || '').split('|')[0].split('#')[0].trim())) continue;
       // 双链的解析结果决定 cls：未解析补 `cm-lp-unresolved`（与块级 .wikilink.unresolved 对齐）
       let cls = p.cls;
-      if (p.link && resolveLink) {
+      if (p.link && resolveLink && !isAttachmentTarget(m[1])) {
         const target = String(m[1] || '').trim();
         let resolved = null;
         try { resolved = resolveLink(target); } catch { resolved = null; }

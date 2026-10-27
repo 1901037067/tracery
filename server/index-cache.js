@@ -24,7 +24,8 @@ function unchanged(previous, rows) {
   if (!previous || previous.size !== rows.size) return false;
   for (const [rel, e] of rows) {
     const old = previous.get(rel);
-    if (!sameStat(old, e) || old.birthtimeMs !== e.birthtimeMs || old.content !== e.content || old.name !== e.name) return false;
+    if (!sameStat(old, e) || old.birthtimeMs !== e.birthtimeMs || old.content !== e.content || old.name !== e.name
+      || old.links.length !== e.links.length || old.links.some((link, index) => link !== e.links[index])) return false;
   }
   return true;
 }
@@ -44,6 +45,7 @@ export class IndexCache {
   async read() {
     this.shards.clear();
     this.manifestValid = false;
+    this.readReason = 'invalid-manifest';
     try {
       const data = JSON.parse(await fsp.readFile(this._file('index.json'), 'utf8'));
       if (data.version !== VERSION || data.root !== this.root || ![1, 16, SHARDS].includes(data.shardCount)
@@ -71,9 +73,10 @@ export class IndexCache {
         for (const [rel, entry] of shard.notes) notes.set(rel, entry);
       }
       this.manifestValid = loaded.every(Boolean);
+      this.readReason = this.manifestValid ? 'valid' : 'damaged-shards';
       this.shardCount = data.shardCount;
       return notes;
-    } catch { return new Map(); }
+    } catch (error) { this.readReason = error.code === 'ENOENT' ? 'missing' : 'unreadable-or-invalid'; return new Map(); }
   }
   _serialize(value) {
     const start = performance.now(), text = JSON.stringify(value);

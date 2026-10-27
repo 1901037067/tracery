@@ -112,10 +112,13 @@ const tree = walk(entries);
 fs.rmSync(OUT_DIR, { recursive: true, force: true });
 let totalBytes = 0;
 const importmap = {};
-for (const [pkg, { entry: src }] of tree) {
+for (const [pkg, { entry: src, pkgDir }] of tree) {
   const dest = path.join(OUT_DIR, pkg, 'index.js');
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(src, dest);
+  const licenses = fs.readdirSync(pkgDir).filter(name => /^licen[cs]e(?:\..+)?$/i.test(name));
+  if (!licenses.length) throw new Error(`缺少依赖许可证：${pkg}`);
+  for (const name of licenses) fs.copyFileSync(path.join(pkgDir, name), path.join(path.dirname(dest), name));
   const size = fs.statSync(dest).size;
   totalBytes += size;
   importmap[pkg] = `/vendor/cm/${pkg}/index.js`;
