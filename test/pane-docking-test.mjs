@@ -76,7 +76,9 @@ try {
   await page.click('#layout-preset-save'); await page.waitForSelector('.dialog-input'); await page.type('.dialog-input', '复习布局'); await page.click('.dialog-ok');
   await page.waitForFunction(() => document.querySelector('#layout-preset-select option:checked')?.textContent === '复习布局');
   await page.click('#set-reset-layout'); await persisted(); assert.deepEqual(await placement(), DEFAULT_PANELS);
-  await page.click('#layout-preset-apply'); await persisted(); assert.deepEqual(await layout(), beforePreset);
+  await page.click('#layout-preset-apply');
+  await page.waitForFunction(expected => JSON.stringify(window.__tracery.state.settings.layout) === JSON.stringify(expected), {}, beforePreset);
+  await persisted(); assert.deepEqual(await layout(), beforePreset);
   const presetFile = path.join(OUT, 'import-layout.json');
   const preset = await page.evaluate(async () => { const { encodePreset, readPresets } = await import('/js/layout-presets.js'); return encodePreset(readPresets()[0]); });
   fs.writeFileSync(presetFile, preset);

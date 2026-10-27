@@ -5,6 +5,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { launchBrowser } from './browser.mjs';
+import { waitForApp } from './waits.mjs';
 import { HOTKEY_COMMANDS, normalizeShortcut, shortcutFromEvent, validateShortcut } from '../public/js/hotkeys.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..'), HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tracery-hotkeys-'));
@@ -153,7 +154,15 @@ try {
   assert.equal(rejected.status, 400); check('服务端拒绝冲突绑定，不能绕过界面写入重复快捷键');
   await pane(); await record('settings', 'Control+Alt+Comma'); await persisted('settings', 'Mod+Alt+,'); await page.click('#set-done');
   await page.evaluate(() => window.__editor.flush());
+  // 本段验证配置重启持久化；离线导航由 PWA 套件覆盖，避免重启间隙的离线页影响断言。
+  await page.setBypassServiceWorker(true);
   await stop(); server = start(); await ready(); await page.goto(BASE, { waitUntil: 'networkidle0' });
+  try { await waitForApp(page); } catch (error) {
+    console.error('重启后的页面诊断', JSON.stringify({ errors, page: await page.evaluate(() => ({ title: document.title, body: document.body.innerText.slice(0, 500), scripts: [...document.scripts].map(s => s.src), controlled: Boolean(navigator.serviceWorker.controller) })) }));
+    await page.screenshot({ path: path.join(OUT, 'restart-failure.png') }); throw error;
+  }
+  await page.evaluate(() => window.__tracery.switchPanel('files'));
+  await page.waitForSelector('#file-tree [data-path="主笔记.md"]', { visible: true });
   await page.click('#file-tree [data-path="主笔记.md"]'); await focusEditor();
   await chord('Control+Comma'); assert.ok(await page.evaluate(() => !document.getElementById('settings') || document.getElementById('settings').hidden));
   await chord('Control+Alt+Comma'); assert.equal(await page.$eval('#settings', e => e.hidden), false);

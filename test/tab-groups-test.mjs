@@ -160,14 +160,14 @@ try {
   await context('笔记1'); await menu('添加到新分组'); await page.waitForSelector('.tab-group-editor input');
   await page.click('.tab-group-color[data-color="teal"]'); await page.click('.tab-group-editor input'); await page.keyboard.press('Enter');
   await context('笔记2'); await menu('移入「新分组」'); await context('笔记3'); await menu('移入「新分组」');
-  await page.click('.tab-group-header');
+  await page.click('.tab-group-header'); await waitForTabs();
   const collapsedLook = await page.$eval('.tab-group-header', node => {
     const label = node.querySelector('.tab-group-label');
     return { name: label.textContent, visible: label.clientWidth >= label.scrollWidth, width: node.getBoundingClientRect().width, rails: document.querySelectorAll('.tab-group-rail').length, current: node.classList.contains('is-current'), background: getComputedStyle(node).backgroundColor };
   });
   assert.equal(collapsedLook.name, '新分组'); assert.ok(collapsedLook.visible); assert.ok(collapsedLook.width >= 64); assert.equal(collapsedLook.rails, 0); assert.ok(collapsedLook.current);
   await page.screenshot({ path: path.join(OUT, 'single-collapsed-group.png'), clip: { x: 140, y: 0, width: 700, height: 52 } });
-  await page.click('.tab-group-header'); await page.screenshot({ path: path.join(OUT, 'single-expanded-group.png'), clip: { x: 140, y: 0, width: 1000, height: 52 } });
+  await page.click('.tab-group-header'); await waitForTabs(); await page.screenshot({ path: path.join(OUT, 'single-expanded-group.png'), clip: { x: 140, y: 0, width: 1000, height: 52 } });
   await page.evaluate(() => window.__tracery.Api.saveSettings({ themeMode: 'dark' })); await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   await sleep(250); // 等主题颜色过渡完成再保存视觉对照。
   await page.screenshot({ path: path.join(OUT, 'groups-dark.png'), clip: { x: 140, y: 0, width: 1000, height: 52 } });
