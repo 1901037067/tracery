@@ -40,17 +40,19 @@ try {
   await page.evaluateOnNewDocument(()=>{globalThis.__cspViolations=[];document.addEventListener('securitypolicyviolation',event=>globalThis.__cspViolations.push({directive:event.effectiveDirective,blocked:event.blockedURI}));});
   await page.goto(BASE,{waitUntil:'domcontentloaded'});await waitForApp(page);await page.evaluate(()=>window.__tracery.openNote('note.md'));await waitForNote(page,'note.md',note);
   await page.waitForFunction(()=>[...document.images].some(image=>image.src.includes('sample.svg')&&image.complete&&image.naturalWidth===20));
+  await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
   assert.deepEqual(await page.evaluate(()=>globalThis.__cspViolations),[]);
   await page.setRequestInterception(true);
   page.on('request',request=>{
-    if(new URL(request.url()).searchParams.has('csp-probe'))request.respond({status:200,contentType:'text/javascript',body:'try { eval("globalThis.__evalExecuted=true;"); } catch {}'});
+    if(new URL(request.url()).pathname==='/__csp_eval_probe__.js')request.respond({status:200,contentType:'text/javascript',body:'globalThis.__evalProbeLoaded=true;try { eval("globalThis.__evalExecuted=true;"); } catch {}'});
     else request.continue();
   });
   // DOM 注入发生在浏览器页内；断言靠 CSP 的违规事件和服务器实际请求计数。
   await page.evaluate(foreignURL=>{
     const inline=document.createElement('script');inline.textContent='globalThis.__inlineExecuted=true;';document.head.append(inline);
     const button=document.createElement('button');button.setAttribute('onclick','globalThis.__handlerExecuted=true;');document.body.append(button);button.click();button.remove();
-    const allowed=document.createElement('script');allowed.src='/js/reconnect.js?csp-probe=1';document.head.append(allowed);
+    // 独立路径不在 SW 资源缓存清单中，保证执行的是受控探针，而非被缓存的重连脚本。
+    const allowed=document.createElement('script');allowed.src='/__csp_eval_probe__.js';document.head.append(allowed);
     for(const src of [foreignURL+'/evil.js',foreignURL+'/evil.mjs','/api/file?path=payload.js']){
       const script=document.createElement('script');script.src=src;if(src.endsWith('.mjs'))script.type='module';document.head.append(script);
     }
@@ -58,6 +60,7 @@ try {
     const socket=new WebSocket(foreignURL.replace('http:','ws:')+'/socket');socket.onerror=()=>{};
     const base=document.createElement('base');base.href=foreignURL+'/';document.head.append(base);
   },foreignURL);
+  await page.waitForFunction(()=>globalThis.__evalProbeLoaded===true);
   try { await page.waitForFunction(()=>globalThis.__cspViolations.some(row=>row.directive==='script-src-attr')&&globalThis.__cspViolations.filter(row=>row.directive==='script-src-elem').length>=3&&globalThis.__cspViolations.some(row=>row.blocked==='eval')&&globalThis.__cspViolations.filter(row=>row.directive==='connect-src').length>=2&&globalThis.__cspViolations.some(row=>row.directive==='base-uri')); }
   catch(error){console.error('CSP 实际违规事件',await page.evaluate(()=>globalThis.__cspViolations));throw error;}
   assert.equal(foreignRequests,0);
@@ -68,7 +71,6 @@ try {
   const expected=await page.evaluate(()=>window.__tracery.editor.getContent());await waitForSaved(page,'note.md',expected);
   await page.evaluate(()=>new Promise((resolve,reject)=>{const ws=new WebSocket(location.origin.replace('http:','ws:')+'/ws');ws.onopen=()=>{ws.close();resolve(true);};ws.onerror=()=>reject(Error('same-origin WebSocket blocked'));}));
   console.log('PASS 浏览器阻止内联/事件/eval/外站脚本和连接/仓库 JS，正常图片、保存和 WebSocket 可用');
-  await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
   // 此处验证离线 HTML 自身；service worker 的导航缓存另由 PWA 套件覆盖。
   const offline=await browser.newPage();await offline.setBypassServiceWorker(true);await offline.bringToFront();await offline.goto(BASE+'/offline.html',{waitUntil:'domcontentloaded'});await offline.waitForSelector('[data-reconnect]',{visible:true});
   await offline.waitForFunction(()=>{const button=document.querySelector('[data-reconnect]'),r=button.getBoundingClientRect();return r.width>0&&r.height>0&&document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('[data-reconnect]')===button;});
