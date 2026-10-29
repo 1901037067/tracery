@@ -142,6 +142,9 @@ function docLine(state, lineIdx0) { return state.doc.line(lineIdx0 + 1); }
 function collectBlockDecos(blocks, state, cursor, out, opts = {}) {
   for (const b of blocks) {
     switch (b.type) {
+      case 'frontmatter':
+        for (let line = b.line; line <= b.endLine; line++) out.push({ from: docLine(state, line).from, cls: 'cm-lp-frontmatter', kind: 'line' });
+        break;
       case 'heading': {
         out.push({ from: state.doc.lineAt(b.lineStart).from, cls: `cm-lp-h${b.level}`, kind: 'line' });
         if (!cursor.has(b.line + 1)) {

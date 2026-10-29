@@ -5,6 +5,8 @@ import path from 'node:path';
 import { IndexCache, snapshotIndex, sameStat, fileStat } from './index-cache.js';
 import { resolveInVault } from './path-guard.js';
 import { isPrivateUserPath } from './user-path.js';
+import { readProperties } from '../public/js/note-properties.js';
+import { parseSearch, matchesSearch } from '../public/js/search-query.js';
 export const IGNORED_DIRS = new Set(['.tracery', '.evnote', '.obsidian', '.git', 'node_modules', '.trash', '.local']);
 const TEXT_EXT = new Set(['.md', '.markdown', '.txt']);
 // 仅影响浏览列表；其他文件仍保留在仓库、附件下载与同步清单中。
@@ -72,7 +74,9 @@ export class Vault {
           if (sameStat(e, st)) {
             const links = e.links.filter(link => !isAttachmentTarget(link));
             if (links.length !== e.links.length) this._linksRepaired = true;
-            this.notes.set(rel, { name: e.name, links, tags: new Set(e.tags), headings: e.headings, mtimeMs: st.mtimeMs, backlinks: new Set() });
+            const tags = new Set(e.tags), properties = readProperties(e.content).values;
+            for (const tag of Array.isArray(properties.tags) ? properties.tags : typeof properties.tags === 'string' ? [properties.tags] : []) if (typeof tag === 'string') tags.add(tag.replace(/^#/, ''));
+            this.notes.set(rel, { name: e.name, links, tags, headings: e.headings, mtimeMs: st.mtimeMs, backlinks: new Set() });
             this.contentCache.set(rel, e.content); this._addName(rel, e.name); this.stats.reused++;
           } else await this._readNote(rel, st, abs);
         } catch { /* 瞬时不可读的文件下次重试，缓存不冒充真实文件 */ }
@@ -168,6 +172,8 @@ export class Vault {
     note.mtimeMs = mtimeMs ?? note.mtimeMs;
     note.links = [];
     note.tags = new Set();
+    const properties = readProperties(text).values;
+    for (const tag of Array.isArray(properties.tags) ? properties.tags : typeof properties.tags === 'string' ? [properties.tags] : []) if (typeof tag === 'string') note.tags.add(tag.replace(/^#/, ''));
     note.headings = [];
 
     // [[双链]]：支持 [[目标]] / [[目标|别名]] / [[目标#标题]] / [[目标#标题|别名]]
@@ -335,23 +341,23 @@ export class Vault {
 
   search(q, limit = 50) {
     if (!q || limit <= 0) return [];
-    const needle = q.toLowerCase();
+    const parsed = parseSearch(q), needle = (parsed.literal || '').toLowerCase();
+    if (!parsed.terms.length) return [];
     const results = [];
     for (const [rel, content] of this.contentCache) {
       const name = this.notes.get(rel)?.name || rel;
-      const nameHit = name.toLowerCase().includes(needle);
+      if (!matchesSearch(parsed, { path: rel, name, content, tags: this.notes.get(rel)?.tags || [] })) continue;
+      const nameHit = parsed.highlights.some(term => name.toLowerCase().includes(term));
       const lines = [];
       const sourceLines = content.split('\n');
       for (let i = 0; i < sourceLines.length; i++) {
         const line = sourceLines[i];
-        if (line.toLowerCase().includes(needle)) lines.push({ line: i + 1, text: line.trim().slice(0, 160) });
+        if (parsed.highlights.some(term => line.toLowerCase().includes(term))) lines.push({ line: i + 1, text: line.trim().slice(0, 160) });
         if (lines.length >= 6) break;
       }
-      if (nameHit || lines.length) {
-        results.push({ path: rel, name, nameHit, matches: lines.slice(0, 6) });
-      }
+      results.push({ path: rel, name, nameHit, matches: lines.slice(0, 6) });
     }
-    const rank = row => row.name.toLowerCase() === needle ? 2 : row.nameHit ? 1 : 0;
+    const rank = row => needle && row.name.toLowerCase() === needle ? 2 : row.nameHit ? 1 : 0;
     return results.sort((a, b) => rank(b) - rank(a)
       || (this.notes.get(b.path)?.mtimeMs || 0) - (this.notes.get(a.path)?.mtimeMs || 0)
       || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).slice(0, limit);

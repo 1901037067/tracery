@@ -2,8 +2,8 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { phoneAccess } from './access.js';
-const readApis = new Set(['/api/state','/api/tree','/api/drawings','/api/note','/api/links','/api/search','/api/tags','/api/graph','/api/file','/api/history','/api/history/content','/api/trash']);
-const writeApis = new Map([['/api/note','PUT'],['/api/note/create','POST'],['/api/asset','POST'],['/api/rename','POST'],['/api/delete','POST'],['/api/history/restore','POST'],['/api/replace','POST'],['/api/trash/restore','POST'],['/api/references/relink','POST']]);
+const readApis = new Set(['/api/state','/api/tree','/api/drawings','/api/note','/api/notes','/api/tasks','/api/links','/api/search','/api/tags','/api/graph','/api/file','/api/history','/api/history/content','/api/trash']);
+const writeApis = new Map([['/api/note','PUT'],['/api/note/create','POST'],['/api/asset','POST'],['/api/rename','POST'],['/api/delete','POST'],['/api/history/restore','POST'],['/api/replace','POST'],['/api/trash/restore','POST'],['/api/references/relink','POST'],['/api/tasks/toggle','POST'],['/api/pdf/citation','POST']]);
 const denied = (message,status=403) => Object.assign(new Error(message),{status});
 export function createMobileAccess({handler,upgrade,onRevoke=()=>{},now=Date.now,port=0}) {
   let listener=null, invitation=null, operation=Promise.resolve();

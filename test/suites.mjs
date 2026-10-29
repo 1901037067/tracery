@@ -1,8 +1,13 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['study-tools', 'study-tools-test.mjs', 'PDF 页码摘录与任务精确更新、冲突和引用移动'],
+  ['study-tools-ui', 'study-tools-ui-test.mjs', 'PDF 摘录与页码返回、任务汇总勾选完整流程'],
+  ['note-tools', 'note-tools-test.mjs', '模板变量、高级搜索、属性保留与列表筛选排序'],
+  ['note-tools-ui', 'note-tools-ui-test.mjs', '模板与快速记录、保存搜索、属性列表端到端'],
   ['reference-integrity', 'reference-integrity-test.mjs', '附件/目录引用事务、同名消歧、回退及进程恢复'],
   ['full-backup', 'full-backup-test.mjs', '整库备份、逐文件校验、新库恢复与失败一致性'],
   ['full-backup-ui', 'full-backup-ui-test.mjs', '丢图关联、完整备份恢复与会话设置恢复界面'],
+  ['settings-usability', 'settings-usability-test.mjs', '设置密度、模态焦点、菜单键盘及备份任务状态'],
   ['chrome-matrix', 'chrome-matrix-test.mjs', '主题/明暗/窄窗/混合内容/PDF 固定回归矩阵'],
   ['history-backup', 'history-backup-test.mjs', '历史备份界面、旧历史保留与本机管理边界'],
   ['maintenance', 'maintenance-test.mjs', '磁盘保留、历史备份迁移与失败回滚'],

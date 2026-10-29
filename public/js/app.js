@@ -14,7 +14,8 @@ import { onSyncStatus } from './sync-ui.js';
 import { askText, askConfirm } from './dialog.js';
 import { renderMarkdown } from './markdown.js';
 import { openLightbox } from './lightbox.js';
-import { openPdfViewer, configurePdfViewer, showPdfViewer, hidePdfViewer } from './pdf-viewer.js';
+import { openPdfViewer, configurePdfViewer, showPdfViewer, hidePdfViewer, currentPdf } from './pdf-viewer.js';
+import { pdfPage, pdfUrl } from './pdf-reference.js';
 import { openDraw, suspendDraw, isDrawOpen } from './draw.js';
 import { initMobile, isCompact, toggleMobilePanel, closeMobilePanels } from './mobile.js';
 import { initPwa } from './pwa.js';
@@ -38,9 +39,13 @@ import { sidebarForSide, applyWorkspaceLayout } from './workspace-layout.js';
 import { panelDock } from './pane-docking.js';
 import { setWorkspaceRoot, readPresets, writePresets, normalizeSession } from './layout-presets.js';
 import { initTooltips } from './tooltip.js';
+import { createNoteTools } from './note-tools.js';
+import { initSavedSearches } from './saved-searches.js';
+import { parseSearch } from './search-query.js';
+import { createStudyUI } from './study-tools-ui.js';
 
 initTooltips();
-configurePdfViewer({ open: path => openNote(path, null, { newTab: true }), close: () => closeTab(state.activeTab) });
+configurePdfViewer({ open: (path, page) => openPdfAt(path, page), close: () => closeTab(state.activeTab), root: () => state.vault?.root, readOnly: () => editor.accessReadOnly, cite: () => studyTools.cite() });
 
 const $ = (id) => document.getElementById(id);
 
@@ -277,7 +282,10 @@ async function openVault(path) {
 }
 
 async function enterApp(vault) {
+  noteTools.closeList();
+  studyTools.closeTasks();
   state.vault = vault;
+  searchTools.refresh();
   state.currentPath = null;
   loadShortcuts();
   refreshRightPanels(null);
@@ -452,6 +460,10 @@ function resolveVaultFile(name) {
 }
 
 function resolveEmbeddedFile(name, from) {
+  if (name.startsWith('/') && /\.pdf$/i.test(name)) {
+    let target; try { target = decodeURIComponent(name.slice(1)); } catch { return null; }
+    return state.files.has(target) ? target : null;
+  }
   const folder = from.includes('/') ? from.slice(0, from.lastIndexOf('/')) : '';
   const raw = name.replace(/\\/g, '/');
   const candidate = normalizeNotePath(`${folder}/${raw}`);
@@ -494,11 +506,17 @@ function openEmbeddedLink(raw, from = editor.path) {
   if (path) openNote(path, wikiParts(raw).heading, { newTab: true });
   else {
     const file = resolveEmbeddedFile(wikiParts(raw).target, from);
-    if (file && PDF_FILE_RE.test(file)) openPdfViewer(Api.fileUrl(file));
+    if (file && PDF_FILE_RE.test(file)) openPdfViewer(pdfUrl(Api.fileUrl(file), pdfPage(wikiParts(raw).heading)));
     else if (file && IMG_FILE_RE.test(file)) openLightbox(Api.fileUrl(file), state.files.get(file)?.name || file);
     else if (file) window.open(Api.fileUrl(file), '_blank', 'noopener');
     else toast('找不到引用的笔记或附件');
   }
+}
+async function openPdfAt(path, page) {
+  const root = state.vault?.root;
+  const result = await openNote(path, null, { newTab: true });
+  if (result === false || root !== state.vault?.root || state.currentPath !== path) return;
+  showPdfViewer(pdfUrl(Api.fileUrl(path), page), state.files.get(path)?.name || path, vaultAbs(path));
 }
 
 /* ================= 文件树 ================= */
@@ -694,28 +712,36 @@ function renderFile(f) {
 /* ================= 右键菜单 ================= */
 let ctxMenu = null;
 let contextTarget = null;
+let contextReturnFocus = null;
 let vaultMenuRequest = 0;
-function closeCtxMenu() {
+function closeCtxMenu(restoreFocus = false) {
   vaultMenuRequest++;
   $('vault-name')?.setAttribute('aria-expanded', 'false');
   $('btn-tab-more')?.setAttribute('aria-expanded', 'false');
   if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; }
   contextTarget?.classList.remove('context-target'); contextTarget = null;
+  if (restoreFocus && contextReturnFocus?.isConnected) contextReturnFocus.focus({ preventScroll: true });
+  contextReturnFocus = null;
   $('btn-file-sort')?.setAttribute('aria-expanded', 'false');
 }
-document.addEventListener('click', closeCtxMenu);
+document.addEventListener('click', () => closeCtxMenu());
+window.addEventListener('resize', () => closeCtxMenu());
 
 /** 字型图标（H1 / B / I / ¶ 这类排版项用文字比画图形更清楚） */
 const T = (txt, cls = '') => `<span class="mi-txt ${cls}">${txt}</span>`;
 
 function showMenu(x, y, items, target = null) {
   closeCtxMenu();
+  contextReturnFocus = document.activeElement;
   if (target) { contextTarget = target; target.classList.add('context-target'); }
   ctxMenu = document.createElement('div');
   ctxMenu.className = 'context-menu';
+  ctxMenu.setAttribute('role', 'menu'); ctxMenu.setAttribute('aria-label', '操作菜单');
   for (const it of items) {
-    if (it === '-') { const s = document.createElement('div'); s.className = 'sep'; ctxMenu.appendChild(s); continue; }
+    if (it === '-') { const s = document.createElement('div'); s.className = 'sep'; s.setAttribute('role', 'separator'); ctxMenu.appendChild(s); continue; }
     const btn = document.createElement('button');
+    btn.setAttribute('role', 'checked' in it ? 'menuitemcheckbox' : 'menuitem'); btn.tabIndex = -1;
+    if ('checked' in it) btn.setAttribute('aria-checked', String(!!it.checked));
     if (it.danger) btn.className = 'danger';
     if (it.disabled) btn.disabled = true;
     if (it.title) btn.title = it.title;
@@ -723,13 +749,22 @@ function showMenu(x, y, items, target = null) {
       + `<span class="mi-label">${it.label}</span>`
       + (it.checked ? '<span class="mi-check">✓</span>' : '')
       + (it.kbd ? `<span class="mi-kbd">${it.kbd}</span>` : '');
-    btn.onclick = (e) => { e.stopPropagation(); closeCtxMenu(); it.action?.(); };
+    btn.onclick = (e) => { e.stopPropagation(); closeCtxMenu(true); it.action?.(); };
     ctxMenu.appendChild(btn);
   }
   document.body.appendChild(ctxMenu);
   const rect = ctxMenu.getBoundingClientRect();
-  ctxMenu.style.left = `${Math.min(x, window.innerWidth - rect.width - 8)}px`;
-  ctxMenu.style.top = `${Math.min(y, window.innerHeight - rect.height - 8)}px`;
+  ctxMenu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`;
+  ctxMenu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
+  const itemsEnabled = [...ctxMenu.querySelectorAll('button:not(:disabled)')];
+  itemsEnabled[0]?.focus({ preventScroll: true });
+  ctxMenu.onkeydown = event => {
+    if (event.key === 'Tab') { closeCtxMenu(true); return; }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault(); event.stopPropagation();
+    const index = itemsEnabled.indexOf(document.activeElement);
+    itemsEnabled[event.key === 'Home' ? 0 : event.key === 'End' ? itemsEnabled.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + itemsEnabled.length) % itemsEnabled.length]?.focus();
+  };
 }
 
 function showFileMenu(e, f) {
@@ -2013,6 +2048,8 @@ async function createMissingNote(raw, newTab = false) {
  * @param {{newTab?: boolean}} [opts] 默认在当前标签打开；newTab=true 时新开一个
  */
 async function openNoteNow(path, heading, opts = {}) {
+  noteTools.closeList();
+  studyTools.closeTasks();
   if (!suspendDraw()) return;
   if (!path) return;
   if (isCompact()) closeMobilePanels();
@@ -2174,19 +2211,24 @@ function renderRecentList(box) {
   }
 }
 
-const runSearch = debounce(async (q) => {
+let searchRequest = 0;
+const fetchSearch = debounce(async (q, request, root) => {
   const box = $('search-results');
   const repRow = $('search-replace');
-  if (repRow) repRow.hidden = !q.trim();
+  if (root !== state.vault?.root || request !== searchRequest) return;
+  let parsed;
+  try { parsed = parseSearch(q); } catch (error) { if (repRow) repRow.hidden = true; box.textContent = error.message; return; }
+  if (repRow) repRow.hidden = !q.trim() || parsed.literal === null;
   if (!q.trim()) { renderRecentList(box); return; }
   let results = [];
-  try { results = (await Api.search(q)).results; } catch { /* ignore */ }
+  try { results = (await Api.search(q)).results; } catch (error) { if (root === state.vault?.root && request === searchRequest) box.textContent = '搜索失败：' + error.message; return; }
+  if (root !== state.vault?.root || request !== searchRequest) return;
   box.innerHTML = '';
   if (!results.length) {
     box.innerHTML = '<div class="search-empty">没有匹配的笔记</div>';
     return;
   }
-  const needle = q.toLowerCase();
+  const needle = parsed.highlights[0] || '';
   for (const r of results) {
     const item = document.createElement('div');
     item.className = 'search-result';
@@ -2197,7 +2239,7 @@ const runSearch = debounce(async (q) => {
       const div = document.createElement('div');
       div.className = 'sr-line';
       const idx = m.text.toLowerCase().indexOf(needle);
-      if (idx >= 0) {
+      if (needle && idx >= 0) {
         div.innerHTML = `${escapeText(m.text.slice(0, idx))}<mark>${escapeText(m.text.slice(idx, idx + needle.length))}</mark>${escapeText(m.text.slice(idx + needle.length))}`;
       } else {
         div.textContent = m.text;
@@ -2209,6 +2251,7 @@ const runSearch = debounce(async (q) => {
     box.appendChild(item);
   }
 }, 200);
+function runSearch(q) { fetchSearch(q, ++searchRequest, state.vault?.root); }
 
 /* ================= 命令面板 ================= */
 const paletteItems = [];
@@ -2230,6 +2273,12 @@ function renderPalette(q) {
   paletteIndex = 0;
 
   const commands = [
+    { icon: uiIcon('editor'), name: '摘录当前 PDF 到笔记', sub: '阅读', action: () => studyTools.cite() },
+    { icon: uiIcon('layout'), name: '全库任务汇总', sub: '笔记工具', action: () => studyTools.tasks() },
+    { icon: uiIcon('editor'), name: '从模板新建笔记', sub: '笔记工具', action: () => noteTools.template() },
+    { icon: uiIcon('editor'), name: '快速记录', sub: '笔记工具', action: () => noteTools.capture() },
+    { icon: uiIcon('general'), name: '编辑当前笔记属性', sub: '笔记工具', action: () => noteTools.properties() },
+    { icon: uiIcon('layout'), name: '打开笔记列表', sub: '笔记工具', action: () => noteTools.list() },
     { icon: '📄', name: '新建笔记', sub: '命令', action: () => createNoteIn('') },
     { icon: '🌗', name: '切换亮色 / 暗色主题', sub: '外观', action: toggleTheme },
     { icon: '⚙️', name: '打开设置', sub: '设置', action: () => openSettings() },
@@ -2406,6 +2455,48 @@ $('editor-live').contentEditable = 'false';
 // 测试/调试钩子：拿到当前编辑内核实例（test/engine-test.mjs 用 getContent/view 做断言）
 window.__editor = editor;
 
+const noteTools = createNoteTools({
+  showList: () => { studyTools.closeTasks(); if (isCompact()) closeMobilePanels(); },
+  context: () => {
+    const selection = editor.view.state.selection.main, current = editor.path === state.currentPath;
+    return { root: state.vault?.root, path: state.currentPath, content: current ? editor.getContent() : '', generation: editor._generation,
+      selection: current ? editor.view.state.sliceDoc(selection.from, selection.to) : '', range: { anchor: selection.anchor, head: selection.head },
+      accessReadOnly: editor.accessReadOnly, isRead: editor.isRead };
+  },
+  files: () => [...state.files.keys()],
+  refresh: () => refreshTree(),
+  flush: () => editor.flush(),
+  open: path => openNote(path, null, { newTab: true }),
+  created: async (path, root) => { if (root !== state.vault?.root) return; await refreshTree(); refreshGraph(); refreshTags(); if (root === state.vault?.root) await openNote(path, null, { newTab: true }); },
+  insert: async (before, text) => {
+    if (before.root !== state.vault?.root || before.path !== editor.path || before.content !== editor.getContent() || before.generation !== editor._generation) throw Error('笔记已变化，请重新打开模板以确认插入位置');
+    if (editor.isRead || editor.accessReadOnly) throw Error('当前笔记仅可查看');
+    editor.view.dispatch({ selection: before.range }); editor.insertText(text);
+    if (!await editor.flush()) throw Error('插入内容已留在编辑区草稿中，保存未完成，请处理保存提示后重试保存');
+  },
+  properties: async (before, content) => {
+    const unchanged = () => before.root === state.vault?.root && before.path === editor.path && before.content === editor.getContent() && before.generation === editor._generation;
+    if (editor.isRead || editor.accessReadOnly) throw Error('当前笔记仅可查看');
+    if (!unchanged() || !await editor.flush() || !unchanged()) throw Error('笔记已变化或保存未完成，请重新打开属性');
+    const result = await Api.saveNote(before.path, content, { expectedRevision: editor.revision, vaultRoot: before.root });
+    if (before.root === state.vault?.root && before.path === editor.path && (unchanged() || editor.getContent() === content)) {
+      const scroll = editor.view.scrollDOM.scrollTop;
+      editor.load(before.path, content, { keepMode: true, revision: result.revision, vaultRoot: before.root });
+      editor.view.scrollDOM.scrollTop = scroll; refreshRightPanels(content); sidebars.setMetadata(before.path, result);
+    }
+    refreshGraph(); refreshTags();
+  },
+});
+const searchTools = initSavedSearches({ root: () => state.vault?.root, run: runSearch });
+const studyTools = createStudyUI({
+  context: () => ({ root: state.vault?.root, readOnly: editor.accessReadOnly }), pdf: currentPdf,
+  notes: () => [...state.files.keys()].filter(path => /\.(md|markdown)$/i.test(path)),
+  flush: () => editor.flush(),
+  refresh: () => refreshTree(),
+  showTasks: () => { noteTools.closeList(); if (isCompact()) closeMobilePanels(); },
+  open: async (path, line) => { const root = state.vault?.root; const result = await openNote(path, null, { newTab: true }); if (result !== false && root === state.vault?.root && state.currentPath === path && line) editor.scrollToLine(line); },
+});
+
 $('editor-live').addEventListener('contextmenu', onEditorContextMenu);
 
 const refreshRightPanelsThrottled = debounce(() => refreshRightPanels(editor.getContent()), 200);
@@ -2538,6 +2629,8 @@ const hotkeyActions = {
   palette: openPalette, settings: openSettings,
   search: () => { switchPanel('search'); $('search-input').focus(); },
   newNote: () => createNoteIn(''), draw: openDrawPanel, mode: () => { if (!PDF_FILE_RE.test(state.currentPath || '')) editor.toggleMode(); },
+  quickCapture: () => noteTools.capture(), template: () => noteTools.template(), noteProperties: () => noteTools.properties(), noteList: () => noteTools.list(),
+  tasks: () => studyTools.tasks(), pdfCitation: () => studyTools.cite(),
   save: () => editor.flush(), theme: toggleTheme, graph: () => switchPanel('graph'), tags: () => switchPanel('tags'),
   history: openHistory, vault: openVaultPicker, phone: () => $('btn-phone-access').click(), exportHtml, exportPdf,
   closeTab: () => closeTab(state.activeTab),
@@ -2659,6 +2752,10 @@ function bindGlobalEvents() {
   // 给整个笔记库背景提供根目录操作；行级事件仍由文件/文件夹自己的菜单接管。
   const rootFileActions = () => [
     { label: '新建笔记', icon: ICON.doc, action: () => createNoteIn('') },
+    { label: '从模板新建…', icon: ICON.doc, action: () => noteTools.template() },
+    { label: '快速记录…', icon: ICON.pencil, action: () => noteTools.capture() },
+    { label: '笔记列表…', icon: ICON.list, action: () => noteTools.list() },
+    { label: '全库任务…', icon: ICON.task, action: () => studyTools.tasks() },
     { label: '新建文件夹', icon: ICON.folder, action: () => createFolderIn('') },
     '-',
     { label: '在文件树定位当前笔记', icon: ICON.tree, disabled: !state.currentPath, action: () => revealInTree(state.currentPath) },
@@ -2708,10 +2805,17 @@ function bindGlobalEvents() {
   $('btn-settings').onclick = () => { if (isCompact()) closeMobilePanels(); openSettings(); };
 
   // 搜索
+  $('btn-note-properties').onclick = () => noteTools.properties();
+  $('btn-note-list').onclick = () => noteTools.list();
+  $('btn-task-list').onclick = () => studyTools.tasks();
+  $('search-note-list').onclick = () => noteTools.list($('search-input').value);
   $('search-input').addEventListener('input', (e) => runSearch(e.target.value));
   // 全部替换（替换前服务端会自动留版本快照，可回滚）
   $('btn-replace-all').onclick = async () => {
-    const q = $('search-input').value;
+    const search = $('search-input').value;
+    let q;
+    try { q = parseSearch(search).literal; } catch (error) { toast(error.message); return; }
+    if (q === null) { toast('组合搜索只筛选结果；全文替换请使用单个关键词或引号短语'); return; }
     if (!q.trim()) { toast('先输入要查找的内容'); return; }
     const rep = $('replace-input').value;
     const ok = await askConfirm({
@@ -2753,13 +2857,15 @@ function bindGlobalEvents() {
   document.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.getModifierState('AltGraph')) return;
     if (!$('phone-access-panel').hidden) return;
+    if (document.querySelector('.note-tools-overlay:not([hidden])')) return;
+    if (document.querySelector('.dialog-backdrop:not([hidden])')) return;
     if (settingsIsOpen()) {
       if (e.key === 'Escape' && !e.target.closest('.hotkey-binding[aria-pressed="true"]')) { e.preventDefault(); closeSettings(); }
       return;
     }
     if (document.querySelector('.dialog-backdrop:not([hidden]), .draw-overlay:not([hidden]), .lightbox:not([hidden]), .history-viewer:not([hidden]), .trash-viewer:not([hidden])')) return;
     if (e.key === 'Escape') {
-      if (ctxMenu) { e.preventDefault(); closeCtxMenu(); }
+      if (ctxMenu) { e.preventDefault(); closeCtxMenu(true); }
       else if (!$('palette').hidden) closePalette();
       else if (!$('welcome').hidden) closeWelcome();
       else if (document.body.classList.contains('graph-focus')) { e.preventDefault(); toggleGraphFocus(false); }
@@ -2801,6 +2907,8 @@ function onWsMessage(msg) {
       else onWsMessage({ type: 'fs-change', paths: ['*'], treeChanged: true });
     }).catch(() => {});
   } else if (msg.type === 'fs-change') {
+    studyTools.changed();
+    noteTools.changed();
     editor.refreshDecorations();
     const paths = msg.paths || [];
     const affectsCurrent = state.currentPath && paths.some((p) => p === state.currentPath || p === '*' || p === state.currentPath + '.md');
@@ -2836,6 +2944,7 @@ function onWsMessage(msg) {
         if (changed && editor.dirty) rememberDraft(editor.vaultRoot || state.vault?.root, editor.path, editor.getContent());
         ++noteLoadToken;
         state.vault = s.vault;
+        searchRequest++; searchTools.refresh(); noteTools.changed(); studyTools.changed();
         state.currentPath = null;
         if (changed) loadShortcuts();
         refreshRightPanels(null);

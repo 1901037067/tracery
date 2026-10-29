@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/css/tabs.css" />
   <link rel="stylesheet" href="/css/workspace-layout.css" />
   <link rel="stylesheet" href="/css/controls.css" />
+  <link rel="stylesheet" href="/css/note-tools.css" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
   <!-- IMPORTMAP:BEGIN (由 scripts/build-cmvendor.mjs 生成，勿手改) -->
@@ -236,6 +237,8 @@
         <section class="panel" id="panel-search" aria-label="搜索">
           <div class="panel-body">
             <input id="search-input" class="search-input" type="search" placeholder="搜索笔记内容…" aria-label="搜索笔记内容" />
+            <details class="search-help"><summary>高级搜索</summary><p>空格组合条件，双引号匹配短语，减号排除。<br><code>path:课程 tag:数学 "梯度下降" -path:归档 -考试</code><br>目录含空格时可用 <code>path:"课程 2026"</code>。</p></details>
+            <div id="saved-searches" class="saved-searches"><select id="saved-search-select" aria-label="已保存的搜索"></select><div class="search-actions"><button id="save-search" class="mini-btn">保存搜索</button><button id="remove-saved-search" class="mini-btn" disabled>移除</button><button id="search-note-list" class="mini-btn">列表视图</button></div></div>
             <!-- 替换行：有查询词才显示 -->
             <div class="search-replace" id="search-replace" hidden>
               <input id="replace-input" class="search-input replace-input" type="text" placeholder="替换为…" />
@@ -346,6 +349,7 @@
               <div class="info-label">文件路径</div><button class="note-info-path" id="note-info-path" title="复制相对路径" disabled>未打开笔记</button>
               <dl class="note-metadata"><dt>修改时间</dt><dd id="note-info-modified">—</dd><dt>文件大小</dt><dd id="note-info-size">—</dd></dl>
               <div class="info-label">本篇标签</div><div id="note-tags-list"></div>
+              <div class="note-property-actions"><button id="btn-note-properties" class="note-history-btn">笔记属性</button><button id="btn-note-list" class="note-history-btn">笔记列表</button><button id="btn-task-list" class="note-history-btn">全库任务</button></div>
               <button class="note-history-btn" id="btn-note-history" disabled>历史版本</button>
             </div>
           </section>

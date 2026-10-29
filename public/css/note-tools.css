@@ -1,0 +1,109 @@
+/* Built-in note tools reuse the editor's palette, font and control rhythm. */
+.cm-line.cm-lp-frontmatter { color: var(--text-secondary); background: var(--bg-fill); font-family: var(--font-mono); }
+.md-frontmatter { color: var(--text-secondary); background: var(--bg-fill); white-space: pre-wrap; font: 13px/1.6 var(--font-mono); padding: 12px 16px; border-radius: var(--r-sm); }
+.search-help { margin: 4px 0 10px; font-size: 12px; line-height: 1.65; color: var(--text-secondary); }
+.search-help summary, .note-tool-body summary { cursor: pointer; padding: 6px 0; }
+.search-help p { margin-top: 6px; overflow-wrap: anywhere; }
+.search-help code { font: 11.5px/1.7 var(--font-mono); color: var(--text-primary); }
+.saved-searches { display: grid; gap: 6px; margin-bottom: 12px; }
+.saved-searches .select-control { width: 100%; }
+.search-actions, .note-property-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.search-actions .mini-btn { min-height: 30px; padding: 4px 7px; font-size: 12px; }
+.search-actions .mini-btn:not(:disabled) { color: var(--text-primary); background: var(--bg-fill); }
+.note-property-actions .note-history-btn { flex: 1; margin-top: 12px; }
+.note-tools-overlay { align-items: center; padding: 24px; animation: none; }
+.note-tool-dialog { display: flex; flex-direction: column; width: 720px; max-width: 100%; max-height: min(860px, 90dvh); min-height: 0; border-radius: var(--r-lg); background: var(--bg-sheet); box-shadow: var(--shadow-float); overflow: hidden; color: var(--text-primary); }
+.note-tool-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 24px; flex-shrink: 0; border-bottom: 1px solid var(--hairline); }
+.note-tool-header h2 { font-size: 18px; font-weight: 600; margin: 0; }
+.note-tool-header button { flex-shrink: 0; }
+.note-tool-body { padding: 20px 24px 12px; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.note-tool-body .tool-field { display: grid; gap: 6px; margin-bottom: 16px; }
+.tool-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.tool-fields > label, .note-list-filters > label { display: grid; min-width: 0; gap: 6px; }
+.note-tool-body label, .note-list-filters label { font-size: 13px; color: var(--text-primary); }
+.note-tool-dialog :is(input, textarea), .note-list-filters input { width: 100%; min-width: 0; min-height: var(--settings-control-height); border: 1px solid var(--hairline-strong); border-radius: var(--r-sm); padding: 8px 10px; background: var(--bg-sheet); color: var(--text-primary); font: 13px/1.5 var(--font-ui); }
+.note-tool-dialog textarea { resize: vertical; min-height: 100px; }
+.note-tool-dialog textarea[readonly] { background: var(--bg-fill); }
+#template-source, #template-preview { font-family: var(--font-mono); }
+.note-tool-dialog input:disabled { background: var(--bg-fill); color: var(--text-secondary); }
+.note-tool-dialog input::placeholder, .note-tool-dialog textarea::placeholder, .note-list-filters input::placeholder { color: var(--text-secondary); opacity: 1; }
+.note-tool-dialog .select-control, .note-list-filters .select-control { width: 100%; }
+.tool-note, .note-tool-body details { color: var(--text-secondary); font-size: 12.5px; line-height: 1.65; }
+.tool-note { margin-bottom: 14px; overflow-wrap: anywhere; }
+.note-tool-body details { margin-bottom: 16px; }
+.note-tool-body details[open] summary { margin-bottom: 8px; }
+.tool-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.note-tool-dialog .btn-primary, .note-tool-dialog .btn-ghost, .note-list-sheet .btn-ghost { min-height: var(--settings-control-height); padding: 7px 12px; font-size: 13px; }
+.note-tool-dialog .btn-primary { background: var(--text-primary); color: var(--bg-sheet); box-shadow: none; }
+.note-tool-dialog button:disabled, .note-list-sheet button:disabled { opacity: .5; cursor: default; }
+.note-tool-footer { flex-shrink: 0; padding: 12px 24px; border-top: 1px solid var(--hairline); }
+.note-tool-footer:has(#note-tools-message:empty) { padding: 0; border: 0; }
+#note-tools-message:empty { min-height: 0; }
+#note-tools-message { font-size: 12.5px; line-height: 1.6; min-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); }
+.property-tags { grid-column: 1 / -1; }
+.note-tool-dialog :is(input, textarea, button, summary):focus-visible, .note-list-sheet :is(input, button):focus-visible, .search-actions button:focus-visible, .search-help summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.editor-area[data-note-view="list"] > :not(#note-list-view) { display: none !important; }
+.editor-area[data-note-view="list"] { position: relative; }
+.editor-area[data-note-view="tasks"] { position: relative; }
+.editor-area[data-note-view="tasks"] > :not(#task-list-view) { display: none !important; }
+.task-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 180px); gap: 16px; padding: 16px 24px 8px; }
+.task-filters label { display: grid; gap: 6px; min-width: 0; font-size: 13px; }
+.task-filters input { width: 100%; min-width: 0; min-height: 36px; padding: 8px 10px; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm); color: var(--text-primary); background: var(--bg-sheet); font: 13px/1.5 var(--font-ui); }
+.task-filters input::placeholder { color: var(--text-secondary); opacity: 1; }
+.task-filters .select-control { width: 100%; }
+.task-message { padding: 0 24px 12px; color: var(--text-primary); font-size: 12.5px; line-height: 1.6; }
+.task-message:empty { display: none; }
+.task-label { display: flex; align-items: flex-start; gap: 10px; min-height: 32px; cursor: pointer; }
+.task-label input { margin-top: 4px; flex: 0 0 auto; accent-color: var(--accent); }
+.task-label span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.task-sheet td:nth-child(2) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.citation-overlay .note-tool-footer:has(#citation-message:empty) { padding: 0; border: 0; }
+.citation-recheck { margin: -6px 0 16px; }
+#citation-message { min-height: 20px; font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; color: var(--text-secondary); }
+#citation-message:empty { min-height: 0; }
+.pdf-actions .pdf-cite { color: var(--text-primary); background: var(--bg-fill); padding-inline: 8px; }
+@media (max-width: 600px) {
+  .task-filters { grid-template-columns: 1fr; padding: 12px 16px 8px; gap: 10px; }
+  .task-message { padding: 0 16px 10px; }
+  .task-label { min-height: 44px; }
+  .pdf-head { gap: 6px; padding-inline: 8px; }
+}
+.note-list-sheet { position: absolute; inset: 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-sheet); color: var(--text-primary); z-index: 3; }
+.note-list-sheet[hidden] { display: none; }
+.note-list-filters { padding: 16px 24px 8px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; }
+.note-list-filters .tool-check { display: flex; align-items: center; gap: 8px; grid-column: 1 / -1; font-size: 12.5px; }
+.note-list-filters input[type="checkbox"] { width: auto; min-height: auto; accent-color: var(--accent); }
+.note-list-summary { padding: 8px 24px 12px; color: var(--text-secondary); font-size: 12.5px; line-height: 1.6; }
+.note-list-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 24px; }
+.note-list-sheet table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.note-list-sheet th { position: sticky; top: 0; background: var(--bg-sheet); z-index: 1; text-align: left; font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+.note-list-sheet :is(th, td) { padding: 10px 8px; border-bottom: 1px solid var(--hairline); vertical-align: top; overflow-wrap: anywhere; }
+.note-list-sheet :is(th, td):first-child { padding-left: 0; }
+.note-list-sheet :is(th, td):last-child { padding-right: 0; }
+.note-list-sheet td:nth-child(4) { text-align: right; font-variant-numeric: tabular-nums; }
+.note-list-sheet td:nth-child(5) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.note-list-name { color: var(--text-primary); font-size: 13px; text-align: left; font-weight: 500; overflow-wrap: anywhere; }
+.note-list-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.note-list-sheet td small { display: block; color: var(--text-secondary); font-size: 11.5px; margin-top: 4px; }
+.note-list-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 24px; border-top: 1px solid var(--hairline); color: var(--text-secondary); font-size: 12px; }
+@media (max-width: 1000px) { .note-list-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+  .note-tools-overlay { padding: 8px; }
+  .note-tool-dialog { max-height: calc(100dvh - 16px); --settings-control-height: 44px; }
+  .note-tool-header, .note-tool-footer, .note-list-footer { padding: 12px 16px; }
+  .note-tool-header { flex-wrap: wrap; gap: 8px; }
+  .note-tool-body { padding: 16px; }
+  .tool-fields { grid-template-columns: 1fr; }
+  .note-list-filters { padding: 12px 16px 4px; gap: 10px; }
+  .note-list-summary { padding: 8px 16px; }
+  .note-list-scroll { padding: 0 16px; }
+  .note-list-sheet thead { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
+  .note-list-sheet tr { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--hairline); padding: 10px 0; }
+  .note-list-sheet td { border: none; padding: 6px 8px 6px 0; min-width: 0; }
+  .note-list-sheet td:first-child { grid-column: 1 / -1; }
+  .note-list-sheet td:not(:first-child)::before { content: attr(data-label); display: block; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+  .note-list-sheet td:nth-child(4) { text-align: left; }
+  .note-list-sheet :is(button, input:not([type="checkbox"])) { min-height: 44px; }
+  .search-actions .mini-btn { min-height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) { .note-tool-dialog .btn-primary:active { transform: none; } }

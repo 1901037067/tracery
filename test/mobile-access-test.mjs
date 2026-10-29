@@ -27,9 +27,12 @@ try{
  const paired=await request(LAN,'/api/access/pair','POST',{code:access.invitation.code});assert.equal(paired.status,200);assert.match(paired.headers.get('set-cookie'),/HttpOnly; SameSite=Strict/);const readCookie=paired.cookie;
  assert.equal((await request(LAN,'/api/access/pair','POST',{code:access.invitation.code})).status,401);
  const readState=(await request(LAN,'/api/state','GET',undefined,readCookie)).data;assert.equal(readState.access.mode,'read');assert.equal(readState.access.local,false);assert.notEqual(readState.vault.root,VAULT);assert.deepEqual(readState.recentVaults,[]);
+ const catalog=await request(LAN,'/api/notes','GET',undefined,readCookie);assert.equal(catalog.status,200);assert.equal(catalog.data.root,readState.vault.root);assert.notEqual(catalog.data.root,VAULT);assert.ok(catalog.data.rows.every(row=>!path.isAbsolute(row.path)));
+ const tasks=await request(LAN,'/api/tasks','GET',undefined,readCookie);assert.equal(tasks.status,200);assert.equal(tasks.data.root,readState.vault.root);assert.notEqual(tasks.data.root,VAULT);
  for(const route of ['/api/tree','/api/note?path=note.md','/api/file?path=document.pdf','/api/history?path=note.md','/api/search?q=original'])assert.equal((await request(LAN,route,'GET',undefined,readCookie)).status,200,route);
  const writes=[['/api/note','PUT',{path:'note.md',content:'forbidden'}],['/api/note/create','POST',{path:'bad.md'}],['/api/asset','POST',{name:'bad',data:'data:image/png;base64,aGk='}],['/api/rename','POST',{path:'note.md',newPath:'bad.md'}],['/api/delete','POST',{path:'note.md'}],['/api/history/restore','POST',{path:'note.md',id:'v2-1'}],['/api/replace','POST',{query:'original',replacement:'bad'}],['/api/trash/restore','POST',{id:'bad'}]];
  for(const [route,method,body]of writes)assert.equal((await request(LAN,route,method,body,readCookie)).status,403,route);
+ for(const route of ['/api/tasks/toggle','/api/pdf/citation'])assert.equal((await request(LAN,route,'POST',{path:'note.md'},readCookie)).status,403,route);
  assert.equal(fs.readFileSync(path.join(VAULT,'note.md'),'utf8'),'# original');
  const readonlySocket=await socket(LAN,readCookie);assert.equal(readonlySocket.status,101);
  const stoppedSocket=new Promise(r=>readonlySocket.ws.once('close',r));await request(BASE,'/api/access/revoke','POST',{});await stoppedSocket;

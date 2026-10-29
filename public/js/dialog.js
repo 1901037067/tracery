@@ -6,6 +6,7 @@
  * confirm 虽然能用，但样式与整套 UI 不匹配，一并换掉。
  */
 
+import { enterModal, leaveModal } from './modal-focus.js';
 let overlay = null;
 let resolver = null;
 let keyHandler = null;
@@ -16,12 +17,12 @@ function ensureEl() {
   overlay.className = 'dialog-backdrop';
   overlay.hidden = true;
   overlay.innerHTML = `
-    <div class="dialog-card" role="dialog" aria-modal="true">
-      <div class="dialog-title"></div>
-      <div class="dialog-desc"></div>
-      <input class="dialog-input" type="text" spellcheck="false" autocomplete="off" />
+    <div class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <div class="dialog-title" id="dialog-title"></div>
+      <div class="dialog-desc" id="dialog-desc"></div>
+      <input class="dialog-input" type="text" spellcheck="false" autocomplete="off" aria-labelledby="dialog-title" />
       <datalist id="dialog-suggestions"></datalist>
-      <div class="dialog-error" hidden></div>
+      <div class="dialog-error" id="dialog-error" role="alert" hidden></div>
       <div class="dialog-actions">
         <button class="dialog-cancel btn-ghost">取消</button>
         <button class="dialog-ok btn-primary">确定</button>
@@ -34,7 +35,11 @@ function ensureEl() {
   overlay.querySelector('.dialog-cancel').onclick = () => finish(null);
   overlay.querySelector('.dialog-ok').onclick = () => submit();
   overlay.querySelector('.dialog-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); }
+  });
+  overlay.querySelector('.dialog-input').addEventListener('input', () => {
+    overlay.querySelector('.dialog-error').hidden = true;
+    overlay.querySelector('.dialog-input').removeAttribute('aria-invalid');
   });
   return overlay;
 }
@@ -45,10 +50,13 @@ function open({ title, desc = '', value = '', placeholder = '', okText = '确定
   const d = el.querySelector('.dialog-desc');
   d.textContent = desc;
   d.hidden = !desc;
+  el.querySelector('.dialog-card').setAttribute('aria-describedby', desc ? 'dialog-desc' : '');
   const inp = el.querySelector('.dialog-input');
   inp.hidden = !input;
   inp.value = value;
   inp.placeholder = placeholder;
+  inp.removeAttribute('aria-invalid');
+  inp.setAttribute('aria-describedby', [desc && 'dialog-desc', 'dialog-error'].filter(Boolean).join(' '));
   const options = el.querySelector('datalist'); options.replaceChildren();
   for (const value of suggestions) { const option = document.createElement('option'); option.value = value; options.append(option); }
   if (suggestions.length) inp.setAttribute('list', options.id); else inp.removeAttribute('list');
@@ -58,17 +66,15 @@ function open({ title, desc = '', value = '', placeholder = '', okText = '确定
   ok.classList.toggle('danger', !!danger);
   el.querySelector('.dialog-cancel').textContent = input ? '取消' : '取消';
   el.hidden = false;
-  // 下一帧聚焦，避免刚显示时滚动跳动
-  requestAnimationFrame(() => {
-    if (input) { inp.focus(); inp.select(); }
-    else ok.focus();
-  });
+  enterModal(el, input ? inp : danger ? el.querySelector('.dialog-cancel') : ok);
+  if (input) inp.select();
   return new Promise((resolve) => { resolver = resolve; });
 }
 
 function finish(result) {
   if (!overlay || overlay.hidden) return;
   overlay.hidden = true;
+  leaveModal(overlay);
   const r = resolver;
   resolver = null;
   if (keyHandler) { document.removeEventListener('keydown', keyHandler, true); keyHandler = null; }
@@ -83,6 +89,7 @@ function submit() {
     const err = overlay.querySelector('.dialog-error');
     err.textContent = '不能为空';
     err.hidden = false;
+    inp.setAttribute('aria-invalid', 'true');
     inp.focus();
     return;
   }

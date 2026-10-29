@@ -1,6 +1,94 @@
 /* 与主题共用颜色、圆角和字号，选单在视口浮层中打开，避免被设置滚动区裁切。 */
 .settings-nav button { display: flex; align-items: center; gap: 10px; }
 .settings-nav button svg { width: 18px; height: 18px; flex: 0 0 18px; }
+
+/* Settings share a compact type scale and one spacing rhythm, within the existing sheet. */
+.settings-box { height: 700px; }
+.settings-pane { padding: var(--settings-inset) var(--settings-inset) 16px; scroll-padding: 16px; }
+.settings-pane h2 { font-size: var(--settings-heading-size); margin-bottom: var(--settings-gap); letter-spacing: 0; }
+.settings-nav { width: 180px; padding: 16px 10px; }
+.settings-nav-title { color: var(--text-secondary); font-size: 13px; letter-spacing: 0; text-transform: none; padding: 4px 10px 12px; }
+.settings-nav button { min-height: var(--settings-control-height); font-size: 13px; }
+.settings-nav button.active { background: var(--bg-fill); color: var(--text-primary); font-weight: 600; }
+.settings-nav button.active svg { color: var(--accent); }
+.settings-footer { padding: 12px var(--settings-inset); }
+.settings-pane .set-row { gap: 16px; padding: 12px 0; }
+.settings-pane .set-section-title { font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text-primary); margin: 24px 0 8px; }
+.settings-pane .set-note { line-height: 1.6; }
+.settings-pane .btn-ghost, .settings-pane .btn-primary, .settings-pane .txt { min-height: var(--settings-control-height); }
+.settings-pane .btn-primary { padding: 7px 14px; font-size: 12.5px; }
+.settings-box .btn-primary, .dialog-card .btn-primary { box-shadow: none; }
+.settings-box .btn-primary, .dialog-card .btn-primary:not(.danger) { background: var(--text-primary); color: var(--bg-sheet); }
+.settings-box .btn-primary:hover, .dialog-card .btn-primary:not(.danger):hover { background: color-mix(in srgb, var(--text-primary) 88%, var(--bg-sheet)); }
+.dialog-card .btn-primary.danger { background: color-mix(in srgb, var(--danger) 70%, #000); color: #fff; }
+.dialog-card .btn-primary.danger:hover { background: color-mix(in srgb, var(--danger) 60%, #000); }
+.dialog-error { color: var(--text-primary); font-weight: 500; }
+.settings-footer .link-btn { color: var(--text-secondary); }
+.settings-box .pane-order { font-size: 11px; }
+.settings-pane button:disabled { opacity: .5; cursor: default; }
+.settings-pane button:disabled:hover { background: var(--bg-fill); }
+.settings-pane :is(button, input, summary, a):focus-visible,
+.settings-nav button:focus-visible, .settings-footer button:focus-visible,
+.dialog-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-pane input::placeholder { color: var(--text-secondary); opacity: 1; }
+.full-backup .set-note { margin-bottom: 8px; }
+.backup-details { color: var(--text-secondary); font-size: 12.5px; line-height: 1.6; }
+.backup-details summary { cursor: pointer; padding: 4px 0; width: fit-content; }
+.backup-details[open] summary { margin-bottom: 8px; }
+.backup-step { padding: 16px 0; border-bottom: 1px solid var(--hairline); }
+.backup-step h4 { font-size: 13px; font-weight: 600; margin: 0 0 12px; }
+.full-backup .backup-path-label { display: block; margin: 12px 0 6px; font-size: 12.5px; color: var(--text-primary); }
+.backup-path-row { display: flex; align-items: stretch; gap: 8px; margin-bottom: 10px; }
+.backup-path-row .backup-path { flex: 1; width: 0; min-width: 0; min-height: var(--settings-control-height); font-size: 13px; border-color: var(--hairline-strong); }
+.backup-path-row button { flex-shrink: 0; }
+.backup-path:focus-visible { border-color: var(--accent); }
+.backup-path[aria-invalid="true"] { border-color: var(--danger); }
+.backup-preference { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; margin: 12px 0; }
+.backup-preference input { flex: 0 0 auto; margin-top: 3px; accent-color: var(--accent); }
+#backup-restore-note { margin: 8px 0 0; }
+.backup-status { padding: 12px 0; }
+.backup-status .backup-result { white-space: pre-wrap; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; margin-bottom: 0; }
+.backup-status[data-state="working"] .backup-result, .backup-status[data-state="complete"] .backup-result { color: var(--text-primary); }
+.backup-status[data-state="error"] .backup-result { color: var(--text-primary); font-weight: 500; }
+.backup-status progress { display: block; width: 100%; height: 6px; margin: 10px 0; accent-color: var(--accent); }
+.backup-status progress[hidden] { display: none; }
+.backup-status .set-actions:has(button:not([hidden])) { margin-top: 12px; }
+
+/* Frequent menus and modal keyboard actions are immediate; occasional selects expand from their trigger. */
+.context-menu, .settings-modal, .settings-box, .dialog-backdrop, .dialog-card { animation: none; }
+.context-menu { max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; }
+.context-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--bg-fill); }
+.dialog-backdrop { align-items: center; padding: 24px; background: var(--overlay); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.dialog-card { max-height: calc(100dvh - 48px); overflow-y: auto; }
+.dialog-title { font-size: 16px; }
+.dialog-desc { font-size: 13px; overflow-wrap: anywhere; }
+.dialog-input { font-size: 14px; }
+.dialog-input::placeholder { color: var(--text-secondary); opacity: 1; }
+.dialog-input[aria-invalid="true"] { box-shadow: 0 0 0 1px var(--danger) inset; }
+.dialog-actions button { min-height: var(--settings-control-height); }
+.select-popover { animation: select-enter 150ms var(--ui-popover-ease); }
+.select-popover[data-instant="true"] { animation: none; }
+@keyframes select-enter { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .select-popover { animation: fade-in 100ms linear !important; }
+  .select-popover[data-instant="true"], .context-menu, .settings-modal, .settings-box, .dialog-backdrop, .dialog-card { animation: none !important; }
+  .settings-box *, .dialog-card *, .select-control * { transition: color 100ms linear, background-color 100ms linear !important; }
+  .settings-box .btn-primary:active, .dialog-card .btn-primary:active { transform: none; }
+}
+@media (max-width: 900px) {
+  .settings-box { height: 100%; }
+  .settings-nav { width: 100%; }
+  .settings-pane { padding: 20px 16px 12px; }
+  .settings-footer { padding: 12px 16px; }
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .settings-box { --settings-control-height: 44px; }
+  .settings-nav button { min-height: 44px; }
+  .backup-path-row { flex-wrap: wrap; }
+  .backup-path-row .backup-path { flex-basis: 100%; width: 100%; }
+  .dialog-actions button, .backup-details summary { min-height: 44px; }
+  .backup-details summary { line-height: 36px; }
+}
 .select-control { display: inline-flex; min-width: 0; vertical-align: middle; }
 .select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; min-height: 36px; padding: 8px 11px; border: 1px solid var(--hairline); border-radius: 10px; background: var(--bg-fill); color: var(--text-primary); text-align: left; font: inherit; font-size: 12px; transition: background 140ms, box-shadow 140ms; }
 .select-trigger:hover { background: var(--bg-hover, var(--accent-soft)); }

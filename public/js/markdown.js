@@ -12,6 +12,7 @@
 
 import { mathHtml, inlineMath } from './math.js';
 import { externalUrl } from './external-link.js';
+import { readProperties } from './note-properties.js';
 const INLINE_TOKEN = '\u0001';
 
 /* ================= 代码高亮（轻量自研，够用的范围：注释/字符串/数字/关键字） =================
@@ -231,7 +232,10 @@ export function parseMarkdown(md, opts = {}) {
 /** 扫一份「文档」：块 + 文末空行占位（主文档与引用/Callout 子文档都走这里） */
 function scanDoc(lines, lineStarts, lineEnd, opts = {}) {
   const ctx = { usedSlugs: new Map(), sourceOffsets: opts.sourceOffsets !== false };
-  const blocks = scanBlocks(lines, lineStarts, lineEnd, 0, lines.length, ctx);
+  const properties = lines[0] === '---' ? readProperties(lines.join('\n')) : null;
+  const endLine = properties?.exists && !properties.error ? lines.findIndex((line, i) => i > 0 && /^(---|\.\.\.)[ \t]*$/.test(line)) : -1;
+  const blocks = scanBlocks(lines, lineStarts, lineEnd, endLine >= 0 ? endLine + 1 : 0, lines.length, ctx);
+  if (endLine >= 0) blocks.unshift({ type: 'frontmatter', line: 0, endLine, lineStart: 0, lineEnd: lineEnd(endLine), contentStart: 0, text: lines.slice(0, endLine + 1).join('\n') });
   // 文档以空行结尾时补占位（不能带 md-blank，见 renderBlock 注释）
   let lastText = lines.length - 1;
   while (lastText >= 0 && /^\s*$/.test(lines[lastText])) lastText--;
@@ -499,6 +503,9 @@ export function renderMarkdown(md, opts = {}) {
 
 function renderBlock(b, ctx) {
   switch (b.type) {
+    case 'frontmatter': {
+      const pre = document.createElement('pre'); pre.className = 'md-frontmatter'; pre.dataset.frontmatter = 'true'; pre.setAttribute('aria-label', '笔记属性源码'); pre.textContent = b.text; tagEl(pre, b, ctx.tagOffsets); return pre;
+    }
     case 'blank': {
       const p = document.createElement('p');
       p.dataset.mdBlank = '1';
@@ -753,6 +760,7 @@ function serializeBlocks(root) {
     } else if (el.classList.contains('md-math-display')) {
       push(el.dataset.mathSource || el.textContent, el);
     } else if (tag === 'PRE') {
+      if (el.dataset.frontmatter === 'true') { push(el.textContent, el); continue; }
       const code = el.querySelector('code');
       const lang = code?.className?.match(/language-([^\s]+)/)?.[1] || '';
       const marker = el.dataset.fenceMarker || '```';

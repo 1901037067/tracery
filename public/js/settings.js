@@ -15,6 +15,7 @@ import { uiIcon } from './ui-icons.js';
 import { upgradeSelects, refreshSelect, closeSelect } from './select-control.js';
 import { initHistoryBackup } from './history-backup.js';
 import { initFullBackup, fullBackupMarkup } from './full-backup.js';
+import { enterModal, leaveModal } from './modal-focus.js';
 
 export const DEFAULT_SETTINGS = {
   themeName: 'apple',
@@ -273,8 +274,8 @@ function build() {
   el.className = 'modal settings-modal';
   el.hidden = true;
   el.innerHTML = `
-    <div class="settings-box" role="dialog" aria-label="设置">
-      <aside class="settings-nav">
+    <div class="settings-box" role="dialog" aria-label="设置" aria-modal="true">
+      <aside class="settings-nav" role="tablist" aria-label="设置分类">
         <div class="settings-nav-title">设置</div>
         <button data-pane="appearance" class="active">${uiIcon('appearance')}<span>外观</span></button>
         <button data-pane="editor">${uiIcon('editor')}<span>编辑器</span></button>
@@ -288,7 +289,7 @@ function build() {
       <section class="settings-body">
         <div class="settings-pane active" data-pane="appearance">
           <h2>外观</h2>
-          ${ROW('主题皮肤', '整体配色风格，对应 themes/*.css', SEG('themeName', [['apple', 'Apple 风'], ['obsidian', 'Obsidian 风']], settings.themeName))}
+          ${ROW('主题皮肤', '选择整体配色与界面风格', SEG('themeName', [['apple', 'Apple 风'], ['obsidian', 'Obsidian 风']], settings.themeName))}
           ${ROW('亮暗', '跟随系统会随系统外观自动切换', SEG('themeMode', [['light', '浅色'], ['dark', '深色'], ['auto', '跟随系统']], settings.themeMode))}
           ${ROW('强调色', '按钮、链接、选中态的主色',
             `<div class="swatches" data-key="accent">
@@ -428,13 +429,38 @@ function bind(el) {
   }
   // 左侧导航
   for (const btn of el.querySelectorAll('.settings-nav button')) {
+    btn.id = `settings-tab-${btn.dataset.pane}`;
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-controls', `settings-pane-${btn.dataset.pane}`);
+    btn.setAttribute('aria-selected', String(btn.classList.contains('active')));
+    btn.tabIndex = btn.classList.contains('active') ? 0 : -1;
+    const pane = el.querySelector(`.settings-pane[data-pane="${btn.dataset.pane}"]`);
+    pane.id = `settings-pane-${btn.dataset.pane}`;
+    pane.setAttribute('role', 'tabpanel'); pane.setAttribute('aria-labelledby', btn.id);
     btn.onclick = () => {
       cancelHotkeyRecording(); closeSelect();
-      for (const b of el.querySelectorAll('.settings-nav button')) b.classList.toggle('active', b === btn);
+      for (const b of el.querySelectorAll('.settings-nav button')) {
+        b.classList.toggle('active', b === btn); b.setAttribute('aria-selected', String(b === btn)); b.tabIndex = b === btn ? 0 : -1;
+      }
       for (const p of el.querySelectorAll('.settings-pane')) p.classList.toggle('active', p.dataset.pane === btn.dataset.pane);
       if (btn.dataset.pane === 'sync') initSyncPane();   // 每次进来都取一次最新状态
     };
+    btn.onkeydown = event => {
+      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault(); event.stopPropagation();
+      const tabs = [...el.querySelectorAll('.settings-nav button')], index = tabs.indexOf(btn);
+      const next = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (['ArrowUp', 'ArrowLeft'].includes(event.key) ? -1 : 1) + tabs.length) % tabs.length];
+      next.click(); next.focus(); next.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    };
   }
+  el.querySelectorAll('.set-row').forEach((row, index) => {
+    const label = row.querySelector('.set-label span'); label.id = `setting-label-${index}`;
+    for (const control of row.querySelectorAll('.switch, input, select')) if (!control.hasAttribute('aria-label') || control.classList.contains('switch')) control.setAttribute('aria-labelledby', label.id);
+    for (const group of row.querySelectorAll('.seg, .swatches')) { group.setAttribute('role', 'group'); group.setAttribute('aria-labelledby', label.id); }
+  });
+  const compactSettings = window.matchMedia('(max-width: 900px)');
+  const orientTabs = () => el.querySelector('.settings-nav').setAttribute('aria-orientation', compactSettings.matches ? 'horizontal' : 'vertical');
+  orientTabs(); compactSettings.addEventListener('change', orientTabs);
   // 分段控件（支持 attachment.mode 这类点分键）
   for (const seg of el.querySelectorAll('.seg')) {
     seg.addEventListener('click', (e) => {
@@ -661,6 +687,7 @@ function renderActiveControls() {
     const current = getByPath(seg.dataset.key);
     for (const b of seg.querySelectorAll('button[data-value]')) {
       b.classList.toggle('active', String(current) === b.dataset.value);
+      b.setAttribute('aria-pressed', String(String(current) === b.dataset.value));
     }
   }
   for (const sw of modalEl.querySelectorAll('.swatches')) {
@@ -694,13 +721,14 @@ export function openSettings(pane) {
   renderActiveControls();
   if (typeof pane === 'string') modalEl.querySelector(`.settings-nav button[data-pane="${pane}"]`)?.click();
   const first = modalEl.querySelector('.settings-nav button.active');
-  first?.focus();
+  enterModal(modalEl, first);
 }
 
 export function close() {
   if (!modalEl) return;
   closeSelect();
   modalEl.hidden = true;
+  leaveModal(modalEl);
   cancelHotkeyRecording();
   open = false;
 }

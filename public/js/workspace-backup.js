@@ -1,7 +1,7 @@
 /* 只保存会话/布局，不收集草稿、正文、同步状态或任意 localStorage 键。 */
 const keys = root => ({ tabs: `tracery.tabs.${root}`, workspaces: `tracery.workspaces.${root}`, shortcuts: `tracery.shortcuts:${root}`,
   groups: `tracery.savedGroups:${root}`, sort: `tracery.fileSort:${root}`, collapsed: 'tracery.collapsed',
-  navigation: 'tracery.dockActive.navigation', context: 'tracery.dockActive.context' });
+  navigation: 'tracery.dockActive.navigation', context: 'tracery.dockActive.context', savedSearches: `tracery.savedSearches.${root}` });
 export function safeClientState(value = {}) {
   const result = {};
   for (const name of Object.keys(keys(''))) if (typeof value[name] === 'string') result[name] = value[name];

@@ -15,6 +15,8 @@ import { createLanShare } from './lan.js';
 import { buildWorker } from './pwa.js';
 import { HOTKEY_COMMANDS, bindingFor, sanitizeHotkeys, validateShortcut } from '../public/js/hotkeys.js';
 import { Vault, IGNORED_DIRS } from './vault.js';
+import { noteCatalog } from './note-catalog.js';
+import { taskCatalog, createStudyTools } from './study-tools.js';
 import { normalizeLayout } from '../public/js/layout-settings.js';
 import { resolveInDirectory } from './path-guard.js';
 import { resolveUserPath as resolveInVault } from './user-path.js';
@@ -214,6 +216,7 @@ const syncEngine = new SyncEngine({
   },
 });
 const backups = createFullBackup({ home: HOME, getVault: () => vault, getSettings: () => config.settings, runExclusive: runMutation });
+const study = createStudyTools({ resolve: resolveInVault, history: snapshotHistory });
 
 /* ---------------- 局域网直连（六位通行码） ---------------- */
 const lanShare = createLanShare({
@@ -271,7 +274,7 @@ const activeRequests = new Set();
 async function handleRequest(req, res) {
   if (shutdownStarted) { sendJson(res, 503, { error: '服务正在退出，请稍后重试' }); return; }
   const route = new URL(req.url, 'http://localhost').pathname;
-  const locked = req.method !== 'GET' && ['/api/note','/api/note/create','/api/settings','/api/theme','/api/asset','/api/rename','/api/delete','/api/replace','/api/vault/open','/api/history/restore','/api/trash/restore','/api/trash/purge','/api/trash/empty','/api/references/relink'].includes(route);
+  const locked = req.method !== 'GET' && ['/api/note','/api/note/create','/api/settings','/api/theme','/api/asset','/api/rename','/api/delete','/api/replace','/api/vault/open','/api/history/restore','/api/trash/restore','/api/trash/purge','/api/trash/empty','/api/references/relink','/api/tasks/toggle','/api/pdf/citation'].includes(route);
   const root = vault?.root;
   const operation = locked ? runMutation(() => {
     if (req.aborted || res.destroyed) return;
@@ -438,6 +441,13 @@ async function processRequest(req, res) {
       const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
       const { mtimeMs, size } = vault.files.get(rel) || {};
       return sendJson(res, 200, { path: rel, name: vault.notes.get(rel)?.name, content, mtimeMs, size, revision: revisionOf(raw) });
+    }
+    if (p === '/api/tasks' && req.method === 'GET') return sendJson(res, 200, { ...taskCatalog(vault, u.searchParams), root: req.mobile ? mobileVaultKey() : vault.root });
+    if (['/api/tasks/toggle', '/api/pdf/citation'].includes(p) && req.method === 'POST') {
+      const data = await readBody(req), target = vault;
+      const result = await study[p === '/api/tasks/toggle' ? 'toggle' : 'cite'](target, data);
+      if (target === vault) broadcast({ type: 'fs-change', paths: [result.path] });
+      return sendJson(res, 200, result);
     }
     if (p === '/api/note' && req.method === 'PUT') {
       const { path: rel, content, expectedRevision, vaultRoot } = await readBody(req);
@@ -642,6 +652,7 @@ async function processRequest(req, res) {
       const q = u.searchParams.get('q') || '';
       return sendJson(res, 200, { results: q ? vault.search(q) : [] });
     }
+    if (p === '/api/notes' && req.method === 'GET') return sendJson(res, 200, { ...noteCatalog(vault, u.searchParams), root: req.mobile ? mobileVaultKey() : vault.root });
     if (p === '/api/tags') return sendJson(res, 200, { tags: vault.allTags() });
     if (p === '/api/graph') return sendJson(res, 200, vault.graph());
     if (p === '/api/file') {

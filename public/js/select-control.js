@@ -35,8 +35,9 @@ function choose(c, index) {
   c.select.selectedIndex = index; closeSelect(); refreshSelect(c.select);
   c.select.dispatchEvent(new Event('input', { bubbles: true })); c.select.dispatchEvent(new Event('change', { bubbles: true })); c.button.focus();
 }
-function show(c) {
+function show(c, instant = false) {
   closeSelect(); opened = c; c.active = c.select.selectedIndex;
+  c.popup.dataset.instant = String(instant);
   c.button.setAttribute('aria-expanded', 'true'); document.body.append(c.popup); renderOptions(c);
   const r = c.button.getBoundingClientRect(), below = innerHeight - r.bottom - 14, above = r.top - 14;
   const up = below < 160 && above > below, available = up ? above : below;
@@ -44,6 +45,7 @@ function show(c) {
   c.popup.style.maxHeight = `${Math.max(60, Math.min(320, available))}px`;
   c.popup.style.left = `${Math.max(8, Math.min(r.left, innerWidth - c.popup.offsetWidth - 8))}px`;
   c.popup.style.top = `${up ? Math.max(8, r.top - c.popup.offsetHeight - 6) : r.bottom + 6}px`;
+  c.popup.style.transformOrigin = `${Math.max(0, Math.min(c.popup.offsetWidth, r.left + r.width / 2 - parseFloat(c.popup.style.left)))}px ${up ? 'bottom' : 'top'}`;
 }
 export function upgradeSelects(root) {
   for (const select of root.querySelectorAll('select')) {
@@ -51,22 +53,23 @@ export function upgradeSelects(root) {
     const wrap = document.createElement('span'); wrap.className = 'select-control'; select.before(wrap); wrap.append(select); select.hidden = true;
     const button = document.createElement('button'); button.type = 'button'; button.className = 'select-trigger';
     button.setAttribute('role', 'combobox'); button.setAttribute('aria-label', select.getAttribute('aria-label') || '请选择'); button.setAttribute('aria-haspopup', 'listbox'); button.setAttribute('aria-expanded', 'false');
+    if (select.hasAttribute('aria-labelledby')) button.setAttribute('aria-labelledby', select.getAttribute('aria-labelledby'));
     const popup = document.createElement('div'); popup.id = `select-options-${++counter}`; popup.className = 'select-popover'; popup.setAttribute('role', 'listbox'); popup.setAttribute('aria-label', button.getAttribute('aria-label')); button.setAttribute('aria-controls', popup.id);
     const label = document.createElement('span'); label.className = 'select-value'; const arrow = document.createElement('span'); arrow.className = 'select-chevron'; arrow.innerHTML = uiIcon('chevron'); button.append(label, arrow); wrap.append(button);
     const c = { select, button, popup, label, active: 0, query: '', queryAt: 0 }; controls.set(select, c);
-    button.onclick = () => opened === c ? closeSelect() : show(c);
+    button.onclick = event => opened === c ? closeSelect() : show(c, event.detail === 0);
     button.onkeydown = e => {
       if (e.key === 'Tab') { closeSelect(); return; }
       if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', ' '].includes(e.key)) {
         e.preventDefault(); e.stopPropagation();
-        if (!opened || opened !== c) { show(c); if (e.key === 'Enter' || e.key === ' ') return; }
+        if (!opened || opened !== c) { show(c, true); if (e.key === 'Enter' || e.key === ' ') return; }
         if (e.key === 'Enter' || e.key === ' ') choose(c, c.active);
         else {
           const indexes = [...select.options].map((o, i) => o.disabled ? -1 : i).filter(i => i >= 0), at = indexes.indexOf(c.active);
           activate(c, e.key === 'Home' ? indexes[0] : e.key === 'End' ? indexes.at(-1) : indexes[(at + (e.key === 'ArrowDown' ? 1 : -1) + indexes.length) % indexes.length]);
         }
       } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (opened !== c) show(c); c.query = (Date.now() - c.queryAt < 700 ? c.query : '') + e.key.toLowerCase(); c.queryAt = Date.now();
+        if (opened !== c) show(c, true); c.query = (Date.now() - c.queryAt < 700 ? c.query : '') + e.key.toLowerCase(); c.queryAt = Date.now();
         const index = [...select.options].findIndex(o => !o.disabled && o.textContent.toLowerCase().startsWith(c.query)); if (index >= 0) activate(c, index);
       }
     };

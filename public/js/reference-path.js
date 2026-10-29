@@ -1,5 +1,6 @@
 /* 引用的目标范围与路径解析共用；改写只替换目标，保留别名、宽度、锚点和标题。 */
 import { normalizeNotePath, noteIndex, resolveNote, isAttachmentTarget } from './wiki-path.js';
+import { encodePdfPath } from './pdf-reference.js';
 const NOTE = /\.(md|markdown|txt)$/i;
 const external = value => /^(?:[a-z][\w+.-]*:|\/\/|#)/i.test(value);
 export const parentPath = value => value.includes('/') ? value.slice(0, value.lastIndexOf('/')) : '';
@@ -93,7 +94,7 @@ export function scanReferences(text) {
 export function rewrittenReference(ref, from, target, index, explicit = false) {
   const suffixAt = ref.raw.search(/[?#]/), suffix = suffixAt < 0 ? '' : ref.raw.slice(suffixAt);
   const old = suffixAt < 0 ? ref.raw : ref.raw.slice(0, suffixAt);
-  if (explicit && ref.kind === 'wiki') return target + suffix;
+  if (explicit && ref.kind === 'wiki') return (/\.pdf$/i.test(target) ? '/' + encodePdfPath(target.replace(/^\//, '')) : target) + suffix;
   if (resolveReference(ref.raw, from, index, ref.kind) === target) return ref.raw;
   let next;
   if (ref.kind === 'markdown' || /^\.\.?\//.test(old)) {
@@ -105,6 +106,7 @@ export function rewrittenReference(ref, from, target, index, explicit = false) {
   } else next = old.startsWith('/') ? '/' + target : target;
   if (ref.kind === 'wiki' && !NOTE.test(old) && NOTE.test(next)) next = next.replace(NOTE, '');
   if (ref.kind === 'markdown') next = next.replace(/%/g, '%25').replace(ref.angle ? /[<>]/g : /[\s()<>]/g, char => encodeURIComponent(char));
+  if (ref.kind === 'wiki' && /\.pdf$/i.test(next)) next = '/' + encodePdfPath(target.replace(/^\//, ''));
   return next + suffix;
 }
 export function rewriteReferences(text, from, nextFrom, before, after, moveTarget = value => value, relink) {
