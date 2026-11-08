@@ -664,6 +664,11 @@ export function widgetsPlugin(opts = {}) {
  * P4 接 editor.js 的 _openWikilink / _schedulePreview / onTagClick。 */
 export function linkEvents({ onOpenWikilink, onHoverWikilink, onTagClick } = {}) {
   return EditorView.domEventHandlers({
+    keydown(event) {
+      const link = event.target.closest?.('.cm-lp-md-link');
+      if (link && event.key === 'Enter') { event.preventDefault(); onOpenWikilink?.(link.getAttribute('data-target'), event); return true; }
+      return false;
+    },
     // 左键按下时必须拦在 CM 自己的选区处理之前（按钮按住不放的那一下）。
     // 为什么非拦不可：浏览器默认的 mousedown 会把光标落到点击处 → 本行变成「光标行」，
     // 装饰规则随即撤掉该行的 mark/hide（露出原始 `[[ ]]` 语法），`.cm-lp-wikilink` /
@@ -689,14 +694,14 @@ export function linkEvents({ onOpenWikilink, onHoverWikilink, onTagClick } = {})
         return true;
       }
       const link = event.target.closest?.('.cm-lp-wikilink');
-      if (link) { event.preventDefault(); onOpenWikilink?.(link.textContent, event); return true; }
+      if (link) { event.preventDefault(); onOpenWikilink?.(link.getAttribute('data-target') || link.textContent, event); return true; }
       const tag = event.target.closest?.('.cm-lp-tag');
       if (tag) { event.preventDefault(); onTagClick?.(tag.textContent, event); return true; }
       return false;
     },
     mouseover(event) {
       const link = event.target.closest?.('.cm-lp-wikilink');
-      if (link) onHoverWikilink?.(link.textContent, link, event);
+      if (link) onHoverWikilink?.(link.getAttribute('data-target') || link.textContent, link, event);
       return false;   // hover 不拦，别影响 CM 自身处理
     },
   });

@@ -9,7 +9,7 @@ export function panelDock(options) {
 function createDock() {
   const $ = id => document.getElementById(id), buttons = new Map(), panes = new Map(), listeners = new Set();
   const toolbar = document.querySelector('.library-header .panel-actions');
-  const navBody = document.createElement('div'); navBody.className = 'dock-body'; $('panel-files').append(navBody);
+  const navBody = document.createElement('div'); navBody.className = 'dock-body'; $('panel-files').insertBefore(navBody, $('workspace-tools'));
   const hosts = {
     navigation: { root: $('sidebar'), header: document.querySelector('.library-header'), tabs: document.querySelector('.library-tabs'), body: navBody },
     context: { root: $('sidebar-right'), header: document.querySelector('.context-header'), tabs: document.querySelector('.context-tabs'), body: document.querySelector('.sidebar-sections') },

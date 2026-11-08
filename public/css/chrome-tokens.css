@@ -8,10 +8,14 @@
   --chrome-compact-action: 32px;
   --chrome-ribbon-width: 52px;
   --chrome-ribbon-control: 36px;
+  --chrome-footer-min-height: 56px;
+  --chrome-footer-action-height: 44px;
+  --chrome-workspace-tool-font-size: 14px;
   --chrome-window-control-width: 46px;
   --chrome-boundary-radius: 18px;
   --chrome-paper-top: 8px;
   --chrome-paper-gap: 10px;
+  --chrome-paper-shadow: 0 0 0 1px rgb(0 0 0 / 3%), 0 2px 8px rgb(0 0 0 / 6%), 0 10px 28px rgb(0 0 0 / 9%);
   --chrome-document-inset: 22px;
   --chrome-dock-top: 13px;
   --chrome-dock-bottom: 6px;
@@ -26,4 +30,7 @@
   --settings-control-height: 36px;
   --settings-heading-size: 20px;
   --ui-popover-ease: cubic-bezier(0.23, 1, 0.32, 1);
+}
+:root[data-theme="dark"] {
+  --chrome-paper-shadow: 0 0 0 1px rgb(255 255 255 / 4%), 0 2px 8px rgb(0 0 0 / 25%), 0 10px 28px rgb(0 0 0 / 32%);
 }

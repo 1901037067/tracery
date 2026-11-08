@@ -1,10 +1,24 @@
 /** 侧栏每次显示一种内容；异步关联结果必须核对仓库、路径和请求序号。 */
 import { parseCached } from './cm/decorations.js';
 import { panelDock } from './pane-docking.js';
+import { inlineToHtml } from './markdown.js';
+import { readProperties } from './note-properties.js';
+import { enterModal, leaveModal } from './modal-focus.js';
 
 const $ = id => document.getElementById(id);
 const leaf = path => path.split('/').pop().replace(/\.(md|markdown|txt)$/i, '');
 const empty = (box, text) => { const el = document.createElement('div'); el.className = 'panel-empty'; el.textContent = text; box.replaceChildren(el); };
+const headingLabels = new Map();
+function headingLabel(source) {
+  if (headingLabels.has(source)) return headingLabels.get(source);
+  // Inert template: use the same inline rendering, then expose only its text.
+  const template = document.createElement('template'); template.innerHTML = inlineToHtml(source);
+  for (const math of template.content.querySelectorAll('.katex-mathml')) math.remove();
+  for (const img of template.content.querySelectorAll('img')) img.replaceWith(document.createTextNode(img.alt));
+  const text = template.content.textContent;
+  if (headingLabels.size >= 512) headingLabels.delete(headingLabels.keys().next().value);
+  headingLabels.set(source, text); return text;
+}
 
 export function initLibraryTabs(options) {
   const dock = panelDock(options);
@@ -22,13 +36,13 @@ export function createSidebarContext({ state, editor, api, navigate, createMissi
   dock.onSelect(() => { if (dock.isActive('links')) refreshLinks(); });
   const contextTabs = { select: (name, options) => dock.select(name, { ...options, reveal: true }) };
 
-  $('note-info-path').onclick = () => { if (state.currentPath) copy(state.currentPath); };
+  $('btn-copy-note-path').onclick = () => { if (state.currentPath) copy(state.currentPath); };
   $('btn-note-history').onclick = history;
 
   function setMetadata(path, data) {
     if (path !== state.currentPath) return;
     $('note-info-modified').textContent = Number.isFinite(data.mtimeMs) && data.mtimeMs >= 0
-      ? new Date(data.mtimeMs).toLocaleString('zh-CN', { hour12: false }) : '—';
+      ? new Date(data.mtimeMs).toLocaleString('zh-CN', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
     $('note-info-size').textContent = Number.isFinite(data.size)
       ? (data.size < 1024 ? `${data.size} B` : `${(data.size / 1024).toFixed(1)} KB`) : '—';
   }
@@ -64,7 +78,7 @@ export function createSidebarContext({ state, editor, api, navigate, createMissi
     // 复用编辑器已解析的 AST，不为侧栏再解析一遍全文。
     const blocks = state.currentPath ? parseCached(editor.view.state).blocks : [];
     const next = [];
-    const walk = bs => { for (const b of bs) { if (b.type === 'heading') next.push({ line: b.line + 1, level: b.level, text: b.text.replace(/[*_`~]/g, '') }); if (b.blocks) walk(b.blocks); } };
+    const walk = bs => { for (const b of bs) { if (b.type === 'heading') next.push({ line: b.line + 1, level: b.level, text: headingLabel(b.text) }); if (b.blocks) walk(b.blocks); } };
     walk(blocks);
     const nextSignature = JSON.stringify(next);
     if (nextSignature === signature) return;
@@ -102,21 +116,29 @@ export function createSidebarContext({ state, editor, api, navigate, createMissi
     const path = state.currentPath;
     $('note-context-title').textContent = path ? `当前笔记 · ${leaf(path)}` : '当前笔记 · 未打开笔记';
     $('note-context-title').title = path || '';
-    $('note-info-path').textContent = path || '未打开笔记'; $('note-info-path').disabled = !path;
+    $('note-info-path').textContent = path || '未打开笔记'; $('note-info-path').title = path || '';
+    $('btn-copy-note-path').disabled = !path;
     $('btn-note-history').disabled = !path || /\.pdf$/i.test(path);
+    $('btn-note-properties').disabled = !path || /\.pdf$/i.test(path);
+    $('btn-note-tag-add').disabled = !path || /\.pdf$/i.test(path) || editor.accessReadOnly || editor.isRead;
     const src = path ? String(content || '').replace(/\r\n?/g, '\n') : '';
     renderOutline();
     const tags = new Set();
+    const properties = readProperties(src), propertyTags = properties.values.tags;
+    for (const tag of Array.isArray(propertyTags) ? propertyTags : typeof propertyTags === 'string' ? propertyTags.split(/[,，]/) : []) {
+      const value = String(tag).trim().replace(/^#/, ''); if (value) tags.add(value);
+    }
     // 只扫描非围栏内容，避免示例代码里的 # 被误认为笔记标签。
     let fence = null;
-    for (const line of src.split('\n')) {
+    for (const line of properties.body.split('\n')) {
       const mark = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
       if (mark) { if (!fence) fence = mark[1]; else if (mark[1][0] === fence[0] && mark[1].length >= fence.length) fence = null; continue; }
       if (fence) continue;
       for (const m of line.matchAll(/(^|[\s(（])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu)) tags.add(m[2]);
     }
     const tagBox = $('note-tags-list'); tagBox.replaceChildren();
-    if (!tags.size) empty(tagBox, path ? '当前笔记没有标签' : '打开笔记后显示标签');
+    $('note-tag-count').textContent = `${tags.size} 个`;
+    if (!tags.size) empty(tagBox, path ? '暂无标签' : '打开笔记后显示标签');
     else {
       const cloud = document.createElement('div'); cloud.className = 'tag-cloud';
       for (const tag of tags) { const b = document.createElement('button'); b.className = 'tag-chip'; b.textContent = `#${tag}`; b.onclick = () => searchTag(tag); cloud.append(b); }
@@ -184,25 +206,39 @@ export async function copyLocalText(text) {
 
 export function initPhoneAccess({ api, toast, closeMobile }) {
   const panel = $('phone-access-panel'), trigger = $('btn-phone-access');
-  let request = 0;
-  function close() { panel.hidden = true; ++request; $('app').inert = false; trigger.setAttribute('aria-expanded', 'false'); (trigger.getClientRects().length ? trigger : $('btn-toggle-left')).focus(); }
+  let request = 0, busy = false, enabledState = null, currentCode = '';
+  function controls() {
+    $('btn-phone-start').disabled = busy || enabledState === null;
+    $('btn-phone-stop').disabled = busy || !enabledState;
+    $('btn-phone-revoke').disabled = busy || !enabledState;
+    $('btn-phone-refresh').disabled = busy;
+    $('phone-mode').disabled = busy;
+  }
+  function close() { panel.hidden = true; ++request; $('app').inert = false; trigger.setAttribute('aria-expanded', 'false'); leaveModal(panel); (trigger.getClientRects().length ? trigger : $('btn-toggle-left')).focus(); }
   async function refresh() {
     const ticket = ++request, box = $('phone-addresses'); empty(box, '正在读取本机地址…');
     try {
       const { addresses, enabled, invitation, sessions } = await api.phoneAccess();
       if (ticket !== request || panel.hidden) return;
-      $('btn-phone-stop').disabled = !enabled;
-      $('btn-phone-revoke').disabled = !enabled;
-      $('phone-access-status').textContent = !enabled ? '手机访问已关闭，本机仍可正常使用。' : invitation
-        ? `通行码 ${invitation.code} · ${invitation.mode === 'read' ? '只读' : '读写'} · ${new Date(invitation.expiresAt).toLocaleTimeString()} 前有效 · 已授权 ${sessions} 个会话`
-        : `访问已开启 · 已授权 ${sessions} 个会话 · 点击「新通行码」连接其他设备`;
+      enabledState = enabled; controls();
+      const validInvitation = invitation && invitation.expiresAt > Date.now() ? invitation : null;
+      $('phone-state-title').textContent = enabled ? '手机访问已开启' : '手机访问已关闭';
+      $('phone-state-badge').textContent = enabled ? '已开启' : '未开启';
+      $('phone-state-description').textContent = !enabled ? '目前仅允许本机访问，开启后手机可以通过局域网连接。' : validInvitation
+        ? `新通行码权限：${validInvitation.mode === 'read' ? '只读' : '读写'} · 已授权 ${sessions} 个会话`
+        : `已授权 ${sessions} 个会话 · 生成新通行码可连接其他设备。`;
+      $('btn-phone-start').textContent = enabled ? '生成新通行码' : '开启手机访问';
+      $('phone-running-controls').hidden = !enabled; $('phone-connection').hidden = !enabled; $('btn-phone-refresh').hidden = !enabled;
+      $('phone-code-box').hidden = !validInvitation; currentCode = validInvitation?.code || '';
+      $('phone-code').textContent = currentCode;
+      $('phone-code-meta').textContent = validInvitation ? `${validInvitation.mode === 'read' ? '只读' : '读写'} · ${new Date(validInvitation.expiresAt).toLocaleTimeString()} 前有效` : '';
       box.replaceChildren();
       if (!enabled) empty(box, '开启后显示手机访问地址。');
       else if (!addresses.length) empty(box, '没有找到局域网 IPv4 地址，请先连接 Wi-Fi 或有线网络后刷新。');
       let others;
       if (addresses.some(item => item.virtual)) {
         others = document.createElement('details'); others.className = 'phone-other-addresses';
-        const summary = document.createElement('summary'); summary.textContent = '虚拟网卡与 VPN 地址'; others.append(summary);
+        const summary = document.createElement('summary'); summary.tabIndex = 0; summary.textContent = '虚拟网卡与 VPN 地址'; others.append(summary);
       }
       for (const item of addresses) {
         const row = document.createElement('div'); row.className = 'phone-address';
@@ -214,24 +250,24 @@ export function initPhoneAccess({ api, toast, closeMobile }) {
         controls.append(input, button); row.append(label, controls); (item.virtual ? others : box).append(row);
       }
       if (others) box.append(others);
-    } catch { if (ticket === request && !panel.hidden) empty(box, '地址读取失败，请检查电脑连接后刷新。'); }
+    } catch {
+      if (ticket !== request || panel.hidden) return;
+      enabledState = null; controls(); currentCode = ''; $('phone-code').textContent = '';
+      $('phone-state-title').textContent = '状态读取失败'; $('phone-state-badge').textContent = '待重试';
+      $('phone-state-description').textContent = '请检查电脑连接后刷新状态。';
+      $('btn-phone-refresh').hidden = false; $('phone-connection').hidden = true; $('phone-running-controls').hidden = true;
+    }
   }
-  trigger.onclick = () => { closeMobile(); panel.hidden = false; $('app').inert = true; trigger.setAttribute('aria-expanded', 'true'); $('btn-phone-close').focus(); refresh(); };
-  $('btn-phone-close').onclick = close; $('btn-phone-refresh').onclick = refresh;
+  trigger.onclick = () => { closeMobile(); panel.hidden = false; $('app').inert = true; trigger.setAttribute('aria-expanded', 'true'); enterModal(panel, $('btn-phone-close')); refresh(); };
+  $('btn-phone-close').onclick = close; $('btn-phone-refresh').onclick = () => { if (!busy) refresh(); };
+  $('btn-phone-copy-code').onclick = async () => { if (!currentCode) return; try { await copyLocalText(currentCode); toast('通行码已复制'); } catch (error) { toast(error.message); } };
   for (const [id, action] of [ ['btn-phone-start', () => api.phoneStart($('phone-mode').value)], ['btn-phone-stop', () => api.phoneStop()], ['btn-phone-revoke', () => api.phoneRevoke()] ]) {
-    $(id).onclick = async () => { $(id).disabled=true; try {await action();await refresh();} catch(error){toast(error.message);} finally{$(id).disabled=false;} };
+    $(id).onclick = async () => { if (busy) return; busy = true; ++request; controls(); try { await action(); if (!panel.hidden) await refresh(); } catch (error) { toast(error.message); } finally { busy = false; controls(); } };
   }
-  setInterval(() => { if(!panel.hidden) refresh(); },30000);
+  setInterval(() => { if(!panel.hidden && !busy) refresh(); },30000);
   panel.onclick = event => { if (event.target === panel) close(); };
   document.addEventListener('keydown', event => {
     if (panel.hidden) return;
     if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); close(); }
-    if (event.key === 'Tab') {
-      const items = [...panel.querySelectorAll('button,input,select,summary')].filter(el => !el.disabled && el.getClientRects().length);
-      const index = items.indexOf(document.activeElement);
-      if (event.shiftKey && index <= 0) { event.preventDefault(); items.at(-1)?.focus(); }
-      else if (!event.shiftKey && (index < 0 || index === items.length - 1)) { event.preventDefault(); items[0]?.focus(); }
-      event.stopImmediatePropagation();
-    }
   }, true);
 }

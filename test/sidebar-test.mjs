@@ -138,7 +138,8 @@ try {
   await page.screenshot({ path: screenshot('desktop') });
   await page.click('#btn-phone-access');
   await page.waitForFunction(() => !document.getElementById('phone-addresses').textContent.includes('正在读取'));
-  assert.ok(await page.$eval('.phone-permissions', e => e.textContent.includes('默认只读')));
+  assert.equal(await page.$eval('#phone-mode', e => e.value), 'read');
+  assert.ok(await page.$eval('.phone-instructions', e => e.textContent.includes('5 分钟')));
   assert.equal(await page.$eval('#app', e => e.inert), true);
   const addresses = await (await fetch(BASE + '/api/access')).json();
   if (addresses.addresses.length) assert.ok(addresses.addresses.every(a => new URL(a.url).port === String(PORT)));

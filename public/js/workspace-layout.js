@@ -17,7 +17,7 @@ export function applyWorkspaceLayout(layout) {
   for (const [id, visible] of [['sidebar', layout.navigationVisible], ['sidebar-right', layout.contextVisible]]) {
     const panel = document.getElementById(id);
     panel.classList.toggle('collapsed', !visible);
-    panel.inert = !compact.matches && !visible && !(id === 'sidebar' && graph);
+    panel.inert = !compact.matches && !visible && !(id === 'sidebar' && (graph || document.body.classList.contains('navigation-peek')));
   }
   for (const side of ['left', 'right']) {
     const region = sidebarForSide(side, layout), button = document.getElementById(`btn-toggle-${side}`);
@@ -26,7 +26,7 @@ export function applyWorkspaceLayout(layout) {
     button.setAttribute('aria-expanded', String(visible));
     button.setAttribute('aria-controls', region.id);
     button.setAttribute('aria-label', `${visible ? '收起' : '展开'}${side === 'left' ? '左' : '右'}侧栏：${region.label}`);
-    if (!compact.matches && !visible && document.getElementById(region.id).contains(document.activeElement) && !graph) button.focus();
+    if (!compact.matches && !visible && document.getElementById(region.id).contains(document.activeElement) && !graph && !(region.id === 'sidebar' && document.body.classList.contains('navigation-peek'))) button.focus();
   }
 }
 compact.addEventListener('change', () => { if (current) applyWorkspaceLayout(current); });

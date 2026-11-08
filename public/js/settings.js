@@ -16,6 +16,7 @@ import { upgradeSelects, refreshSelect, closeSelect } from './select-control.js'
 import { initHistoryBackup } from './history-backup.js';
 import { initFullBackup, fullBackupMarkup } from './full-backup.js';
 import { enterModal, leaveModal } from './modal-focus.js';
+import { THEMES } from './themes.js';
 
 export const DEFAULT_SETTINGS = {
   themeName: 'apple',
@@ -105,6 +106,7 @@ export function applySettings() {
 
   // 皮肤
   const safeTheme = /^[a-z0-9_-]+$/i.test(settings.themeName || '') ? settings.themeName : 'apple';
+  root.dataset.themeName = safeTheme;
   const link = document.getElementById('theme-css');
   const href = `/themes/${safeTheme}.css`;
   if (link && link.getAttribute('href') !== href) link.href = href;
@@ -116,6 +118,8 @@ export function applySettings() {
   root.style.setProperty('--accent-hover', color);
   root.style.setProperty('--accent-soft', hexToRgba(color, mode === 'dark' ? 0.20 : 0.12));
   root.style.setProperty('--link', mode === 'dark' ? acc.dark : acc.light);
+  const rgb = [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16) / 255).map(channel => channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4);
+  root.style.setProperty('--on-accent', rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722 > .179 ? '#111111' : '#ffffff');
 
   // 圆角
   const [xs, sm, md, lg, xl] = RADII[settings.radius] || RADII.default;
@@ -289,7 +293,7 @@ function build() {
       <section class="settings-body">
         <div class="settings-pane active" data-pane="appearance">
           <h2>外观</h2>
-          ${ROW('主题皮肤', '选择整体配色与界面风格', SEG('themeName', [['apple', 'Apple 风'], ['obsidian', 'Obsidian 风']], settings.themeName))}
+          ${ROW('主题皮肤', '每款均支持浅色和深色，强调色可单独选择', `<div class="seg theme-picker" data-key="themeName" role="group" aria-label="主题皮肤">${THEMES.map(theme => `<button data-value="${theme.id}" aria-pressed="${settings.themeName === theme.id}" style="--skin-window:${theme.preview[0]};--skin-paper:${theme.preview[1]};--skin-ink:${theme.preview[2]}"><span class="theme-preview" aria-hidden="true"><i></i><i></i><i></i></span><strong>${theme.name}</strong><small>${theme.description}</small></button>`).join('')}</div>`)}
           ${ROW('亮暗', '跟随系统会随系统外观自动切换', SEG('themeMode', [['light', '浅色'], ['dark', '深色'], ['auto', '跟随系统']], settings.themeMode))}
           ${ROW('强调色', '按钮、链接、选中态的主色',
             `<div class="swatches" data-key="accent">

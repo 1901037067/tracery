@@ -91,7 +91,7 @@ try {
     assert.equal(chrome.footer, 'rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box');
     assert.equal(chrome.radius, '18px');
     await page.mouse.move(0, 0);
-    const pixels = await page.evaluate(async screenshot => {
+    const samplePixels = async () => page.evaluate(async screenshot => {
       const img = new Image(); img.src = 'data:image/png;base64,' + screenshot; await img.decode();
       const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
       const context = canvas.getContext('2d'); context.drawImage(img, 0, 0);
@@ -101,6 +101,13 @@ try {
         [editor.right + 3, editor.top + 150], [editor.left + editor.width / 2, layout.top + 3], [editor.left + editor.width / 2, footer.top + 12]];
       return points.map(([x, y]) => [...context.getImageData(Math.floor(x * img.width / innerWidth), Math.floor(y * img.height / innerHeight), 1, 1).data]);
     }, await page.screenshot({ encoding: 'base64' }));
+    assert.notEqual(await page.$eval('.editor-area', el => getComputedStyle(el).boxShadow), 'none');
+    const shaded = await samplePixels();
+    assert.notDeepEqual(shaded[2], shaded[0], '纸张周边应呈现投影');
+    // The requested shadow shades the gap; verify the underlying surfaces separately.
+    await page.$eval('.editor-area', el => { el.style.boxShadow = 'none'; });
+    const pixels = await samplePixels();
+    await page.$eval('.editor-area', el => el.style.removeProperty('box-shadow'));
     for (const color of pixels.slice(1, 5)) assert.deepEqual(color, pixels[0], JSON.stringify(pixels));
     assert.notDeepEqual(pixels[5], pixels[0], '底栏恢复纸张底色，外围缝隙沿用侧栏颜色');
     assert.equal(await page.$('#file-tree [data-path="图片.PNG"] .icon'), null);

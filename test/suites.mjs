@@ -1,5 +1,9 @@
 /* 自动覆盖目录；需要实体手机、系统图标缓存和两台物理设备的项目另由手工验收覆盖。 */
 export const suites = [
+  ['navigation-rendering', 'navigation-rendering-test.mjs', '底部工具对齐、目录层级线、命令图标与库内 Markdown 链接'],
+  ['appearance-refresh', 'appearance-refresh-test.mjs', '五款皮肤、手机访问分区、笔记信息与底部分隔线对齐'],
+  ['sidebar-peek', 'sidebar-peek-test.mjs', '分组菜单图标对齐、收起侧栏悬浮预览及文档标题几何'],
+  ['ui-feedback', 'ui-feedback-test.mjs', '命令图标、表格样式、标签打开与分组状态、仓库入口和纸张阴影'],
   ['study-tools', 'study-tools-test.mjs', 'PDF 页码摘录与任务精确更新、冲突和引用移动'],
   ['study-tools-ui', 'study-tools-ui-test.mjs', 'PDF 摘录与页码返回、任务汇总勾选完整流程'],
   ['note-tools', 'note-tools-test.mjs', '模板变量、高级搜索、属性保留与列表筛选排序'],

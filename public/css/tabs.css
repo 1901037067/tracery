@@ -28,22 +28,29 @@
 .tab-new:hover { color: var(--text-primary); background: var(--bg-fill); }
 .window-drag-space { flex: 1 0 96px; min-width: 96px; height: 100%; align-self: stretch; -webkit-app-region: drag; user-select: none; }
 .tab-more { flex: 0 0 32px; align-self: center; height: var(--chrome-compact-action); border-radius: 8px; margin: 0 4px; }
-.tab-group-header { position: relative; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; max-width: 180px; height: var(--chrome-tab-height); padding: 0 8px; border-radius: 8px; background: transparent; color: white; font-size: 12px; -webkit-app-region: no-drag; }
-.tab-group-label { display: block; min-width: 0; height: var(--chrome-group-label-height); line-height: var(--chrome-group-label-height); padding: 0 8px; border-radius: 5px; background: var(--group-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-group-header { position: relative; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 0; max-width: 200px; height: var(--chrome-tab-height); padding: 0 8px; border-radius: 8px; background: transparent; color: white; font-size: 12px; -webkit-app-region: no-drag; }
+.tab-group-label { display: flex; align-items: center; gap: 4px; min-width: 0; height: var(--chrome-group-label-height); line-height: var(--chrome-group-label-height); padding: 0 8px; border-radius: 5px; background: var(--group-color); overflow: hidden; white-space: nowrap; }
+.tab-group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab-group-chevron { display: flex; flex: 0 0 12px; }
+.tab-group-chevron svg { display: block; width: 12px; height: 12px; transform: rotate(90deg); }
+.tab-group-header.is-collapsed .tab-group-chevron svg { transform: none; }
+.tab-group-count { min-width: 15px; height: 16px; line-height: 16px; padding: 0 3px; border-radius: 3px; background: rgb(0 0 0 / 16%); flex-shrink: 0; font-size: 10px; font-variant-numeric: tabular-nums; text-align: center; }
+.tab-group-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .tab-group-header.is-current { align-self: center; height: var(--chrome-tab-height); margin-bottom: 0; border: 1px solid var(--hairline); border-radius: var(--chrome-tab-radius); background: var(--bg-sheet); }
 .tab-group-header:hover { filter: brightness(1.12); }
 .tab-group-header.dragging { opacity: .45; }
 .tab-group-header.drop-target { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 .tablist.is-micro .tab-group-header { padding: 0 4px; }
 .tablist.is-micro .tab-group-label { padding: 0 4px; }
-.tab-group-editor { width: 240px; padding: 12px; }
+.tab-group-editor { width: 264px; padding: 12px; }
 .tab-group-editor label { display: grid; gap: 8px; font-size: 12px; color: var(--text-secondary); }
 .tab-group-editor input { min-width: 0; width: 100%; padding: 7px 8px; border: 1px solid var(--hairline); border-radius: 6px; background: var(--bg-sheet); color: var(--text-primary); }
-.tab-group-colors { display: flex; gap: 7px; padding: 12px 0; }
-.context-menu .tab-group-color { padding: 0; min-width: 19px; width: 19px; height: 19px; border-radius: 50%; background: var(--group-color); border: 2px solid transparent; }
+.tab-group-colors { display: flex; justify-content: space-between; gap: 6px; padding: 12px 0; }
+.context-menu .tab-group-color { padding: 0; min-width: 24px; width: 24px; min-height: 24px; height: 24px; flex: 0 0 24px; border-radius: 5px; background: var(--group-color); border: 2px solid transparent; }
 .context-menu .tab-group-color[aria-checked="true"] { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 .context-menu .tab-group-color:hover { background: var(--group-color); filter: brightness(1.15); }
-.tab-group-editor > button { width: 100%; }
+.tab-group-editor > .group-action { width: 100%; min-height: 32px; padding: 6px 0; gap: 10px; }
+.tab-group-editor .sep { height: 1px; background: var(--hairline); margin: 5px 0; }
 .tablist.is-reordering > .tab, .tablist.is-reordering > .tab-group-header { transition: translate 140ms ease, opacity 140ms; }
 .tablist .dragging { opacity: .45; outline: 1px dashed var(--accent); outline-offset: -2px; }
 .tab-drop-marker { position: fixed; z-index: 1002; width: 3px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); pointer-events: none; }

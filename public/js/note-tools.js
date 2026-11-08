@@ -141,7 +141,7 @@ export function createNoteTools(actions) {
     enterModal(overlay, $('capture-title'));
     if (snapshot.accessReadOnly) message('当前会话仅可查看模板与预览。');
   }
-  function openProperties() {
+  function openProperties({ focus } = {}) {
     const ctx = context();
     if (!ctx.path || !/\.(md|markdown)$/i.test(ctx.path)) { toast('请先打开 Markdown 笔记'); return; }
     if (busy) { toast('上一项操作尚未结束'); return; }
@@ -179,7 +179,7 @@ export function createNoteTools(actions) {
     };
     if (parsed.error) message(parsed.error);
     else if (ctx.accessReadOnly || ctx.isRead) message(ctx.accessReadOnly ? '当前会话仅可查看属性。' : '切换到编辑模式后可修改属性。');
-    enterModal(overlay, overlay.querySelector('.property-fields input:not(:disabled)') || $('note-tools-close'));
+    enterModal(overlay, focus === 'tags' && !$('property-tags').disabled ? $('property-tags') : overlay.querySelector('.property-fields input:not(:disabled)') || $('note-tools-close'));
   }
 
   const list = node('section', undefined, 'note-list-sheet'); list.id = 'note-list-view'; list.hidden = true; list.setAttribute('aria-labelledby', 'note-list-title');

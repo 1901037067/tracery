@@ -137,11 +137,7 @@
 .cm-lp-hr { border-top: 1px solid var(--hairline); }
 
 /* ---------- ③ 行级装饰：标题 ----------
-   字号/字重与块级 .markdown-body h1..h6 对齐（同一套视觉层级）。
-   CM 自带的 defaultHighlightStyle 会给 heading 加下划线（Obsidian 没有），
-   这里连同内部高亮 span 一起抹掉。 */
-[class*="cm-lp-h"] { text-decoration: none; }
-[class*="cm-lp-h"] * { text-decoration: none; }
+   高亮器不再给 heading 添加下划线；保留内部显式链接、删除线和 <u> 样式。 */
 .cm-lp-h1 { font-family: var(--font-display); font-size: 2em; font-weight: 650; letter-spacing: -0.022em; }
 .cm-lp-h2 { font-family: var(--font-display); font-size: 1.52em; font-weight: 650; letter-spacing: -0.022em; }
 .cm-lp-h3 { font-family: var(--font-display); font-size: 1.26em; font-weight: 650; letter-spacing: -0.022em; }
@@ -180,20 +176,20 @@
   padding: 3px 14px;
   border-right: 1px solid var(--hairline);
   border-bottom: 1px solid var(--hairline);
-  background: var(--bg-fill);
+  background: var(--bg-sheet);
   /* 不换行：宽度是按内容量出来的，格子内部再折行就会让整行像塌了 */
   white-space: pre;
 }
 #editor-live .cm-lp-tbl-head .cm-lp-cell {
   border-top: 1px solid var(--hairline);
-  border-bottom: 2px solid var(--hairline-strong);
-  background: var(--bg-fill-hover);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-sheet);
   font-weight: 600;
 }
 #editor-live .cm-line.cm-lp-tbl,
 #editor-live .cm-line.cm-lp-tbl-head { white-space: pre; }
-#editor-live .cm-lp-cell-first { padding-left: 10px; }
-#editor-live .cm-lp-cell-last { border-right: none; padding-right: 10px; }
+#editor-live .cm-lp-cell-first { border-left: 1px solid var(--hairline); padding-left: 10px; }
+#editor-live .cm-lp-cell-last { padding-right: 10px; }
 
 /* ---------- ⑤ 块级 widget（public/js/cm/widgets.js 产出） ---------- */
 /* widget 根节点必须完整容纳内容与留白；flow-root 防止子卡片的 margin 穿出测量盒。

@@ -39,7 +39,7 @@ try {
   assert.equal(fs.readdirSync(VAULT).filter(name => name.endsWith('.md')).length, filesBefore);
   const blankCount = (await snapshot()).tabs.length;
   await page.click('#empty-open-note'); await page.type('#palette-input', '笔记4'); await page.keyboard.press('Enter');
-  await page.waitForFunction(() => window.__tracery.state.currentPath === '笔记4.md');
+  await page.waitForFunction(() => window.__tracery.state.currentPath === '笔记4.md' && document.querySelector('#palette').hidden);
   assert.equal((await snapshot()).tabs.length, blankCount);
   // 右键新建组，修改名称、颜色。
   await context('笔记1'); await menu('添加到新分组'); await page.waitForSelector('.tab-group-editor input');
@@ -163,9 +163,9 @@ try {
   await page.click('.tab-group-header'); await waitForTabs();
   const collapsedLook = await page.$eval('.tab-group-header', node => {
     const label = node.querySelector('.tab-group-label');
-    return { name: label.textContent, visible: label.clientWidth >= label.scrollWidth, width: node.getBoundingClientRect().width, rails: document.querySelectorAll('.tab-group-rail').length, current: node.classList.contains('is-current'), background: getComputedStyle(node).backgroundColor };
+    return { name: label.querySelector('.tab-group-name').textContent, count: label.querySelector('.tab-group-count')?.textContent, visible: label.clientWidth >= label.scrollWidth, width: node.getBoundingClientRect().width, rails: document.querySelectorAll('.tab-group-rail').length, current: node.classList.contains('is-current'), background: getComputedStyle(node).backgroundColor };
   });
-  assert.equal(collapsedLook.name, '新分组'); assert.ok(collapsedLook.visible); assert.ok(collapsedLook.width >= 64); assert.equal(collapsedLook.rails, 0); assert.ok(collapsedLook.current);
+  assert.equal(collapsedLook.name, '新分组'); assert.equal(collapsedLook.count, '3'); assert.ok(collapsedLook.visible); assert.ok(collapsedLook.width >= 64); assert.equal(collapsedLook.rails, 0); assert.ok(collapsedLook.current);
   await page.screenshot({ path: path.join(OUT, 'single-collapsed-group.png'), clip: { x: 140, y: 0, width: 700, height: 52 } });
   await page.click('.tab-group-header'); await waitForTabs(); await page.screenshot({ path: path.join(OUT, 'single-expanded-group.png'), clip: { x: 140, y: 0, width: 1000, height: 52 } });
   await page.evaluate(() => window.__tracery.Api.saveSettings({ themeMode: 'dark' })); await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
@@ -173,4 +173,7 @@ try {
   await page.screenshot({ path: path.join(OUT, 'groups-dark.png'), clip: { x: 140, y: 0, width: 1000, height: 52 } });
   assert.deepEqual(errors, []);
   console.log('PASS 连续分组色线、同色活动下划线、组名留白和单组折叠名称；+空白页/替换、分组拖拽/恢复、压缩/拖窗、关闭取消与仓库隔离');
+} catch (error) {
+  if (page) { console.error('分组失败现场', await page.evaluate(() => ({ palette: !document.querySelector('#palette').hidden, focused: document.activeElement?.id, path: window.__tracery?.state.currentPath, tabs: window.__tracery?.state.tabs }))); await page.screenshot({ path: path.join(OUT, 'failure.png') }); }
+  throw error;
 } finally { await browser?.close(); server.kill(); }

@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/css/workspace-layout.css" />
   <link rel="stylesheet" href="/css/controls.css" />
   <link rel="stylesheet" href="/css/note-tools.css" />
+  <link rel="stylesheet" href="/css/appearance.css" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
   <!-- IMPORTMAP:BEGIN (由 scripts/build-cmvendor.mjs 生成，勿手改) -->
@@ -232,6 +233,10 @@
           <div class="library-view" id="section-groups" role="tabpanel" aria-labelledby="tab-groups" hidden>
             <div id="saved-groups" class="panel-body saved-groups" aria-label="保存的分组"></div>
           </div>
+          <nav id="workspace-tools" class="workspace-tools" aria-label="仓库工具">
+            <button id="btn-note-list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>笔记列表</span></button>
+            <button id="btn-task-list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 6 2 2 4-4m2 3h10M3 13h3m5 0h10M3 19h3m5 0h10"/></svg><span>全库任务</span></button>
+          </nav>
         </section>
         <!-- 搜索 -->
         <section class="panel" id="panel-search" aria-label="搜索">
@@ -345,12 +350,13 @@
             <div class="section-content" id="backlinks-list"></div>
           </section>
           <section id="panel-note-tags" role="tabpanel" aria-labelledby="tab-info" hidden>
-            <div class="section-content">
-              <div class="info-label">文件路径</div><button class="note-info-path" id="note-info-path" title="复制相对路径" disabled>未打开笔记</button>
+            <div class="section-content note-info">
+              <section class="note-info-section"><h3>基本信息</h3>
+              <div class="info-label">文件路径</div><div class="note-path-row"><span class="note-info-path" id="note-info-path">未打开笔记</span><button id="btn-copy-note-path" class="info-icon-btn" title="复制文件路径" aria-label="复制文件路径" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="12" height="14" rx="2"/><path d="M16 17v4H4V7h4"/></svg></button></div>
               <dl class="note-metadata"><dt>修改时间</dt><dd id="note-info-modified">—</dd><dt>文件大小</dt><dd id="note-info-size">—</dd></dl>
-              <div class="info-label">本篇标签</div><div id="note-tags-list"></div>
-              <div class="note-property-actions"><button id="btn-note-properties" class="note-history-btn">笔记属性</button><button id="btn-note-list" class="note-history-btn">笔记列表</button><button id="btn-task-list" class="note-history-btn">全库任务</button></div>
-              <button class="note-history-btn" id="btn-note-history" disabled>历史版本</button>
+              </section>
+              <section class="note-info-section"><div class="note-info-heading"><h3>标签</h3><span id="note-tag-count" class="info-count">0 个</span></div><div class="note-tag-row"><div id="note-tags-list"></div><button id="btn-note-tag-add" class="info-icon-btn" title="添加或编辑标签" aria-label="添加或编辑标签" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></section>
+              <section class="note-info-section"><h3>更多操作</h3><div class="note-property-actions"><button id="btn-note-properties" class="note-history-btn" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/></svg><span>笔记属性</span></button><button class="note-history-btn" id="btn-note-history" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2"/></svg><span>历史版本</span></button></div></section>
             </div>
           </section>
         </div>
@@ -360,22 +366,24 @@
 
   <div class="phone-access" id="phone-access-panel" hidden role="dialog" aria-modal="true" aria-labelledby="phone-access-title">
     <div class="phone-access-card">
-      <div class="phone-access-heading"><h2 id="phone-access-title">手机访问</h2><button id="btn-phone-close" class="mini-btn" aria-label="关闭手机访问">✕</button></div>
-      <p>默认仅电脑本机可访问。开启后，在同网手机浏览器打开地址并输入短时通行码。</p>
-      <div class="phone-access-controls"><label>新会话权限 <select id="phone-mode"><option value="read">只读</option><option value="write">读写</option></select></label><button id="btn-phone-start" class="mini-btn">开启访问 / 新通行码</button><button id="btn-phone-stop" class="mini-btn">关闭访问</button><button id="btn-phone-revoke" class="mini-btn">撤销全部会话</button></div>
-      <p id="phone-access-status" aria-live="polite"></p>
-      <div id="phone-addresses" aria-live="polite"></div>
-      <button id="btn-phone-refresh" class="mini-btn">刷新地址</button>
-      <p class="phone-permissions">默认只读；读写权限由本次通行码决定。通行码 5 分钟有效、仅使用一次，会话最长 12 小时，程序重启后失效。仅在可信局域网使用。</p>
-      <p class="phone-access-hint">保持 Tracery 运行、电脑不休眠。手机访问的是当前笔记仓库；电脑关闭或离开同网后，无法继续浏览整库。</p>
+      <header class="phone-access-heading"><div><h2 id="phone-access-title">手机访问</h2><p>通过同一局域网，在手机浏览器中访问笔记库</p></div><button id="btn-phone-close" class="info-icon-btn" aria-label="关闭手机访问">✕</button></header>
+      <div class="phone-access-body">
+        <section class="phone-section"><div class="phone-section-heading"><h3>01 · 访问状态</h3><button id="btn-phone-refresh" class="mini-btn" hidden>刷新状态</button></div>
+          <div class="phone-state-card"><div id="phone-access-status" role="status" aria-live="polite"><div class="phone-state-heading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8 16a6 6 0 0 1 8 0M12 20h.01"/></svg><strong id="phone-state-title">正在读取访问状态</strong><span id="phone-state-badge">读取中</span></div><p id="phone-state-description">请稍候…</p></div>
+          <button id="btn-phone-start" class="btn-primary" disabled>开启手机访问</button><div id="phone-running-controls" class="phone-running-controls" hidden><button id="btn-phone-stop" class="btn-ghost">关闭访问</button><button id="btn-phone-revoke" class="btn-ghost">撤销全部会话</button></div></div>
+          <div id="phone-connection" hidden><div id="phone-code-box" class="phone-code-box" hidden><span>一次性通行码</span><div><code id="phone-code"></code><button id="btn-phone-copy-code" class="mini-btn">复制通行码</button></div><small id="phone-code-meta"></small></div><h4>手机访问地址</h4><div id="phone-addresses" aria-live="polite"></div></div>
+        </section>
+        <section class="phone-section"><h3>02 · 访问设置</h3><div class="phone-setting"><div><strong>新会话权限</strong><p>控制使用新通行码连接的设备权限</p></div><select id="phone-mode" aria-label="新会话权限"><option value="read">只读</option><option value="write">读写</option></select></div></section>
+        <section class="phone-section phone-instructions"><h3>03 · 使用说明</h3><p><span aria-hidden="true">ⓘ</span>通行码有效期为 <strong>5 分钟</strong>，仅可使用一次。<small>单次会话最长 12 小时，程序重启后失效。</small></p><p><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v13H4zM2 20h20l-2-4H4z"/></svg>需要保持 <strong>Tracery</strong> 运行、不休眠，且电脑与手机处于同一可信局域网。</p></section>
+      </div>
     </div>
   </div>
 
   <!-- ============ 命令面板 ============ -->
   <div id="palette" class="modal" hidden>
-    <div class="palette-box">
-      <input id="palette-input" type="text" placeholder="输入命令或搜索笔记…" spellcheck="false" />
-      <ul id="palette-list" class="palette-list"></ul>
+    <div class="palette-box" role="dialog" aria-modal="true" aria-label="命令面板">
+      <input id="palette-input" type="text" role="combobox" aria-label="命令或笔记名称" aria-controls="palette-list" aria-expanded="false" aria-autocomplete="list" placeholder="输入命令或搜索笔记…" spellcheck="false" />
+      <ul id="palette-list" class="palette-list" role="listbox" aria-label="命令和笔记"></ul>
     </div>
   </div>
 

@@ -33,6 +33,7 @@ export class VirtualTree {
       const row = this.rows[i], el = this.createRow(row);
       el.classList.add('virtual-tree-row');
       el.style.cssText = `height:${h}px;top:${i * h}px;padding-left:${9 + row.depth * 18}px`;
+      el.style.setProperty('--tree-depth', String(row.depth));
       if (row.kind !== 'heading') {
         el.setAttribute('role', 'treeitem'); el.setAttribute('aria-level', String(row.depth + 1)); el.tabIndex = 0;
         if (row.kind === 'dir') el.setAttribute('aria-expanded', String(row.open));

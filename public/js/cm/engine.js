@@ -18,7 +18,8 @@ import { Compartment, EditorState, EditorSelection, Prec } from '@codemirror/sta
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { history, undo, redo, undoDepth, redoDepth, defaultKeymap, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+import { syntaxHighlighting, defaultHighlightStyle, HighlightStyle } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 import { createLivePreview, createFenceHiding, refreshLivePreview } from './decorations.js';
 import { editingExtensions, editingKeymap } from './editing.js';
 import { widgetExtensions, setEmbedWidth } from './widgets.js';
@@ -26,6 +27,11 @@ import { isAttachmentTarget } from '../wiki-path.js';
 import { wikiCompletion } from './wiki-completion.js';
 import { noteAnchors } from '../note-embed.js';
 import { mathPreview } from './math.js';
+
+// Table headers carry the heading tag too. Keep the weight, without an
+// automatic underline; explicit links, <u> and strike marks keep theirs.
+const proseHighlightStyle = HighlightStyle.define(defaultHighlightStyle.specs.map(spec =>
+  spec.tag === tags.heading ? { ...spec, textDecoration: 'none' } : spec));
 
 /** 极简防抖（与 api.js 同语义，避免引擎依赖 api） */
 function debounce(fn, ms) {
@@ -101,7 +107,7 @@ export class CmEditor {
       ...wikiCompletion(this.opts.completeWiki),
       keymap.of([...historyKeymap, ...defaultKeymap]),
       markdown({ base: markdownLanguage, addKeymap: false }),
-      syntaxHighlighting(defaultHighlightStyle),
+      syntaxHighlighting(proseHighlightStyle),
       this.decoComp.of(this._decoExtensions()),
       EditorView.lineWrapping,
       EditorView.updateListener.of((u) => this._onUpdate(u)),

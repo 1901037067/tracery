@@ -43,9 +43,13 @@ import { createNoteTools } from './note-tools.js';
 import { initSavedSearches } from './saved-searches.js';
 import { parseSearch } from './search-query.js';
 import { createStudyUI } from './study-tools-ui.js';
+import { enterModal, leaveModal } from './modal-focus.js';
+import { initNavigationPeek } from './navigation-peek.js';
+import { THEMES, themeLabel } from './themes.js';
 
 initTooltips();
 configurePdfViewer({ open: (path, page) => openPdfAt(path, page), close: () => closeTab(state.activeTab), root: () => state.vault?.root, readOnly: () => editor.accessReadOnly, cite: () => studyTools.cite() });
+let navigationPeek;
 
 const $ = (id) => document.getElementById(id);
 
@@ -512,9 +516,9 @@ function openEmbeddedLink(raw, from = editor.path) {
     else toast('找不到引用的笔记或附件');
   }
 }
-async function openPdfAt(path, page) {
+async function openPdfAt(path, page, { newTab = true } = {}) {
   const root = state.vault?.root;
-  const result = await openNote(path, null, { newTab: true });
+  const result = await openNote(path, null, { newTab });
   if (result === false || root !== state.vault?.root || state.currentPath !== path) return;
   showPdfViewer(pdfUrl(Api.fileUrl(path), page), state.files.get(path)?.name || path, vaultAbs(path));
 }
@@ -600,10 +604,10 @@ function renderShortcuts() {
     for (const p of available) {
       const item = document.createElement('button'); item.className = `tree-item ${kind}-item${p === state.currentPath ? ' active' : ''}`; item.dataset.path = p; item.title = p;
       appendFileLabel(item, state.files.get(p), 'label tree-label');
-      item.onclick = () => {
+      item.onclick = e => {
         if (IMG_FILE_RE.test(p)) openLightbox(Api.fileUrl(p), state.files.get(p).name);
-        else if (PDF_FILE_RE.test(p)) openPdfViewer(Api.fileUrl(p), state.files.get(p).name, vaultAbs(p));
-        else openNote(p);
+        else if (PDF_FILE_RE.test(p)) openPdfAt(p, null, { newTab: e.ctrlKey || e.metaKey });
+        else openNote(p, null, { newTab: e.ctrlKey || e.metaKey });
       };
       item.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); showFileMenu(e, state.files.get(p)); };
       box.append(item);
@@ -650,7 +654,10 @@ function renderDirItem(d, rel) {
   const item = document.createElement('div');
   item.className = 'tree-item'; item.dataset.dir = rel;
   const collapsed = state.collapsed.has(d.name);
-  item.innerHTML = `<span class="tw${collapsed ? '' : ' open'}">${ICON.chevron}</span><span class="icon">${collapsed ? ICON.folder : ICON.folderOpen}</span>`;
+  item.innerHTML = `<span class="icon" aria-hidden="true">${collapsed ? ICON.folder : ICON.folderOpen}</span>`;
+  item.setAttribute('role', 'button'); item.tabIndex = 0;
+  item.setAttribute('aria-expanded', String(!collapsed)); item.setAttribute('aria-label', d.name);
+  item.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); item.click(); } };
   const label = document.createElement('span'); label.className = 'label'; label.textContent = d.name; item.appendChild(label);
   item.onclick = (e) => {
     e.stopPropagation();
@@ -694,14 +701,14 @@ function renderFile(f) {
   item.onclick = (e) => {
     // 图片 → 灯箱；PDF → 应用内阅读器（以前都走 openNote → 报「笔记不存在」）
     if (IMG_FILE_RE.test(f.path)) { openLightbox(Api.fileUrl(f.path), f.name); return; }
-    if (PDF_FILE_RE.test(f.path)) { openPdfViewer(Api.fileUrl(f.path), f.name, vaultAbs(f.path)); return; }
-    openNote(f.path, null, { newTab: !(e.ctrlKey || e.metaKey) });
+    if (PDF_FILE_RE.test(f.path)) { openPdfAt(f.path, null, { newTab: e.ctrlKey || e.metaKey }); return; }
+    openNote(f.path, null, { newTab: e.ctrlKey || e.metaKey });
   };
   item.onauxclick = (e) => {
     if (e.button === 1) {
       e.preventDefault();
       if (IMG_FILE_RE.test(f.path)) { openLightbox(Api.fileUrl(f.path), f.name); return; }
-      if (PDF_FILE_RE.test(f.path)) { openPdfViewer(Api.fileUrl(f.path), f.name, vaultAbs(f.path)); return; }
+      if (PDF_FILE_RE.test(f.path)) { openPdfAt(f.path, null, { newTab: true }); return; }
       openNote(f.path, null, { newTab: true });
     }
   };
@@ -1678,7 +1685,9 @@ function layoutTabs() {
   const measure = document.createElement('canvas').getContext('2d');
   const preferred = headers.map(header => {
     measure.font = getComputedStyle(header).font;
-    return Math.min(180, Math.ceil(measure.measureText(header.querySelector('.tab-group-label').textContent).width) + 34);
+    const name = header.querySelector('.tab-group-name').textContent;
+    const count = header.querySelector('.tab-group-count');
+    return Math.min(200, Math.ceil(measure.measureText(name).width) + 50 + (count ? Math.ceil(measure.measureText(count.textContent).width) + 12 : 0));
   });
   const groups = preferred.reduce((sum, width) => sum + width, 0);
   const widths = tabs.map(tab => {
@@ -1717,9 +1726,14 @@ function makeGroupHeader(group) {
   header.dataset.group = group.id;
   header.style.setProperty('--group-color', groupColor(group));
   header.setAttribute('aria-expanded', String(!group.collapsed));
+  header.classList.toggle('is-collapsed', group.collapsed);
   header.title = `${group.name} · ${group.tabs.length} 个标签（点击${group.collapsed ? '展开' : '折叠'}，右键编辑）`;
   header.classList.toggle('is-current', group.collapsed && group.tabs.includes(state.tabs[state.activeTab]));
-  const label = document.createElement('span'); label.className = 'tab-group-label'; label.textContent = group.name;
+  const label = document.createElement('span'); label.className = 'tab-group-label';
+  const arrow = document.createElement('span'); arrow.className = 'tab-group-chevron'; arrow.innerHTML = ICON.chevron; arrow.setAttribute('aria-hidden', 'true');
+  const name = document.createElement('span'); name.className = 'tab-group-name'; name.textContent = group.name;
+  label.append(arrow, name);
+  if (group.collapsed) { const count = document.createElement('span'); count.className = 'tab-group-count'; count.textContent = String(group.tabs.length); count.setAttribute('aria-hidden', 'true'); label.append(count); }
   header.setAttribute('aria-label', `${group.name}，${group.tabs.length} 个标签`);
   header.append(label);
   header.onclick = () => { if (!suppressTabClick) toggleTabGroup(group); };
@@ -1769,11 +1783,14 @@ function showGroupEditor(group, x, y) {
     colors.append(color);
   }
   menu.append(colors);
-  const action = (text, callback) => { const button = document.createElement('button'); button.textContent = text; button.onclick = () => { closeCtxMenu(); callback(); }; menu.append(button); };
-  action('在分组中新建标签页', async () => { await openBlankTab(); const key = state.tabs[state.activeTab]; if (isBlankTab(key)) { moveTabToGroup(state, key, group.id); renderTabs(); saveTabsState(); } });
-  action(savedGroups.has(group.id) ? '更新保存的分组' : '保存分组', () => savedGroups.save(group));
-  action('取消分组', () => { state.tabGroups = state.tabGroups.filter(item => item !== group); renderTabs(); saveTabsState(); });
-  action('关闭分组', () => closeTabGroup(group));
+  const separator = () => { const line = document.createElement('div'); line.className = 'sep'; line.setAttribute('role', 'separator'); menu.append(line); };
+  const action = (text, icon, callback) => { const button = document.createElement('button'); button.className = 'group-action'; const symbol = document.createElement('span'); symbol.className = 'mi-icon'; symbol.setAttribute('aria-hidden', 'true'); symbol.innerHTML = icon; const caption = document.createElement('span'); caption.className = 'mi-label'; caption.textContent = text; button.append(symbol, caption); button.onclick = () => { closeCtxMenu(); callback(); }; menu.append(button); };
+  separator();
+  action('在分组中新建标签页', S('<path d="M8 3v10M3 8h10"/>'), async () => { await openBlankTab(); const key = state.tabs[state.activeTab]; if (isBlankTab(key)) { moveTabToGroup(state, key, group.id); renderTabs(); saveTabsState(); } });
+  action(savedGroups.has(group.id) ? '更新保存的分组' : '保存分组', S('<path d="M3 2.5h8l2 2v9H3zM5 2.5v4h5v-4M5.5 13.5v-4h5v4"/>'), () => savedGroups.save(group));
+  action('取消分组', S('<path d="M6 3H3v10h3M10 3h3v10h-3M6 8h4"/>'), () => { state.tabGroups = state.tabGroups.filter(item => item !== group); renderTabs(); saveTabsState(); });
+  separator();
+  action('关闭分组', ICON.close, () => closeTabGroup(group));
   document.body.append(menu);
   const box = menu.getBoundingClientRect(); menu.style.left = `${Math.max(8, Math.min(x, innerWidth - box.width - 8))}px`; menu.style.top = `${Math.max(8, Math.min(y, innerHeight - box.height - 8))}px`;
   requestAnimationFrame(() => { input.focus(); input.select(); });
@@ -2067,7 +2084,7 @@ async function openNoteNow(path, heading, opts = {}) {
     state.activeTab = at;
   } else {
     const previous = state.tabs[state.activeTab];
-    for (const group of state.tabGroups) group.tabs = group.tabs.map(key => key === previous ? path : key);
+    for (const group of state.tabGroups) if (group.tabs.includes(previous)) { group.tabs = group.tabs.map(key => key === previous ? path : key); group.collapsed = false; }
     state.tabs[state.activeTab] = path;
   }
   return await loadTab(path, heading);
@@ -2126,8 +2143,9 @@ function escapeText(s) {
 /* ================= 面板切换 ================= */
 let graphReturnPanel = 'files';
 let graphFitTimers = [];
-function switchPanel(name, { mobileOpen = true, pane = 'library' } = {}) {
-  if (!suspendDraw()) return;
+function switchPanel(name, { mobileOpen = true, pane = 'library', preview = false } = {}) {
+  preview ||= document.body.classList.contains('navigation-peek') && !getSettings().layout.navigationVisible && ['files', 'search', 'tags'].includes(name);
+  if (!preview) { navigationPeek?.close(); if (!suspendDraw()) return; }
   if (isCompact()) {
     if (name === 'graph') closeMobilePanels();
     else if (mobileOpen && !document.body.classList.contains('mobile-left-open')) toggleMobilePanel('left');
@@ -2139,7 +2157,7 @@ function switchPanel(name, { mobileOpen = true, pane = 'library' } = {}) {
   document.body.classList.toggle('graph-focus', name === 'graph');
   // 图谱临时占用导航区域，不能被用户保存的收起状态挡住。
   applyWorkspaceLayout(getSettings().layout);
-  if (!isCompact() && name !== 'graph' && mobileOpen && !getSettings().layout.navigationVisible) updateSettings({ layout: { navigationVisible: true } });
+  if (!preview && !isCompact() && name !== 'graph' && mobileOpen && !getSettings().layout.navigationVisible) updateSettings({ layout: { navigationVisible: true } });
   if (name !== 'graph') graphView?.pause();
   for (const timer of graphFitTimers) clearTimeout(timer);
   graphFitTimers = [];
@@ -2166,7 +2184,7 @@ function switchPanel(name, { mobileOpen = true, pane = 'library' } = {}) {
     ];
   }
   if (name === 'search') {
-    setTimeout(() => $('search-input').focus(), 30);
+    if (!preview) setTimeout(() => $('search-input').focus(), 30);
     if (!$('search-input').value.trim()) renderRecentList($('search-results'));
   }
   if (name === 'tags') refreshTags();
@@ -2247,7 +2265,7 @@ const fetchSearch = debounce(async (q, request, root) => {
       return div;
     });
     item.append(n, ...lines);
-    item.onclick = () => openNote(r.path, null, { newTab: true });
+    item.onclick = e => openNote(r.path, null, { newTab: e.ctrlKey || e.metaKey });
     box.appendChild(item);
   }
 }, 200);
@@ -2258,13 +2276,15 @@ const paletteItems = [];
 let paletteIndex = 0;
 
 function openPalette() {
+  navigationPeek?.close();
   if (isCompact()) closeMobilePanels();
   $('palette').hidden = false;
   $('palette-input').value = '';
   renderPalette('');
-  setTimeout(() => $('palette-input').focus(), 30);
+  $('palette-input').setAttribute('aria-expanded', 'true');
+  enterModal($('palette'), $('palette-input'));
 }
-function closePalette() { $('palette').hidden = true; }
+function closePalette() { $('palette').hidden = true; $('palette-input').setAttribute('aria-expanded', 'false'); leaveModal($('palette')); }
 
 function renderPalette(q) {
   const list = $('palette-list');
@@ -2273,31 +2293,31 @@ function renderPalette(q) {
   paletteIndex = 0;
 
   const commands = [
-    { icon: uiIcon('editor'), name: '摘录当前 PDF 到笔记', sub: '阅读', action: () => studyTools.cite() },
-    { icon: uiIcon('layout'), name: '全库任务汇总', sub: '笔记工具', action: () => studyTools.tasks() },
-    { icon: uiIcon('editor'), name: '从模板新建笔记', sub: '笔记工具', action: () => noteTools.template() },
-    { icon: uiIcon('editor'), name: '快速记录', sub: '笔记工具', action: () => noteTools.capture() },
-    { icon: uiIcon('general'), name: '编辑当前笔记属性', sub: '笔记工具', action: () => noteTools.properties() },
-    { icon: uiIcon('layout'), name: '打开笔记列表', sub: '笔记工具', action: () => noteTools.list() },
-    { icon: '📄', name: '新建笔记', sub: '命令', action: () => createNoteIn('') },
-    { icon: '🌗', name: '切换亮色 / 暗色主题', sub: '外观', action: toggleTheme },
-    { icon: '⚙️', name: '打开设置', sub: '设置', action: () => openSettings() },
-    { icon: '☷', name: '布局设置', sub: '外观', action: () => openSettings('layout') },
-    { icon: '↶', name: commandLabel('undo'), sub: '命令', action: () => editor.undo() },
-    { icon: '↷', name: commandLabel('redo'), sub: '命令', action: () => editor.redo() },
-    { icon: '🎨', name: '切换主题皮肤（Apple 风 / Obsidian 风）', sub: '外观', action: cycleThemeSkin },
-    { icon: '👁', name: '切换编辑模式（实时预览 / 源码 / 阅读）', sub: '命令', action: () => editor.toggleMode() },
-    { icon: '🕸️', name: '打开图谱视图', sub: '命令', action: () => switchPanel('graph') },
-    { icon: '🔍', name: '搜索笔记内容', sub: '命令', action: () => { switchPanel('search'); $('search-input').focus(); } },
-    { icon: '📤', name: '导出为 HTML', sub: '命令', action: () => exportHtml() },
-    { icon: '📄', name: '导出为 PDF', sub: '命令', action: () => exportPdf() },
-    { icon: '🕘', name: '查看历史版本', sub: '命令', action: () => openHistory() },
-    { icon: '↩', name: '打开恢复中心（未保存草稿）', sub: '命令', action: openRecoveryCenter },
-    { icon: '🏷️', name: '查看所有标签', sub: '命令', action: () => switchPanel('tags') },
-    { icon: '📂', name: '切换 / 管理仓库…', sub: '命令', action: openVaultPicker },
-    { icon: '✏️', name: '新建绘图并插入笔记', sub: '命令', action: openDrawPanel },
-    { icon: '☰', name: '折叠 / 展开左侧栏', sub: '命令', action: () => toggleSidebar('left') },
-    { icon: '▤', name: '折叠 / 展开右侧栏', sub: '命令', action: () => toggleSidebar('right') },
+    { iconSvg: 'quote', name: '摘录当前 PDF 到笔记', sub: '阅读', action: () => studyTools.cite() },
+    { iconSvg: 'task', name: '全库任务汇总', sub: '笔记工具', action: () => studyTools.tasks() },
+    { iconSvg: 'template', name: '从模板新建笔记', sub: '笔记工具', action: () => noteTools.template() },
+    { iconSvg: 'editor', name: '快速记录', sub: '笔记工具', action: () => noteTools.capture() },
+    { iconSvg: 'layout', name: '编辑当前笔记属性', sub: '笔记工具', action: () => noteTools.properties() },
+    { iconSvg: 'list', name: '打开笔记列表', sub: '笔记工具', action: () => noteTools.list() },
+    { iconSvg: 'newNote', name: '新建笔记', sub: '命令', action: () => createNoteIn('') },
+    { iconSvg: 'contrast', name: '切换亮色 / 暗色主题', sub: '外观', action: toggleTheme },
+    { iconSvg: 'general', name: '打开设置', sub: '设置', action: () => openSettings() },
+    { iconSvg: 'sidebarLeft', name: '布局设置', sub: '外观', action: () => openSettings('layout') },
+    { iconSvg: 'undo', name: commandLabel('undo'), sub: '命令', action: () => editor.undo() },
+    { iconSvg: 'redo', name: commandLabel('redo'), sub: '命令', action: () => editor.redo() },
+    { iconSvg: 'appearance', name: '切换主题皮肤', sub: '外观', action: cycleThemeSkin },
+    { iconSvg: 'eye', name: '切换编辑模式（实时预览 / 源码 / 阅读）', sub: '命令', action: () => editor.toggleMode() },
+    { iconSvg: 'graph', name: '打开图谱视图', sub: '命令', action: () => switchPanel('graph') },
+    { iconSvg: 'search', name: '搜索笔记内容', sub: '命令', action: () => { switchPanel('search'); $('search-input').focus(); } },
+    { iconSvg: 'export', name: '导出为 HTML', sub: '命令', action: () => exportHtml() },
+    { iconSvg: 'pdf', name: '导出为 PDF', sub: '命令', action: () => exportPdf() },
+    { iconSvg: 'history', name: '查看历史版本', sub: '命令', action: () => openHistory() },
+    { iconSvg: 'recovery', name: '打开恢复中心（未保存草稿）', sub: '命令', action: openRecoveryCenter },
+    { iconSvg: 'tag', name: '查看所有标签', sub: '命令', action: () => switchPanel('tags') },
+    { iconSvg: 'folder', name: '切换 / 管理仓库…', sub: '命令', action: openVaultPicker },
+    { iconSvg: 'editor', name: '新建绘图并插入笔记', sub: '命令', action: openDrawPanel },
+    { iconSvg: 'sidebarLeft', name: '折叠 / 展开左侧栏', sub: '命令', action: () => toggleSidebar('left') },
+    { iconSvg: 'sidebarRight', name: '折叠 / 展开右侧栏', sub: '命令', action: () => toggleSidebar('right') },
   ];
   for (const c of commands) {
     if (!q || fuzzyMatch(q, c.name) >= 0) paletteItems.push(c);
@@ -2315,7 +2335,7 @@ function renderPalette(q) {
     const score = q ? fuzzyMatch(q, n.name) : 0;
     if (q && score < 0) continue;
     paletteItems.push({
-      icon: '📄', name: n.name, sub: n.dir || '仓库根目录',
+      iconSvg: 'note', name: n.name, sub: n.dir || '仓库根目录',
       score,
       action: () => openNote(n.path),
     });
@@ -2324,9 +2344,11 @@ function renderPalette(q) {
 
   for (const item of paletteItems.slice(0, 60)) {
     const li = document.createElement('li');
+    li.id = 'palette-item-' + list.children.length; li.setAttribute('role', 'option');
     const icon = document.createElement('span');
     icon.className = 'pi-icon';
-    icon.textContent = item.icon;
+    icon.innerHTML = uiIcon(item.iconSvg);
+    icon.setAttribute('aria-hidden', 'true');
     const name = document.createElement('span');
     name.className = 'pi-name';
     name.textContent = item.name;
@@ -2342,9 +2364,10 @@ function renderPalette(q) {
 
 function highlightPalette(i) {
   const items = $('palette-list').children;
-  if (!items.length) return;
+  if (!items.length) { $('palette-input').removeAttribute('aria-activedescendant'); return; }
   paletteIndex = (i + items.length) % items.length;
-  for (let k = 0; k < items.length; k++) items[k].classList.toggle('selected', k === paletteIndex);
+  for (let k = 0; k < items.length; k++) { items[k].classList.toggle('selected', k === paletteIndex); items[k].setAttribute('aria-selected', String(k === paletteIndex)); }
+  $('palette-input').setAttribute('aria-activedescendant', items[paletteIndex].id);
   items[paletteIndex].scrollIntoView({ block: 'nearest' });
 }
 
@@ -2665,13 +2688,13 @@ async function toggleTheme() {
   updateSettings({ themeMode: next });
 }
 
-/** 在 apple / obsidian 两套皮肤间切换 */
+/** 按外观设置中的顺序轮换内置皮肤。 */
 async function cycleThemeSkin() {
-  const order = ['apple', 'obsidian'];
+  const order = THEMES.map(theme => theme.id);
   const idx = order.indexOf(getSettings().themeName);
   const next = order[(idx + 1) % order.length];
   updateSettings({ themeName: next });
-  toast(`主题皮肤：${next === 'apple' ? 'Apple 风' : 'Obsidian 风'}`);
+  toast(`主题皮肤：${themeLabel(next)}`);
 }
 
 /* ================= 全局事件 ================= */
@@ -2744,8 +2767,13 @@ function bindGlobalEvents() {
 
   // 左侧功能区
   for (const btn of document.querySelectorAll('.ribbon-btn[data-panel]')) {
-    btn.onclick = () => switchPanel(btn.dataset.panel);
+    btn.onclick = event => {
+      if (!isCompact() && !getSettings().layout.navigationVisible && !document.body.classList.contains('graph-focus') && ['files', 'search', 'tags'].includes(btn.dataset.panel)) { event.preventDefault(); return; }
+      switchPanel(btn.dataset.panel);
+    };
   }
+  navigationPeek = initNavigationPeek({ layout: () => getSettings().layout, compact: isCompact,
+    select: name => switchPanel(name, { mobileOpen: false, preview: true }) });
   $('btn-new-note-2').onclick = () => createNoteIn('');
   $('empty-new-note').onclick = () => createNoteIn('');
   $('empty-open-note').onclick = openPalette;
@@ -2806,6 +2834,7 @@ function bindGlobalEvents() {
 
   // 搜索
   $('btn-note-properties').onclick = () => noteTools.properties();
+  $('btn-note-tag-add').onclick = () => noteTools.properties({ focus: 'tags' });
   $('btn-note-list').onclick = () => noteTools.list();
   $('btn-task-list').onclick = () => studyTools.tasks();
   $('search-note-list').onclick = () => noteTools.list($('search-input').value);
@@ -2847,6 +2876,7 @@ function bindGlobalEvents() {
     if (e.key === 'ArrowDown') { e.preventDefault(); highlightPalette(paletteIndex + 1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); highlightPalette(paletteIndex - 1); }
     else if (e.key === 'Enter') {
+      e.preventDefault(); e.stopPropagation();
       const item = paletteItems[paletteIndex];
       if (item) { closePalette(); item.action?.(); }
     } else if (e.key === 'Escape') closePalette();
@@ -2988,7 +3018,7 @@ libraryTabs = initLibraryTabs({
       if (!document.body.classList.contains(`mobile-${side}-open`)) toggleMobilePanel(side);
     } else {
       const key = host === 'navigation' ? 'navigationVisible' : 'contextVisible';
-      if (!getSettings().layout[key]) updateSettings({ layout: { [key]: true } });
+      if (!getSettings().layout[key] && !(host === 'navigation' && document.body.classList.contains('navigation-peek'))) updateSettings({ layout: { [key]: true } });
     }
   },
 });

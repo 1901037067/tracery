@@ -20,7 +20,7 @@
 import { parseMarkdown, codeTokens } from '../markdown.js';
 import { isAttachmentTarget } from '../wiki-path.js';
 import { inlineMath } from '../math.js';
-import { externalLinks } from '../external-link.js';
+import { markdownLinks } from '../external-link.js';
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import { Annotation, StateField } from '@codemirror/state';
 
@@ -63,12 +63,15 @@ function scanInline(text, base, out, opts = {}) {
   const resolveLink = opts.resolveLink;
   for (const p of INLINE_PATTERNS) {
     if (p.external) {
-      for (const link of externalLinks(text)) {
+      for (const link of markdownLinks(text)) {
         if (overlaps(link.from, link.to)) continue;
         consumed.push([link.from, link.to]);
         out.push({ from: base + link.from, to: base + link.labelFrom, kind: 'hide' });
         out.push({ from: base + link.labelTo, to: base + link.to, kind: 'hide' });
-        out.push({ from: base + link.labelFrom, to: base + link.labelTo, kind: 'mark', cls: 'cm-lp-external-link', tag: 'a', attrs: { href: link.href, title: link.title, target: '_blank', rel: 'noopener noreferrer' } });
+        const local = link.kind === 'local';
+        out.push({ from: base + link.labelFrom, to: base + link.labelTo, kind: 'mark', cls: local ? 'cm-lp-wikilink cm-lp-md-link' : 'cm-lp-external-link', tag: 'a', attrs: local
+          ? { 'data-target': link.href, title: link.title, role: 'link', tabindex: '0' }
+          : { href: link.href, title: link.title, target: '_blank', rel: 'noopener noreferrer' } });
       }
       continue;
     }

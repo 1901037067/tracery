@@ -11,7 +11,7 @@
  */
 
 import { mathHtml, inlineMath } from './math.js';
-import { externalUrl } from './external-link.js';
+import { markdownLinks, decodeLinkEntities } from './external-link.js';
 import { readProperties } from './note-properties.js';
 const INLINE_TOKEN = '\u0001';
 
@@ -72,14 +72,14 @@ function slugify(text) {
 }
 
 /* ================= 行内渲染 ================= */
-function wikilinkHtml(target, alias, opts) {
+function wikilinkHtml(target, alias, opts, labelHtml, destination) {
   const hashIdx = target.indexOf('#');
   const heading = hashIdx >= 0 ? target.slice(hashIdx + 1) : '';
   const nameOnly = hashIdx >= 0 ? target.slice(0, hashIdx) : target;
   const resolved = opts.resolve ? (opts.resolve(nameOnly) || opts.resolve(target)) : null;
   const display = alias || (heading ? `${nameOnly} > ${heading}` : target);
-  const cls = resolved ? 'wikilink' : 'wikilink unresolved';
-  return `<a class="${cls}" data-target="${escAttr(target)}" data-resolved="${escAttr(resolved || '')}" data-heading="${escAttr(heading)}">${escapeHtml(display)}</a>`;
+  const cls = (resolved ? 'wikilink' : 'wikilink unresolved') + (destination === undefined ? '' : ' markdown-local-link');
+  return `<a class="${cls}"${destination === undefined ? '' : ` href="${escAttr(destination)}"`} data-target="${escAttr(target)}" data-resolved="${escAttr(resolved || '')}" data-heading="${escAttr(heading)}">${labelHtml ?? escapeHtml(display)}</a>`;
 }
 
 export function inlineToHtml(text, opts = {}) {
@@ -126,11 +126,16 @@ export function inlineToHtml(text, opts = {}) {
     return keep(wikilinkHtml(target, alias, opts));
   });
 
-  // 外链 [text](url)
-  s = s.replace(/\[([^\]]*)\]\(([^)\s]+?)(?:\s+&quot;[^&]*&quot;)?\)/g, (m, txt, url) => {
-    if (/^[a-z][\w+.-]*:/i.test(url) && !/^(https?|mailto|tel):/i.test(url)) return m;
-    return keep(`<a${externalUrl(url) ? ' class="external-link"' : ''} href="${url}" target="_blank" rel="noopener noreferrer">${inlineToHtml(txt, opts)}</a>`);
-  });
+  // Standard Markdown links share destination parsing with live preview.
+  const links = markdownLinks(s);
+  for (const link of links.reverse()) {
+    const label = decodeLinkEntities(s.slice(link.labelFrom, link.labelTo));
+    const html = link.kind === 'local' ? wikilinkHtml(link.href, label, opts, inlineToHtml(label, opts), link.destination)
+      : `<a class="external-link" href="${escAttr(link.destination)}" title="${escAttr(link.title)}" target="_blank" rel="noopener noreferrer">${inlineToHtml(label, opts)}</a>`;
+    s = s.slice(0, link.from) + keep(html) + s.slice(link.to);
+  }
+  // Preserve supported contact links without treating their schemes as note names.
+  s = s.replace(/\[([^\]]*)\]\(((?:mailto|tel):[^)\s]+)\)/gi, (match, label, href) => keep(`<a href="${escAttr(decodeLinkEntities(href))}" target="_blank" rel="noopener noreferrer">${label}</a>`));
 
   // 裸 URL 自动链接
   s = s.replace(/(https?:\/\/[^\s<]+)/g, (m, url) =>
@@ -688,7 +693,7 @@ function serializeInline(node) {
       return `![${alt}](${src})`;
     }
     case 'A': {
-      if (el.classList.contains('wikilink')) {
+      if (el.classList.contains('wikilink') && !el.classList.contains('markdown-local-link')) {
         const target = el.dataset.target || el.textContent;
         const display = el.textContent;
         const plain = target.replace(/\s*>\s*/, '#');
@@ -1009,7 +1014,7 @@ function inlineMapOffset(root, domTarget) {
       emit('`');
       return;
     }
-    if (tag === 'A' && el.classList.contains('wikilink')) {
+    if (tag === 'A' && el.classList.contains('wikilink') && !el.classList.contains('markdown-local-link')) {
       const target = el.dataset.target || '';
       const display = el.textContent;
       emit(`[[${target}`);
@@ -1105,7 +1110,7 @@ export function mdOffsetToDom(root, mdOffset) {
       mdEmitted += md.length;
       return;
     }
-    if (tag === 'A' && el.classList.contains('wikilink')) {
+    if (tag === 'A' && el.classList.contains('wikilink') && !el.classList.contains('markdown-local-link')) {
       const targetAttr = el.dataset.target || '';
       const display = el.textContent;
       const open = `[[${targetAttr}`;
