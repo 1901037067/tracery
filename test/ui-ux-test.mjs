@@ -234,7 +234,7 @@ async function main() {
   await page.keyboard.up('Control');
   await page.waitForSelector('#palette:not([hidden])');
   await page.focus('#palette-input');
-  await page.keyboard.insertText('打开图谱视图');
+  await page.keyboard.sendCharacter('打开图谱视图');
   await page.waitForFunction(() => document.querySelector('#palette-list .selected .pi-name')?.textContent === '打开图谱视图').catch(async error => {
     console.log('命令面板输入诊断', await page.evaluate(() => ({ input: document.querySelector('#palette-input').value, active: document.activeElement?.id, items: document.querySelector('#palette-list').textContent, selected: document.querySelector('#palette-list .selected')?.textContent })));
     throw error;
