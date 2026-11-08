@@ -60,10 +60,10 @@ async function main() {
 
   const clickTree = (name) => page.evaluate((n) => {
     [...document.querySelectorAll('#file-tree .tree-item')]
-      .find((i) => i.textContent.trim() === n)?.click();
+      .find((i) => i.textContent.trim() === n)?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
   }, name);
 
-  // 1. 启动时已自动开了一篇，再开两篇 → 三个标签
+  // 1. 启动时已自动开了一篇，显式 Ctrl 点击再开两篇 → 三个标签
   const bootName = await page.evaluate(() => document.getElementById('note-path').textContent.replace(/\.md$/, ''));
   const toOpen = ['甲', '乙', '丙'].filter((n) => n !== bootName);
   for (const n of toOpen.slice(0, 2)) { await clickTree(n); await sleep(550); }
@@ -73,7 +73,7 @@ async function main() {
     activeName: document.querySelector('#tablist .tab.active .tab-name')?.textContent,
     path: document.getElementById('note-path').textContent,
   }));
-  check('每打开一篇笔记新增一个标签', tabs1.count === 3, JSON.stringify(tabs1));
+  check('Ctrl 点击每篇笔记新增一个标签', tabs1.count === 3, JSON.stringify(tabs1));
   check('最后打开的标签处于激活状态', tabs1.activeName === toOpen[1] && tabs1.path === `${toOpen[1]}.md`, JSON.stringify(tabs1));
 
   // 2. 切到一个「不是当前」的标签，内容应随之更换

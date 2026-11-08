@@ -93,11 +93,11 @@ await sleep(400);
 /* ---------- 2. 紧凑头栏（仿 Obsidian） ---------- */
 // 打开两篇笔记制造两个标签，量一下两行 chrome 的高度
 await page.evaluate(() => {
-  document.querySelector('[data-path="双链与反链.md"]')?.click();
+  document.querySelector('[data-path="双链与反链.md"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
 });
 await sleep(900);
 await page.evaluate(() => {
-  document.querySelector('[data-path="欢迎使用 Tracery.md"]')?.click();
+  document.querySelector('[data-path="欢迎使用 Tracery.md"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
 });
 await sleep(900);
 
@@ -146,7 +146,7 @@ const header = await page.evaluate(() => {
     modeBtnVisible: btnRect ? btnRect.width > 0 && btnRect.height > 0 : false,
   };
 });
-check('至少两个标签（启动自开的 + 点击两篇）', header.tabCount >= 2, `tabs=${header.tabCount}`);
+check('显式新标签打开保留至少两篇笔记', header.tabCount >= 2, `tabs=${header.tabCount}`);
 check('Tab 条整体在编辑区上方（已搬进标题栏，不再是编辑区内部的行）', header.listAboveEditor, `listBottom=${header.listTop.toFixed(0)}`);
 check('Tab 条贴在窗口最顶部', header.listTop < 60, `top=${header.listTop.toFixed(1)}px`);
 // 卡片式标签（2026-10-19）：标签只有 33px 高、贴标题栏底边坐着，不再要求与窗口按钮同中心

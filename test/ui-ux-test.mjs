@@ -1,4 +1,5 @@
 import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
+import { waitForApp, waitForNote } from './waits.mjs';
 /**
  * UI/UX 回归测试：布局调整、新建对话框、图片查看、图谱全屏
  * 使用临时仓库，不碰用户数据。
@@ -68,7 +69,7 @@ async function main() {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
-  await sleep(1200);
+  await waitForApp(page);
 
   /* ---------- 1. 布局 ---------- */
   const layout = await page.evaluate(() => {
@@ -105,7 +106,7 @@ async function main() {
     inp.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector('.dialog-ok').click();
   });
-  await sleep(1200);
+  await waitForNote(page, '测试新建.md');
   const created = await page.evaluate(() => ({
     path: document.getElementById('note-path')?.textContent || '',
     treeHas: [...document.querySelectorAll('#file-tree .tree-item')].some((i) => i.textContent.includes('测试新建')),
@@ -231,8 +232,14 @@ async function main() {
   await page.keyboard.down('Control');
   await page.keyboard.press('p');
   await page.keyboard.up('Control');
-  await page.type('#palette-input', '打开图谱视图');
-  await sleep(300);
+  await page.waitForSelector('#palette:not([hidden])');
+  await page.focus('#palette-input');
+  await page.keyboard.insertText('打开图谱视图');
+  await page.waitForFunction(() => document.querySelector('#palette-list .selected .pi-name')?.textContent === '打开图谱视图').catch(async error => {
+    console.log('命令面板输入诊断', await page.evaluate(() => ({ input: document.querySelector('#palette-input').value, active: document.activeElement?.id, items: document.querySelector('#palette-list').textContent, selected: document.querySelector('#palette-list .selected')?.textContent })));
+    throw error;
+  });
+  await page.focus('#palette-input');
   await page.keyboard.press('Enter');
   await sleep(1000);
   check('命令面板同样直接打开大图谱', await page.evaluate(() => document.body.classList.contains('graph-focus')));

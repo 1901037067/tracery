@@ -1,4 +1,5 @@
 import { launchBrowser as launchTestBrowser } from '../scripts/lib/browser.mjs';
+import { waitForLayout } from './waits.mjs';
 /* 一万篇真实临时文件 + Edge：同时量冷 / 热索引与真实滚动，防止靠减少数据伪造性能。 */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -112,6 +113,7 @@ try {
   check('折叠全部后可见目录与根文件完整', await page.$$eval('#file-tree .tree-item', (els) => els.length === 22));
   await page.click('#btn-collapse-tree'); await sleep(200);
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+  await waitForLayout(page);
   await page.tap('#btn-toggle-left'); await sleep(200);
   check('手机抽屉同样使用虚拟行且无横向溢出', await page.$eval('#file-tree', (el) => el.querySelectorAll('.tree-item').length < 80 && document.documentElement.scrollWidth === innerWidth));
   await page.screenshot({ path: path.join(OUT, 'large-vault-mobile.png') });
