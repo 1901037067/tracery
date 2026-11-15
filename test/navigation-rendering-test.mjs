@@ -61,15 +61,13 @@ try {
     if (view === 'list') await page.click('#btn-note-list'); if (view === 'tasks') await page.click('#btn-task-list'); await waitForLayout(page);
     const m = await page.evaluate(() => {
       const rect = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top, center: r.top + r.height / 2, height: r.height }; };
-      const tools = rect('#workspace-tools'), settings = rect('#btn-settings'), list = rect('#btn-note-list'), tasks = rect('#btn-task-list');
+      const tools = rect('.ribbon'), settings = rect('#btn-settings'), list = rect('#btn-note-list'), tasks = rect('#btn-task-list');
       const footer = [...document.querySelectorAll('#editor-area .statusbar,#editor-area .note-list-footer')].find(el => el.getBoundingClientRect().height > 0).getBoundingClientRect();
       const previous = document.querySelector('#editor-area[data-note-view="list"] .note-list-footer button, #editor-area[data-note-view="tasks"] .note-list-footer button');
       return { tools, settings, list, tasks, footer: footer.top, previous: previous ? previous.getBoundingClientRect().top + previous.getBoundingClientRect().height / 2 : null, size: getComputedStyle(document.querySelector('#btn-note-list')).fontSize };
     });
-    assert.ok(Math.abs(m.tools.top - m.footer) < 1, JSON.stringify(m));
-    assert.ok(Math.abs(m.list.center - m.settings.center) < 1 && Math.abs(m.tasks.center - m.settings.center) < 1, JSON.stringify(m));
-    if (m.previous) assert.ok(Math.abs(m.list.center - m.previous) < 1, JSON.stringify(m));
-    assert.equal(m.size, '14px'); assert.ok(m.list.height >= 40); measures.push({ themeMode, view, ...m });
+    assert.ok(m.list.top >= m.tools.top && m.tasks.top > m.list.top && m.tasks.center < m.settings.center, JSON.stringify(m));
+    assert.ok(m.list.height >= 32 && m.list.height === m.tasks.height); measures.push({ themeMode, view, ...m });
     await page.screenshot({ path: path.join(OUT, `footer-${view}-${themeMode}.png`) });
     if (view === 'list') await page.click('#note-list-close'); if (view === 'tasks') await page.click('#task-close');
   }

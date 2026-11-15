@@ -13,7 +13,7 @@ const original = '\uFEFF---\r\ncustom:\r\n  nested: keep\r\n---\r\n# 原始正�
 fs.writeFileSync(path.join(VAULT, '原始.md'), original);
 fs.writeFileSync(path.join(VAULT, '课程/待复习.md'), '---\ncourse: 数学\nstatus: 学习中\nmastery: 90\nreview: 2020-01-01\ntags: [数学, 优化]\n---\n# 梯度下降\n');
 fs.writeFileSync(path.join(OTHER, '其他.md'), '# 其他仓库');
-fs.writeFileSync(path.join(HOME, 'tracery.config.json'), JSON.stringify({ currentVault: VAULT, settings: { themeMode: 'light', startup: 'empty' } }));
+fs.writeFileSync(path.join(HOME, 'tracery.config.json'), JSON.stringify({ currentVault: VAULT, settings: { themeMode: 'light', accent: 'purple', startup: 'empty' } }));
 const BASE = 'http://127.0.0.1:9701';
 const server = spawn(process.execPath, [path.join(ROOT, 'server/server.js')], { env: { ...process.env, PORT: '9701', TRACERY_HOME: HOME }, windowsHide: true, stdio: 'pipe' });
 let browser, page;
@@ -43,9 +43,22 @@ try {
   assert.equal(await page.evaluate(() => window.__editor.getContent()), original.slice(1));
   await page.evaluate(() => window.__editor.setMode('source'));
   await page.click('#tab-info'); await page.click('#btn-note-properties');
+  const propertiesLayout = await page.evaluate(() => {
+    const dialog = document.querySelector('.properties-dialog'), footer = dialog.querySelector('.note-tool-footer').getBoundingClientRect(), save = document.querySelector('#properties-save').getBoundingClientRect();
+    return { width: dialog.getBoundingClientRect().width, rightAligned: Math.abs(save.right - footer.right) < 1, inFooter: !!dialog.querySelector('.note-tool-footer #properties-save'),
+      closeIsIcon: !!document.querySelector('#note-tools-close svg'), hasCancel: [...dialog.querySelectorAll('button')].some(button => button.textContent.trim() === '取消'),
+      heights: [...dialog.querySelectorAll('.property-fields input')].map(input => input.getBoundingClientRect().height) };
+  });
+  assert.ok(propertiesLayout.width >= 720 && propertiesLayout.width <= 800);
+  assert.ok(propertiesLayout.rightAligned && propertiesLayout.inFooter && propertiesLayout.closeIsIcon && !propertiesLayout.hasCancel);
+  assert.ok(propertiesLayout.heights.every(height => height === 40));
+  await set('#property-course', '关闭时不写入'); await page.click('#note-tools-close');
+  assert.equal(fs.readFileSync(path.join(VAULT, '原始.md'), 'utf8'), original);
+  await page.click('#btn-note-properties');
   await set('#property-course', '计算机'); await set('#property-status', '学习中'); await set('#property-mastery', '65'); await set('#property-review', '2026-11-01'); await set('#property-tags', '数学, 复习/重点');
   await page.screenshot({ path: path.join(OUT, 'properties.png') });
-  await page.click('#properties-save'); await page.waitForFunction(() => document.querySelector('.note-tools-overlay').hidden);
+  await (await page.$('.properties-dialog')).screenshot({ path: path.join(OUT, 'properties-light.png') });
+  await page.click('#properties-save'); await page.waitForFunction(() => document.querySelector('#note-tools-overlay').hidden);
   const propertyNote = fs.readFileSync(path.join(VAULT, '原始.md'), 'utf8'); assert.equal(readProperties(propertyNote).body, readProperties(original).body); assert.ok(propertyNote.startsWith('\uFEFF')); assert.ok(propertyNote.includes('custom:\r\n  nested: keep\r\n'));
   assert.equal(readProperties(propertyNote).values.mastery, 65);
   assert.equal(await page.evaluate(async () => { const { renderMarkdown, serializeHtml } = await import('/js/markdown.js'); const box = document.createElement('div'); box.append(renderMarkdown('---\nstatus: 学习中\n---\n# 正文\n')); return serializeHtml(box); }), '---\nstatus: 学习中\n---\n# 正文\n');
@@ -57,13 +70,13 @@ try {
   assert.equal(fs.readFileSync(path.join(VAULT, '原始.md'), 'utf8'), external); assert.equal(await page.$eval('#property-status', el => el.value), '旧窗口的修改'); await page.keyboard.press('Escape');
   await page.evaluate(() => { const view = window.__editor.view, from = view.state.doc.toString().indexOf('选中内容'); view.dispatch({ selection: { anchor: from, head: from + 4 } }); });
   await menu('从模板新建…'); await set('#template-choice', '模板/我的模板.md', 'change'); await page.waitForFunction(() => document.querySelector('#template-preview').value.includes('选中：选中内容'));
-  await page.click('#template-insert'); await page.waitForFunction(() => document.querySelector('.note-tools-overlay').hidden);
+  await page.click('#template-insert'); await page.waitForFunction(() => document.querySelector('#note-tools-overlay').hidden);
   assert.ok(fs.readFileSync(path.join(VAULT, '原始.md'), 'utf8').includes('选中：选中内容')); assert.equal(await page.evaluate(() => window.templateExecuted), undefined);
 
   await menu('快速记录…'); await set('#capture-title', '快速想法');
   await page.evaluate(() => { window.originalStorageSet = Storage.prototype.setItem; Storage.prototype.setItem = function(key, value) { if (key.startsWith('tracery.capture.')) throw Error('fixture quota'); return window.originalStorageSet.call(this, key, value); }; });
   await set('#capture-text', '先记下一个想法'); await page.keyboard.press('Escape');
-  assert.equal(await page.$eval('.note-tools-overlay', el => el.hidden), false); assert.ok(await page.$eval('#note-tools-message', el => el.textContent.includes('无法保留记录草稿')));
+  assert.equal(await page.$eval('#note-tools-overlay', el => el.hidden), false); assert.ok(await page.$eval('#note-tools-message', el => el.textContent.includes('无法保留记录草稿')));
   assert.equal(await page.$eval('#capture-text', el => el.value), '先记下一个想法');
   await page.click('#capture-discard'); await page.waitForSelector('.dialog-backdrop:not([hidden])'); await page.click('.dialog-cancel');
   assert.equal(await page.$eval('#capture-text', el => el.value), '先记下一个想法');
@@ -72,6 +85,12 @@ try {
   await page.screenshot({ path: path.join(OUT, 'capture.png') }); await page.click('#template-create'); await waitForNote(page, '收集箱/快速想法.md');
   assert.ok(fs.readFileSync(path.join(VAULT, '收集箱/快速想法.md'), 'utf8').includes('先记下一个想法'));
   await page.evaluate(() => window.__editor.setMode('read')); await page.click('#btn-note-properties'); assert.equal(await page.$eval('#properties-save', el => el.disabled), true); await page.keyboard.press('Escape'); await page.evaluate(() => window.__editor.setMode('source'));
+  await page.click('#btn-note-properties'); await page.setViewport({ width: 390, height: 844 });
+  await page.evaluate(async () => { const { updateSettings } = await import('/js/settings.js'); await updateSettings({ themeMode: 'dark' }); await Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {}))); });
+  assert.equal(await page.$eval('.properties-dialog', el => el.scrollWidth > el.clientWidth), false);
+  await (await page.$('.properties-dialog')).screenshot({ path: path.join(OUT, 'properties-mobile-dark.png') });
+  await page.click('#note-tools-close'); await page.setViewport({ width: 1440, height: 1000 });
+  await page.evaluate(async () => { const { updateSettings } = await import('/js/settings.js'); await updateSettings({ themeMode: 'light' }); });
   await menu('从模板新建…'); await set('#capture-title', '线性代数'); await set('#capture-folder', '课程'); await page.click('#template-create');
   await page.waitForFunction(() => document.querySelector('#note-tools-message').textContent.includes('文件已存在'));
   assert.equal(fs.readFileSync(path.join(VAULT, '课程/线性代数.md'), 'utf8'), created); await page.keyboard.press('Escape');

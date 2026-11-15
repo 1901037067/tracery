@@ -18,6 +18,7 @@ import { Api, toast } from './api.js';
 import { askText, askConfirm } from './dialog.js';
 import { getSettings, resolveAssetDir } from './settings.js';
 import { enableTouchControls } from './mobile.js';
+import { uiIcon } from './ui-icons.js';
 
 /* ================= 常量 ================= */
 const STROKE_COLORS = ['#1d1d1f', '#e03131', '#2f9e44', '#1971c2', '#f08c00', '#7048e8', '#c2255c', '#868e96'];
@@ -71,7 +72,7 @@ function renderRecentColors() {
 function colorControls(kind, colors) {
   const label = kind === 'stroke' ? '描边' : '图形背景';
   return `<div class="dp-group draw-color-group" data-color-kind="${kind}">
-    <div class="dp-label">${label}</div>
+    <div class="dp-label">${label}<span class="draw-color-value" aria-hidden="true"></span></div>
     <div class="dp-row draw-color-presets">
       ${kind === 'background' ? '<button class="draw-bg draw-bg-none" data-color="transparent" title="透明" aria-label="透明背景"></button>' : ''}
       ${colors.map(color => `<button class="${kind === 'stroke' ? 'draw-swatch' : 'draw-bg'}" data-color="${color}" title="${color}" aria-label="${label} ${color}" style="--sw:${color}"></button>`).join('')}
@@ -79,7 +80,7 @@ function colorControls(kind, colors) {
     <div class="draw-custom-color">
       <input type="color" class="draw-color-picker" aria-label="${label}自定义选色" title="打开${label}选色板" />
       <input type="text" class="draw-color-hex" aria-label="${label}色号" placeholder="#RRGGBB" maxlength="7" spellcheck="false" />
-      <button class="draw-color-apply" title="应用${label}色号">应用</button>
+      <button class="draw-color-apply" title="应用${label}色号" aria-label="应用${label}色号">${uiIcon('check')}</button>
     </div>
     <div class="draw-color-recent" aria-label="${label}最近颜色" hidden></div>
   </div>`;
@@ -1103,7 +1104,7 @@ function editSelectedText() {
 /* ================= 键盘 ================= */
 function onKey(e) {
   if (!overlay || overlay.hidden) return;
-  if (document.querySelector('#settings:not([hidden]), #palette:not([hidden]), .dialog-backdrop, .phone-access:not([hidden]), .context-menu')) return;
+  if (document.querySelector('#settings:not([hidden]), #palette:not([hidden]), .dialog-backdrop:not([hidden]), .phone-access:not([hidden]), .context-menu')) return;
   if (e.target !== textEdit && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
   const mod = e.ctrlKey || e.metaKey;
   if (editing) {
@@ -1194,6 +1195,7 @@ function syncStyleUI() {
   if (bg) bg.classList.toggle('active', style.background === 'transparent');
   propsEl.querySelectorAll('.draw-color-group').forEach(group => {
     const color = normalizeColor(style[group.dataset.colorKind]);
+    group.querySelector('.draw-color-value').textContent = color?.toUpperCase() || '透明';
     group.querySelector('.draw-color-picker').value = color || '#ffffff';
     const hex = group.querySelector('.draw-color-hex');
     if (document.activeElement !== hex) hex.value = color?.toUpperCase() || '';
@@ -1227,8 +1229,9 @@ function resetView() {
 function layoutToolbar() {
   if (!toolsEl || overlay.hidden || !toolsEl.offsetWidth) return;
   const compact = overlay.clientWidth < 600;
-  const left = compact ? 12 : overlay.querySelector('.draw-mobile-switches').offsetLeft + overlay.querySelector('.draw-mobile-switches').offsetWidth + 12;
-  const right = compact ? overlay.clientWidth - 12 : overlay.querySelector('.draw-top').offsetLeft - 12;
+  const inset = compact ? 12 : 20;
+  const left = compact ? inset : overlay.querySelector('.draw-mobile-switches').offsetLeft + overlay.querySelector('.draw-mobile-switches').offsetWidth + 16;
+  const right = compact ? overlay.clientWidth - inset : overlay.querySelector('.draw-top').offsetLeft - 16;
   // flex-wrap 的 max-content 宽度可能漏算 gap，显式计入每个工具、分隔线与内外边距。
   const style = getComputedStyle(toolsEl), items = [...toolsEl.children];
   const naturalWidth = Math.ceil(items.reduce((sum, item) => {
@@ -1240,7 +1243,7 @@ function layoutToolbar() {
   toolsEl.style.maxWidth = `${Math.max(48, toolbarPosition || compact || !fits ? overlay.clientWidth - 24 : right - left)}px`;
   const width = toolsEl.offsetWidth, height = toolsEl.offsetHeight;
   const x = clamp(toolbarPosition?.x ?? (left + (right - left - width) / 2), 12, Math.max(12, overlay.clientWidth - width - 12));
-  const y = clamp(toolbarPosition?.y ?? (compact ? 120 : fits ? 12 : 70), 12, Math.max(12, overlay.clientHeight - height - 12));
+  const y = clamp(toolbarPosition?.y ?? (compact ? 120 : fits ? 18 : 82), 12, Math.max(12, overlay.clientHeight - height - 12));
   toolsEl.style.transform = 'none';
   toolsEl.style.left = `${x}px`;
   toolsEl.style.top = `${y}px`;
@@ -1295,6 +1298,11 @@ function syncWorkspaceBounds() {
   overlay.style.left = `${(nav && nav.width > 0 ? Math.max(0, nav.right) : 0) + gap}px`;
   resizeCanvas();
   layoutToolbar();
+  const switches = overlay.querySelector('.draw-mobile-switches');
+  if (switches.dataset.panel) {
+    const active = switches.querySelector('[aria-expanded="true"]');
+    switches.style.setProperty('--panel-x', `${active.offsetLeft}px`); switches.style.setProperty('--panel-width', `${active.offsetWidth}px`);
+  }
 }
 
 function ensure() {
@@ -1314,13 +1322,12 @@ function ensure() {
         <button id="draw-zoom-in" title="放大 (Ctrl+滚轮)">+</button>
       </div>
       <div class="draw-actions">
-        <button id="draw-stash" class="btn-ghost" title="把当前画板暂存为草稿（不插入笔记）；从草稿箱重开的画板会覆盖该草稿">暂存</button>
-        <button id="draw-cancel" class="btn-ghost">取消</button>
+        <button id="draw-stash" class="btn-ghost" title="把当前画板保存为本机草稿（不插入笔记）；从草稿箱重开的画板会更新该草稿">保存草稿</button>
         <button id="draw-save" class="btn-primary">插入笔记</button>
       </div>
     </header>
-    <div class="draw-mobile-switches"><button id="draw-toggle-library" aria-expanded="false">图片库</button><button id="draw-toggle-props" aria-expanded="false">颜色与样式</button></div>
-    <button id="draw-toggle-ui" class="draw-toggle-ui" title="收起功能区" aria-label="收起功能区" aria-expanded="true">⌃</button>
+    <div class="draw-mobile-switches" role="group" aria-label="画板面板"><span class="draw-panel-indicator" aria-hidden="true"></span><button id="draw-toggle-library" aria-expanded="false" aria-controls="draw-drafts">${uiIcon('image')}<span>图片库</span></button><button id="draw-toggle-props" aria-expanded="false" aria-controls="draw-props">${uiIcon('layers')}<span>颜色与样式</span></button></div>
+    <button id="draw-toggle-ui" class="draw-toggle-ui" title="收起功能区" aria-label="收起功能区" aria-expanded="true">${uiIcon('chevron')}</button>
     <div class="draw-stage">
       <canvas id="draw-canvas"></canvas>
       <div class="draw-tools">
@@ -1341,8 +1348,9 @@ function ensure() {
           <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 5.4h11.6M7 5.4V3.8h4v1.6M4.8 5.4l.7 9.4h7l.7-9.4"/></svg>
         </button>
       </div>
-      <aside class="draw-props">
-        <div class="draw-side-title">样式<button id="draw-close-props" aria-label="收起样式">×</button></div>
+      <aside class="draw-props" id="draw-props" aria-label="颜色与样式">
+        <div class="draw-side-title"><div><strong>颜色与样式</strong><small>画布与图形的外观</small></div><button id="draw-close-props" aria-label="收起样式">${uiIcon('close')}</button></div>
+        <div class="draw-props-body">
         <div class="draw-board-background">
           <div class="dp-label">画板背景</div>
           <div class="dp-row" role="group" aria-label="画板背景">
@@ -1363,7 +1371,7 @@ function ensure() {
         <div class="dp-group">
           <div class="dp-label">线宽</div>
           <div class="dp-row">
-            ${WIDTHS.map((w, i) => `<button class="draw-size${i === 1 ? ' active' : ''}" data-size="${w}" title="线宽 ${w}"><span style="width:${w + 3}px;height:${w + 3}px"></span></button>`).join('')}
+            ${WIDTHS.map((w, i) => `<button class="draw-size${i === 1 ? ' active' : ''}" data-size="${w}" title="线宽 ${w}" aria-label="线宽 ${w}"><span style="width:20px;height:${w}px"></span></button>`).join('')}
           </div>
         </div>
         <div class="dp-group">
@@ -1373,8 +1381,9 @@ function ensure() {
           </div>
         </div>
         </div>
+        </div>
       </aside>
-      <div class="draw-hint" id="draw-hint">拖拽画形状 · 空格拖动画布 · Ctrl+滚轮缩放 · Delete 删除 · Esc 取消</div>
+      <div class="draw-hint" id="draw-hint">${uiIcon('about')}<span>空格 + 拖动：移动画布 · Ctrl + 滚轮：缩放 · Delete：删除 · Esc：取消</span></div>
       <aside class="draw-drafts" id="draw-drafts">
         <div class="dd-head"><span>图片库</span><button class="dd-new" id="draw-draft-new" title="新建画板（已有草稿保留）">＋ 新建</button><button id="draw-close-library" aria-label="收起图片库">×</button></div>
         <div class="dd-tabs" role="tablist" aria-label="绘图状态">
@@ -1397,6 +1406,12 @@ function ensure() {
     panelBackdrop.hidden = !panel;
     overlay.querySelector('#draw-toggle-library').setAttribute('aria-expanded', String(panel === 'library'));
     overlay.querySelector('#draw-toggle-props').setAttribute('aria-expanded', String(panel === 'props'));
+    const switches = overlay.querySelector('.draw-mobile-switches');
+    if (panel) {
+      switches.dataset.panel = panel;
+      const active = overlay.querySelector(panel === 'library' ? '#draw-toggle-library' : '#draw-toggle-props');
+      switches.style.setProperty('--panel-x', `${active.offsetLeft}px`); switches.style.setProperty('--panel-width', `${active.offsetWidth}px`);
+    } else delete switches.dataset.panel;
   };
   panelBackdrop.onclick = () => setDrawPanel(null);
   overlay.querySelector('#draw-toggle-library').onclick = () => setDrawPanel(overlay.classList.contains('draw-show-library') ? null : 'library');
@@ -1408,7 +1423,6 @@ function ensure() {
   let quiet = localStorage.getItem('tracery.draw.uiHidden') === 'true';
   const setQuiet = value => {
     quiet = value; overlay.classList.toggle('draw-ui-hidden', quiet);
-    toggleUI.textContent = quiet ? '⌄' : '⌃';
     toggleUI.title = toggleUI.ariaLabel = quiet ? '显示功能区' : '收起功能区';
     toggleUI.setAttribute('aria-expanded', String(!quiet));
     localStorage.setItem('tracery.draw.uiHidden', String(quiet));
@@ -1454,7 +1468,6 @@ function ensure() {
     snapshot();
     scheduleDraw();
   };
-  overlay.querySelector('#draw-cancel').onclick = () => close();
   overlay.querySelector('#draw-save').onclick = () => save();
   overlay.querySelector('#draw-stash').onclick = () => stashCurrent();
   overlay.querySelector('#draw-drafts-btn').onclick = () => toggleDrafts();

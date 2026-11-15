@@ -2,6 +2,8 @@ import { Api, debounce, toast } from './api.js';
 import { enterModal, leaveModal } from './modal-focus.js';
 import { citationMarkdown, pdfPage } from './pdf-reference.js';
 import { upgradeSelects, refreshSelect, closeSelect } from './select-control.js';
+import { uiIcon } from './ui-icons.js';
+import { showWorkspaceView, closeWorkspaceView } from './workspace-view.js';
 
 const node = (tag, text, cls) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (cls) el.className = cls; return el; };
 export function createStudyUI(actions) {
@@ -47,13 +49,13 @@ export function createStudyUI(actions) {
     if (saving) return;
     if (!modal.hidden) closeCitation();
     citation = { root: owner.root, source: pdf.path }; const opened = citation;
-    modal.innerHTML = `<section class="note-tool-dialog" role="dialog" aria-modal="true" aria-labelledby="citation-title"><header class="note-tool-header"><h2 id="citation-title">PDF 摘录到笔记</h2><button class="btn-ghost" id="citation-close">关闭</button></header><div class="note-tool-body">
-      <p class="tool-note" id="citation-source"></p><p class="tool-note">在阅读器中复制所选文字，再粘贴到下方。请确认 PDF 页码；内置阅读器的当前页码无法自动读取。</p>
-      <div class="tool-fields"><label>PDF 页码（从 1 开始）<input id="citation-page" type="number" min="1" max="999999" step="1" required placeholder="填写阅读器中的当前页码" /></label><label>目标笔记路径<input id="citation-target" list="citation-notes" placeholder="例如：论文摘录/阅读笔记.md" spellcheck="false" /></label></div>
-      <datalist id="citation-notes"></datalist><p class="tool-note" id="citation-target-state"></p><div class="tool-actions citation-recheck"><button id="citation-recheck" class="btn-ghost">重新核对目标</button></div>
+    modal.innerHTML = `<section class="note-tool-dialog citation-dialog" role="dialog" aria-modal="true" aria-labelledby="citation-title"><header class="note-tool-header"><div class="citation-heading"><span class="citation-icon">${uiIcon('pdf')}</span><h2 id="citation-title">PDF 摘录到笔记</h2></div><button class="tool-icon-button" id="citation-close" aria-label="关闭">${uiIcon('close')}</button></header><div class="note-tool-body">
+      <div class="citation-source">${uiIcon('note')}<span class="citation-source-label">来源：</span><span id="citation-source"></span></div><p class="tool-note citation-hint">${uiIcon('about')}<span>请在阅读器中复制所选文字并粘贴到下方。当前 PDF 页码需手动填写。</span></p>
+      <div class="tool-fields citation-fields"><label>PDF 页码（从 1 开始）<input id="citation-page" type="number" min="1" max="999999" step="1" required placeholder="例如：12" /></label><div class="citation-destination"><label class="tool-field">目标笔记路径<input id="citation-target" list="citation-notes" placeholder="例如：论文摘录/阅读笔记.md" spellcheck="false" /></label><div class="citation-target-meta"><p class="tool-note">${uiIcon('note')}<span id="citation-target-state" role="status" aria-live="polite"></span></p><button id="citation-recheck" class="btn-ghost">${uiIcon('refresh')}<span>重新核对目标</span></button></div></div></div>
+      <datalist id="citation-notes"></datalist>
       <label class="tool-field">摘录文字<textarea id="citation-text" rows="7" maxlength="32000" placeholder="粘贴刚复制的文字…"></textarea></label>
-      <p class="tool-note">写入时自动附带来源文件和页码。未写入前的文字仅在本次应用会话保留。</p><div class="tool-actions"><button id="citation-paste" class="btn-ghost">粘贴已复制的文字</button><button id="citation-save" class="btn-primary" disabled>写入笔记</button><button id="citation-open" class="btn-ghost">打开目标笔记</button></div></div><footer class="note-tool-footer"><p id="citation-message" role="status" aria-live="polite"></p></footer></section>`;
-    c('citation-source').textContent = '来源：' + pdf.path;
+      <p class="tool-note citation-retention">${uiIcon('layers')}<span>写入时会自动附带来源文件和页码。未写入前的文字仅在本次应用会话保留。</span></p></div><footer class="note-tool-footer"><div class="citation-footer-actions"><button id="citation-paste" class="btn-ghost">${uiIcon('clipboard')}<span>粘贴已复制的文字</span></button><div class="tool-actions"><button id="citation-open" class="btn-ghost">${uiIcon('export')}<span>打开目标笔记</span></button><button id="citation-save" class="btn-primary" disabled>${uiIcon('editor')}<span>写入笔记</span></button></div></div><p id="citation-message" role="status" aria-live="polite"></p></footer></section>`;
+    c('citation-source').textContent = pdf.path;
     for (const path of actions.notes().slice(0, 300)) c('citation-notes').append(new Option(path, path));
     const draft = drafts.get(key(citation));
     c('citation-page').value = draft?.page || ''; c('citation-text').value = draft?.text || '';
@@ -91,15 +93,16 @@ export function createStudyUI(actions) {
   }, true);
 
   const sheet = node('section', undefined, 'note-list-sheet task-sheet'); sheet.id = 'task-list-view'; sheet.hidden = true; sheet.setAttribute('aria-labelledby', 'task-title');
-  sheet.innerHTML = `<header class="note-tool-header"><h2 id="task-title" tabindex="-1">全库任务</h2><div class="tool-actions"><button id="task-refresh" class="btn-ghost">刷新</button><button id="task-close" class="btn-ghost">返回编辑区</button></div></header>
-    <div class="task-filters"><label>查找任务<input id="task-query" placeholder="关键词、path:目录、tag:标签" /></label><label>显示<select id="task-scope" aria-label="任务显示范围"><option value="open">未完成</option><option value="due">已到期</option><option value="all">全部</option><option value="done">已完成</option></select></label></div>
+  sheet.innerHTML = `<header class="note-tool-header"><h2 id="task-title" tabindex="-1">全库任务</h2><div class="tool-actions"><button id="task-refresh" class="btn-ghost tool-icon-button" title="刷新任务" aria-label="刷新任务">${uiIcon('refresh')}</button><button id="task-close" class="btn-ghost">返回编辑区</button></div></header>
+    <div class="task-filters"><label class="task-search">${uiIcon('search')}<input id="task-query" aria-label="查找任务，支持 path:目录 和 tag:标签" placeholder="搜索任务、path、tag…" /></label><label><select id="task-scope" aria-label="任务显示范围"><option value="open">未完成</option><option value="due">已到期</option><option value="all">全部</option><option value="done">已完成</option></select></label></div>
     <p class="note-list-summary" id="task-summary" role="status" aria-live="polite"></p><p class="task-message" id="task-message" role="status" aria-live="polite"></p>
-    <div class="note-list-scroll"><table><thead><tr><th>任务</th><th>到期日期</th><th>来源笔记</th></tr></thead><tbody id="task-rows"></tbody></table></div><footer class="note-list-footer"><button id="task-prev" class="btn-ghost">上一页</button><span id="task-page"></span><button id="task-next" class="btn-ghost">下一页</button></footer>`;
+    <div class="note-list-scroll"><table><thead><tr><th scope="col">任务内容</th><th scope="col">到期日期</th><th scope="col">来源笔记</th></tr></thead><tbody id="task-rows"></tbody></table></div><footer class="note-list-footer"><span id="task-total"></span><div class="task-pagination"><button id="task-prev" class="btn-ghost" aria-label="上一页">${uiIcon('chevronLeft')}</button><span id="task-page"></span><button id="task-next" class="btn-ghost" aria-label="下一页">${uiIcon('chevronRight')}</button></div></footer>`;
   document.querySelector('#editor-area').append(sheet); const t = id => sheet.querySelector('#' + id);
   let root, requestId = 0, offset = 0, total = 0, toggling = false, returnFocus;
   function closeTasks() {
     if (sheet.hidden) return;
     requestId++; closeSelect(); sheet.hidden = true; document.querySelector('#editor-area').removeAttribute('data-note-view');
+    closeWorkspaceView('tasks');
     if (returnFocus?.isConnected && returnFocus.getClientRects().length) returnFocus.focus({ preventScroll: true });
   }
   function lockTasks(value) { toggling = value; for (const el of sheet.querySelectorAll('input, select, button:not(#task-close)')) { el.disabled = value || (el.type === 'checkbox' && context().readOnly); if (el.tagName === 'SELECT') refreshSelect(el); } }
@@ -116,8 +119,10 @@ export function createStudyUI(actions) {
         const tr = node('tr'), body = node('td'), label = node('label', undefined, 'task-label'), check = node('input'); check.type = 'checkbox'; check.checked = row.completed; check.disabled = toggling || context().readOnly; check.setAttribute('aria-label', (row.completed ? '标为未完成：' : '完成：') + row.text);
         label.append(check, node('span', row.text)); body.append(label); body.dataset.label = '任务';
         const due = node('td', row.due || '—'); due.dataset.label = '到期日期';
-        const source = node('td'), open = node('button', row.name + ' · 第 ' + row.line + ' 行', 'note-list-name'); source.dataset.label = '来源笔记'; open.title = row.path;
-        open.onclick = () => actions.open(row.path, row.line); source.append(open, node('small', row.path)); tr.append(body, due, source); t('task-rows').append(tr);
+        const source = node('td'), open = node('button', undefined, 'note-list-name task-source'); source.dataset.label = '来源笔记'; open.title = row.path;
+        open.append(node('span', row.path.split('/').pop()), node('small', '第 ' + row.line + ' 行'));
+        open.setAttribute('aria-label', row.path + '，第 ' + row.line + ' 行');
+        open.onclick = () => actions.open(row.path, row.line); source.append(open); tr.append(body, due, source); t('task-rows').append(tr);
         check.onchange = async () => {
           if (toggling || context().readOnly) { check.checked = row.completed; return; }
           const checked = check.checked; lockTasks(true); t('task-message').textContent = '正在更新原笔记…';
@@ -130,8 +135,12 @@ export function createStudyUI(actions) {
         };
       }
       const counts = result.counts;
-      t('task-summary').textContent = `未完成 ${counts.open} · 到期 ${counts.due} · 已完成 ${counts.done}。` + (result.total ? ` 当前 ${offset + 1}–${offset + result.rows.length} / ${result.total} 项` : ' 当前筛选没有任务。');
-      t('task-page').textContent = '第 ' + (Math.floor(offset / 100) + 1) + ' 页'; t('task-prev').disabled = offset === 0; t('task-next').disabled = offset + 100 >= result.total;
+      t('task-summary').replaceChildren(node('span', `未完成 ${counts.open}`, 'task-count task-count-open'), node('span', `已到期 ${counts.due}`, 'task-count task-count-due'), node('span', `已完成 ${counts.done}`, 'task-count task-count-done'));
+      let empty = t('task-empty');
+      if (!empty) { empty = node('p', '当前筛选没有任务。', 'task-empty'); empty.id = 'task-empty'; sheet.querySelector('.note-list-scroll').append(empty); }
+      empty.hidden = result.rows.length > 0;
+      t('task-total').textContent = `共 ${result.total} 项任务`;
+      t('task-page').textContent = `${Math.floor(offset / 100) + 1} / ${Math.max(1, Math.ceil(result.total / 100))}`; t('task-prev').disabled = offset === 0; t('task-next').disabled = offset + 100 >= result.total;
     } catch (error) { if (!sheet.hidden && request === requestId) { t('task-rows').replaceChildren(); t('task-summary').textContent = '读取失败：' + error.message; } }
   }
   const delayedTasks = debounce(() => { offset = 0; t('task-message').textContent = ''; void loadTasks(); }, 200);
@@ -144,7 +153,8 @@ export function createStudyUI(actions) {
     const owner = context().root; if (!owner) return;
     if (!await actions.flush() || owner !== context().root) { toast('请先处理未保存的笔记'); return; }
     if (root !== owner) { t('task-query').value = ''; t('task-scope').value = 'open'; refreshSelect(t('task-scope')); }
-    root = owner; offset = 0; returnFocus = document.activeElement; actions.showTasks(); sheet.hidden = false; document.querySelector('#editor-area').dataset.noteView = 'tasks'; t('task-title').focus({ preventScroll: true }); t('task-message').textContent = ''; await loadTasks();
+    if (actions.showTasks() === false) return;
+    root = owner; offset = 0; returnFocus = document.activeElement; sheet.hidden = false; document.querySelector('#editor-area').dataset.noteView = 'tasks'; showWorkspaceView('tasks'); t('task-title').focus({ preventScroll: true }); t('task-message').textContent = ''; await loadTasks();
   }
   return { cite, tasks, closeTasks, changed: () => {
     if (!sheet.hidden) { if (context().root !== root) closeTasks(); else if (!toggling) void loadTasks(); }

@@ -114,7 +114,7 @@ try {
   });
   assert.equal(topRow.tools.top, topRow.switches.top);
   assert.ok(topRow.tools.left > topRow.switches.right && topRow.tools.right < topRow.actions.left);
-  assert.ok(parseFloat(topRow.radius) > 0 && topRow.shadow !== 'none');
+  assert.equal(parseFloat(topRow.radius), 0);
   const handle = await page.$eval('.draw-tools-handle', e => e.getBoundingClientRect().toJSON());
   await page.mouse.move(handle.left + 10, handle.top + 18); await page.mouse.down();
   await page.mouse.move(handle.left + 70, handle.top + 168, { steps: 10 }); await page.mouse.up();
@@ -183,7 +183,28 @@ try {
   assert.ok(await page.$eval('.ribbon-btn[data-panel="search"]', e => e.classList.contains('active')));
   assert.ok(await page.evaluate(() => JSON.parse(localStorage.getItem('tracery.drawDrafts')).some(d => d.elements.length === 1)));
   assert.ok(await page.evaluate(() => JSON.parse(localStorage.getItem('tracery.drawDrafts')).some(d => d.boardBackground === 'lines')));
-  await page.click('#btn-draw'); await page.click('#draw-cancel');
+  await page.click('#btn-draw');
+  await page.evaluate(async () => { const { updateSettings } = await import('/js/settings.js'); await updateSettings({ themeMode: 'light', accent: 'purple' }); });
+  await page.waitForFunction(() => document.getElementById('toast').hidden);
+  for (const width of [1839, 1360, 1024, 800, 390]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await sleep(150);
+    const geometry = await page.evaluate(() => {
+      const tools = document.querySelector('.draw-tools'), bounds = tools.getBoundingClientRect(), overlay = document.querySelector('.draw-overlay').getBoundingClientRect();
+      const r = id => document.querySelector(id).getBoundingClientRect();
+      const switches = r('.draw-mobile-switches'), actions = r('.draw-actions');
+      const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+      return { scroll: tools.scrollWidth, client: tools.clientWidth, withinCanvas: bounds.left >= overlay.left && bounds.right <= overlay.right && bounds.bottom <= overlay.bottom,
+        overlaps: overlaps(bounds, switches) || overlaps(bounds, actions), icons: document.querySelectorAll('.draw-mobile-switches svg').length,
+        stash: document.querySelector('#draw-stash').textContent, childrenFit: [...tools.querySelectorAll('button')].every(button => { const r = button.getBoundingClientRect(); return r.left >= bounds.left && r.right <= bounds.right && r.bottom <= bounds.bottom; }) };
+    });
+    assert.ok(geometry.scroll <= geometry.client + 1 && geometry.withinCanvas && geometry.childrenFit && !geometry.overlaps, JSON.stringify({ width, ...geometry }));
+    assert.equal(geometry.icons, 2); assert.equal(geometry.stash, '保存草稿');
+    await (await page.$('.draw-overlay')).screenshot({ path: path.join(OUT, `drawing-layout-${width}.png`) });
+  }
+  await page.evaluate(async () => { const { updateSettings } = await import('/js/settings.js'); await updateSettings({ themeMode: 'dark' }); await Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {}))); });
+  await (await page.$('.draw-overlay')).screenshot({ path: path.join(OUT, 'drawing-layout-mobile-dark.png') });
+  console.log('PASS 新绘图布局在 1839/1360/1024/800/390px 无遮挡、无横向滚动，独立图标入口、保存草稿及窄屏深色布局');
+  await page.setViewport({ width: 1360, height: 900 }); await sleep(120); await page.keyboard.press('Escape');
   assert.ok(await page.$eval('.ribbon-btn[data-panel="search"]', e => e.classList.contains('active')));
   assert.deepEqual(errors, []);
   console.log('PASS 画布避开主导航与顶栏、面板悬浮/收起不改变尺寸、真实鼠标绘图、主导航离开时保留草稿');

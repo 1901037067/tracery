@@ -168,6 +168,7 @@ try {
     await page.waitForSelector('.context-menu button:last-child');
     await page.click('.context-menu button:last-child');
     await page.waitForSelector('#welcome:not([hidden])');
+    await page.click('#btn-browse-vault');
     await page.$eval('#vault-path', el => { el.value = ''; });
     await page.type('#vault-path', root);
     await page.click('#btn-open-vault');

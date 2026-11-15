@@ -4,6 +4,8 @@ import { enterModal, leaveModal } from './modal-focus.js';
 import { BUILTIN_TEMPLATES, renderTemplate, localDate } from './note-templates.js';
 import { PROPERTY_FIELDS, readProperties, writeProperties } from './note-properties.js';
 import { upgradeSelects, refreshSelect, closeSelect } from './select-control.js';
+import { uiIcon } from './ui-icons.js';
+import { showWorkspaceView, closeWorkspaceView } from './workspace-view.js';
 
 function notePath(folder, title) {
   const name = title.trim().replace(/\.md$/i, '');
@@ -16,7 +18,7 @@ function notePath(folder, title) {
 const node = (tag, text, className) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; };
 
 export function createNoteTools(actions) {
-  const overlay = node('div', undefined, 'modal note-tools-overlay'); overlay.hidden = true;
+  const overlay = node('div', undefined, 'modal note-tools-overlay'); overlay.id = 'note-tools-overlay'; overlay.hidden = true;
   document.body.append(overlay);
   let snapshot, mode, busy = false, templateLoading = false, templateError = false, templateRequest = 0, templateRevision, templatePath;
   const $ = id => overlay.querySelector('#' + id);
@@ -147,11 +149,18 @@ export function createNoteTools(actions) {
     if (busy) { toast('上一项操作尚未结束'); return; }
     const parsed = readProperties(ctx.content);
     if (!shell('笔记属性', `<p class="tool-note" id="properties-path"></p><div class="tool-fields property-fields">
-      <label>课程<input id="property-course" maxlength="1000" /></label><label>状态<input id="property-status" maxlength="1000" list="property-statuses" /><datalist id="property-statuses"><option value="待整理"></option><option value="学习中"></option><option value="已掌握"></option></datalist></label>
-      <label>掌握程度（0–100）<input id="property-mastery" type="number" min="0" max="100" step="1" /></label><label>复习日期<input id="property-review" type="date" /></label>
-      <label class="property-tags">标签<input id="property-tags" placeholder="用逗号分隔，例如：数学, 机器学习/优化" /></label></div>
+      <label>课程<input id="property-course" maxlength="1000" placeholder="输入课程名称" /></label><label>状态<span class="property-input-wrap property-status-wrap"><input id="property-status" maxlength="1000" list="property-statuses" placeholder="选择或输入状态" />${uiIcon('chevron')}</span><datalist id="property-statuses"><option value="待整理"></option><option value="学习中"></option><option value="已掌握"></option></datalist></label>
+      <label>掌握程度<span class="property-input-wrap"><input id="property-mastery" type="number" min="0" max="100" step="1" placeholder="0–100" aria-label="掌握程度（0–100）" /><span class="property-unit" aria-hidden="true">%</span></span></label><label>复习日期<input id="property-review" type="date" aria-label="复习日期" /></label>
+      <label class="property-tags">标签<input id="property-tags" placeholder="输入标签，使用逗号分隔" /></label></div>
       <p class="tool-note">属性保存在笔记开头，其他属性和正文会保留。清空字段可移除该属性。</p><div class="tool-actions"><button id="properties-save" class="btn-primary" data-tool-write>保存属性</button></div>`)) return;
     mode = 'properties'; $('properties-path').textContent = ctx.path;
+    const dialog = overlay.querySelector('.note-tool-dialog'), heading = node('div', undefined, 'properties-heading');
+    dialog.classList.add('properties-dialog');
+    heading.append($('note-tools-title'), $('properties-path'));
+    dialog.querySelector('.note-tool-header').prepend(heading);
+    $('note-tools-close').className = 'tool-icon-button'; $('note-tools-close').innerHTML = uiIcon('close');
+    const controls = $('properties-save').parentElement; controls.classList.add('properties-actions');
+    dialog.querySelector('.note-tool-footer').append(controls);
     templateError = false; templateLoading = false;
     const original = {};
     for (const [key, spec] of Object.entries(PROPERTY_FIELDS)) {
@@ -188,7 +197,7 @@ export function createNoteTools(actions) {
     <p class="note-list-summary" id="note-list-summary" role="status" aria-live="polite"></p><div class="note-list-scroll"><table><thead><tr><th>笔记</th><th>课程</th><th>状态</th><th>掌握程度</th><th>复习日期</th><th>操作</th></tr></thead><tbody id="note-list-rows"></tbody></table></div><footer class="note-list-footer"><button id="note-list-prev" class="btn-ghost">上一页</button><span id="note-list-page"></span><button id="note-list-next" class="btn-ghost">下一页</button></footer>`;
   document.querySelector('#editor-area').append(list);
   const l = id => list.querySelector('#' + id); let listRoot, listRequest = 0, offset = 0, returnFocus;
-  const closeList = () => { if (list.hidden) return; listRequest++; list.hidden = true; document.querySelector('#editor-area').removeAttribute('data-note-view'); if (returnFocus?.isConnected && returnFocus.getClientRects().length) returnFocus.focus({ preventScroll: true }); };
+  const closeList = () => { if (list.hidden) return; listRequest++; closeSelect(); list.hidden = true; document.querySelector('#editor-area').removeAttribute('data-note-view'); closeWorkspaceView('list'); if (returnFocus?.isConnected && returnFocus.getClientRects().length) returnFocus.focus({ preventScroll: true }); };
   async function loadList() {
     if (list.hidden) return;
     const request = ++listRequest, root = context().root;
@@ -224,7 +233,8 @@ export function createNoteTools(actions) {
     if (!await actions.flush() || root !== context().root) { toast('请先处理未保存的笔记'); return; }
     if (listRoot !== root) { for (const key of ['query', 'course', 'status', 'mastery']) l('note-list-' + key).value = ''; l('note-list-due').checked = false; }
     listRoot = root; l('note-list-query').value = query; offset = 0; returnFocus = document.activeElement;
-    actions.showList?.(); list.hidden = false; document.querySelector('#editor-area').dataset.noteView = 'list'; l('note-list-title').focus({ preventScroll: true }); await loadList();
+    if (actions.showList?.() === false) return;
+    list.hidden = false; document.querySelector('#editor-area').dataset.noteView = 'list'; showWorkspaceView('list'); l('note-list-title').focus({ preventScroll: true }); await loadList();
   }
   upgradeSelects(list);
   return { template: () => openTemplate(false), capture: () => openTemplate(true), properties: openProperties, list: openList, closeList, changed: () => {

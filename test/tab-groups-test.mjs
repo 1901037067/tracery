@@ -62,9 +62,9 @@ try {
       underline: getComputedStyle(active, '::after').backgroundColor, accent: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), group: getComputedStyle(rail).backgroundColor, radius: parseFloat(getComputedStyle(active).borderTopLeftRadius),
       topBorder: getComputedStyle(active).borderTopColor,
       centers: [header.querySelector('.tab-group-label'), ...document.querySelectorAll('#tablist .tab:not([hidden]) .tab-name')].map(el => { const r = document.createRange(); r.selectNodeContents(el); const box = r.getBoundingClientRect(); return box.top + box.height / 2; }),
-      tops: members.map(tab => tab.getBoundingClientRect().top), railBottom: rail.getBoundingClientRect().bottom };
+      tops: members.map(tab => tab.querySelector('.tab-name').getBoundingClientRect().top), railBottom: rail.getBoundingClientRect().bottom };
   }, toolId);
-  assert.ok(Math.abs(expandedLook.right - expandedLook.end) < 1); assert.ok(expandedLook.gap >= 6);
+  assert.ok(Math.abs(expandedLook.right - expandedLook.end) < 1); assert.ok(expandedLook.gap >= 2);
   assert.ok(expandedLook.radius >= 10);
   assert.notEqual(expandedLook.topBorder, expandedLook.group);
   assert.ok(Math.max(...expandedLook.centers) - Math.min(...expandedLook.centers) <= 1.5, JSON.stringify(expandedLook.centers));

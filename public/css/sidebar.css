@@ -41,20 +41,31 @@
 .library-tabs { gap: 2px; }
 
 .saved-groups { padding: 12px 10px; }
-.saved-group { margin-bottom: 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); overflow: hidden; background: var(--bg-sheet); }
-.saved-group summary { display: flex; align-items: center; gap: 8px; padding: 12px 10px; cursor: pointer; list-style: none; }
+.saved-group { position: relative; margin-bottom: 12px; border: 1px solid var(--hairline); border-radius: 14px; overflow: hidden; background: var(--bg-sheet); }
+.saved-group summary { display: flex; align-items: center; gap: 7px; padding: 14px 40px 14px 12px; cursor: pointer; list-style: none; }
 .saved-group summary::before { content: '›'; color: var(--text-tertiary); transition: transform var(--dur); }
 .saved-group details[open] summary::before { transform: rotate(90deg); }
-.saved-group-name { font-size: 13px; font-weight: 600; color: var(--group-color); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.saved-group-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--group-color); flex-shrink: 0; }
-.saved-group-note { display: block; width: calc(100% - 12px); margin: 0 6px 3px; padding: 7px 10px; border-radius: 5px; text-align: left; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-group-name { font-size: 16px; font-weight: 650; color: var(--group-color); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-group-count { padding: 2px 6px; border-radius: 10px; background: var(--bg-fill); color: var(--text-secondary); font-size: 10px; font-weight: 600; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.saved-group details[open] summary { margin-bottom: 8px; border-bottom: 1px solid var(--hairline); }
+.saved-group details[open] { padding-bottom: 8px; }
+.saved-group-more { position: absolute; right: 8px; top: 11px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; color: var(--text-secondary); }
+.saved-group-more:hover, .saved-group-more[aria-expanded="true"] { background: var(--bg-fill); color: var(--text-primary); }
+.saved-group-more svg { width: 17px; height: 17px; }
+.saved-group-note { display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); margin: 0 8px 3px; padding: 8px 5px; border-radius: 6px; text-align: left; font-size: 12px; font-weight: 550; color: var(--text-primary); }
+.saved-note-dot { width: 6px; height: 6px; flex: 0 0 6px; border: 1px solid var(--text-tertiary); border-radius: 50%; }
+.saved-group-note[data-status="open"] .saved-note-dot { background: #22a96a; border-color: #22a96a; }
+.saved-group-note[data-status="missing"] .saved-note-dot { border-style: dashed; }
+.saved-note-icon { display: flex; flex: 0 0 15px; color: var(--text-secondary); }
+.saved-note-icon svg { width: 15px; height: 15px; }
+.saved-note-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .saved-group-note:hover { background: var(--bg-fill); color: var(--text-primary); }
 .saved-group-note:disabled { opacity: .5; cursor: default; }
-.saved-group-actions { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--hairline); padding: 6px 10px; font-size: 12px; }
-.saved-group-actions button { padding: 4px 0; }
+.saved-group-actions { position: fixed; z-index: 320; width: 164px; display: grid; padding: 5px; border: 1px solid var(--hairline); border-radius: 10px; background: var(--bg-sheet); box-shadow: var(--shadow-float); font-size: 12px; }
+.saved-group-actions button { padding: 9px 10px; text-align: left; border-radius: 6px; }
 .saved-group-open { color: var(--group-color); }
 .saved-group-remove { color: var(--text-tertiary); }
-.saved-group-actions button:hover { text-decoration: underline; }
+.saved-group-actions button:hover, .saved-group-actions button:focus-visible { background: var(--bg-fill); }
 .library-tabs .icon-tab { width: 30px; }
 .sidebar-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .library-header .panel-actions { gap: 1px; }
@@ -93,18 +104,18 @@
 .shortcut-list .tree-item { width: 100%; text-align: left; }
 .shortcut-list .tree-item .label { flex: 1; text-align: left; }
 #panel-search > .panel-body, #panel-tags > .panel-body { padding-top: 16px; }
-.outline-row { display: flex; align-items: center; min-width: 0; border-radius: var(--r-xs); }
-.outline-row:hover { background: var(--bg-fill); }
+.outline-row { position: relative; display: flex; align-items: center; min-width: 0; border-radius: 0; }
+.outline-row:hover { background: transparent; }
 .outline-toggle { width: 22px; min-width: 22px; align-self: stretch; color: var(--text-tertiary); font-size: 10px; }
 .outline-toggle[aria-expanded="true"] { transform: rotate(90deg); }
 .outline-toggle:disabled { visibility: hidden; }
 .outline-children { padding-left: 12px; }
 #outline-list .outline-item { flex: 1; min-width: 0; text-align: left; padding: 6px; font-weight: 400; }
 #outline-list .outline-item:hover, #outline-list .outline-toggle:hover { background: transparent; }
-.outline-row.active { background: var(--accent-soft); border-radius: var(--r-xs); }
-.outline-row.active:hover { background: color-mix(in srgb, var(--accent-soft) 55%, transparent); }
-.outline-row.active .outline-item { color: var(--accent); }
-.outline-row.active .outline-item::after { content: ''; }
+.outline-row.active { background: transparent; }
+.outline-row.active::before { content: ''; position: absolute; left: 0; top: 5px; bottom: 5px; width: 2px; border-radius: 2px; background: var(--accent); }
+#outline-list .outline-row.active .outline-item, #outline-list .outline-row:hover .outline-item, #outline-list .outline-row:focus-within .outline-item { color: var(--accent); font-weight: 700; }
+.outline-row.active .outline-toggle, .outline-row:hover .outline-toggle { color: var(--accent); }
 .relation-heading, .info-label { font-size: 11px; color: var(--text-tertiary); padding: 10px 7px 4px; }
 #backlinks-list .backlink-item { display: block; width: 100%; text-align: left; padding: 8px; }
 #backlinks-list .bl-name { font-weight: 400; color: var(--text-primary); }

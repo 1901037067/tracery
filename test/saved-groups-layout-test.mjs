@@ -45,14 +45,14 @@ try {
   await page.click('#tab-groups'); await page.click('.saved-group summary');
   assert.equal(await page.$$eval('.saved-group-note', els => els.length), 2);
   const card = await page.$eval('.saved-group', el => ({ left: getComputedStyle(el).borderLeftColor, right: getComputedStyle(el).borderRightColor,
-    count: el.querySelector('summary small'), dot: getComputedStyle(el.querySelector('.saved-group-dot')).backgroundColor, color: el.style.getPropertyValue('--group-color') }));
-  assert.equal(card.left, card.right); assert.equal(card.count, null); assert.equal(card.dot, 'rgb(0, 131, 143)');
+    count: el.querySelector('.saved-group-count').textContent, color: el.style.getPropertyValue('--group-color') }));
+  assert.equal(card.left, card.right); assert.equal(card.count, '2'); assert.equal(card.color, '#00838f');
   await page.screenshot({ path: path.join(OUT, 'saved-groups-light.png') });
   await groupMenu(id); await menu('关闭分组');
   await page.waitForFunction(() => window.__tracery.state.tabs.length === 0);
-  await page.click('.saved-group-open'); await page.waitForFunction(() => window.__tracery.state.tabs.length === 2 && window.__tracery.state.currentPath === '第一篇.md');
+  await page.click('.saved-group-more'); await page.click('.saved-group-open'); await page.waitForFunction(() => window.__tracery.state.tabs.length === 2 && window.__tracery.state.currentPath === '第一篇.md');
   let s = await snapshot(); assert.equal(s.groups[0].color, 'teal'); assert.equal(s.groups[0].name, '课堂资料');
-  await page.click('.saved-group-open'); await sleep(150); assert.equal((await snapshot()).tabs.length, 2);
+  await page.click('.saved-group-more'); await page.click('.saved-group-open'); await sleep(150); assert.equal((await snapshot()).tabs.length, 2);
   await page.click('.saved-group-note[data-path="第二篇.md"]'); await page.waitForFunction(() => window.__tracery.state.currentPath === '第二篇.md');
   await page.reload({ waitUntil: 'networkidle0' });
   assert.equal(await page.$eval('.saved-group-name', el => el.textContent), '课堂资料');
@@ -60,7 +60,7 @@ try {
   // 不偷走另一组的标签；空白页不保存进快照。
   await context('第二篇'); await menu('添加到新分组'); await page.keyboard.press('Enter');
   const otherId = (await snapshot()).groups.find(g => g.id !== id).id;
-  await groupMenu(id); await menu('关闭分组'); await page.click('.saved-group-open');
+  await groupMenu(id); await menu('关闭分组'); await page.click('.saved-group-more'); await page.click('.saved-group-open');
   await page.waitForFunction(() => window.__tracery.state.tabs.length === 2);
   s = await snapshot(); assert.ok(s.groups.find(g => g.id === otherId).tabs.includes('第二篇.md'));
   assert.ok(!s.groups.find(g => g.id === id).tabs.includes('第二篇.md'));

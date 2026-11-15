@@ -44,7 +44,7 @@ try {
   const selected = await page.$eval('#palette-input', el => el.getAttribute('aria-activedescendant')); await page.keyboard.press('ArrowDown');
   assert.notEqual(await page.$eval('#palette-input', el => el.getAttribute('aria-activedescendant')), selected);
   await set('#palette-input', '打开笔记列表'); await page.keyboard.press('Enter'); await page.waitForSelector('#note-list-view', { visible: true });
-  assert.equal(await page.$eval('#workspace-tools', el => el.closest('#sidebar') !== null), true);
+  assert.equal(await page.$eval('#btn-note-list', el => el.closest('.ribbon') !== null), true);
   assert.equal(await page.$eval('#panel-note-tags', el => !!el.querySelector('#btn-note-list, #btn-task-list')), false);
   await page.waitForFunction(() => document.querySelector('#note-list-rows').children.length === 4);
   assert.equal(await page.$$eval('#note-list-view th', els => els.some(el => el.getBoundingClientRect().height > 50)), false);
@@ -85,7 +85,7 @@ try {
     }
   }
   await page.setViewport({ width: 1440, height: 950 }); await page.click('#btn-note-list'); await page.waitForSelector('#note-list-view', { visible: true });
-  await page.setViewport({ width: 1000, height: 950 }); await waitForLayout(page); assert.equal(await page.$eval('#note-list-view .note-list-scroll', el => el.scrollWidth > el.clientWidth), true);
+  await page.setViewport({ width: 1000, height: 950 }); await waitForLayout(page); assert.equal(await page.$eval('#note-list-view .note-list-scroll', el => el.scrollWidth > el.clientWidth), false);
   await page.setViewport({ width: 390, height: 950 }); await waitForLayout(page); assert.equal(await page.$eval('#note-list-view', el => el.scrollWidth > el.clientWidth), false); await page.screenshot({ path: path.join(OUT, 'note-list-mobile-dark.png') });
   assert.deepEqual(errors, []); assert.equal(fs.readFileSync(path.join(VAULT, '表格.md'), 'utf8'), original); fs.writeFileSync(path.join(OUT, 'metrics.json'), JSON.stringify(metrics, null, 2));
   console.log('PASS palette SVG/keyboard, semantic text styles and editable table, file replacement/new-tab/save protection, group states/reload, global tool placement, two skins/light-dark/narrow layouts and paper shadows');

@@ -1,11 +1,22 @@
 import { GROUP_COLORS, isBlankTab, groupForTab, tidyTabGroups } from './tab-workspace.js';
 import { toast } from './api.js';
+import { uiIcon } from './ui-icons.js';
 
 /** 保存的是仓库内的笔记路径快照，和当前打开的标签组互相独立。 */
 export function createSavedGroups({ state, openNote, prepare, activate, changed }) {
   let groups = [], opening = false, signature = '';
   const key = () => `tracery.savedGroups:${state.vault?.root || ''}`;
   const box = document.getElementById('saved-groups');
+  let menu, menuAnchor;
+  function closeMenu(focus = false) {
+    menu?.remove(); menu = null; menuAnchor?.setAttribute('aria-expanded', 'false');
+    if (focus && menuAnchor?.isConnected) menuAnchor.focus();
+    menuAnchor = null;
+  }
+  document.addEventListener('pointerdown', event => { if (menu && !menu.contains(event.target) && !menuAnchor.contains(event.target)) closeMenu(); });
+  window.addEventListener('keydown', event => {
+    if (menu && event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closeMenu(true); }
+  }, true);
   const persist = () => { localStorage.setItem(key(), JSON.stringify(groups)); render(); };
   const button = (text, className, click) => {
     const el = document.createElement('button'); el.textContent = text; el.className = className; el.onclick = click; return el;
@@ -55,9 +66,10 @@ export function createSavedGroups({ state, openNote, prepare, activate, changed 
   function render() {
     if (!box) return;
     // 打开笔记会刷新文件树和最近记录；内容未变时保留按钮与键盘焦点。
-    const next = JSON.stringify([state.vault?.root, groups, groups.flatMap(g => g.tabs.map(p => state.files.has(p)))]);
+    const next = JSON.stringify([state.vault?.root, groups, groups.flatMap(g => g.tabs.map(p => [state.files.has(p), state.tabs.includes(p)]))]);
     if (next === signature) return;
     signature = next;
+    closeMenu();
     const expanded = new Set([...box.querySelectorAll('details[open]')].map(el => el.dataset.id));
     box.replaceChildren();
     for (const group of groups) {
@@ -66,18 +78,37 @@ export function createSavedGroups({ state, openNote, prepare, activate, changed 
       const detail = document.createElement('details'); detail.dataset.id = group.id; detail.open = expanded.has(group.id);
       const summary = document.createElement('summary'); summary.title = group.name;
       const name = document.createElement('span'); name.className = 'saved-group-name'; name.textContent = group.name;
-      const dot = document.createElement('span'); dot.className = 'saved-group-dot'; dot.setAttribute('aria-hidden', 'true');
-      summary.setAttribute('aria-label', `${group.name}，${group.tabs.length} 篇笔记`); summary.append(name, dot); detail.append(summary);
+      const count = document.createElement('span'); count.className = 'saved-group-count'; count.textContent = group.tabs.length; count.title = `${group.tabs.length} 个标签页`;
+      summary.setAttribute('aria-label', `${group.name}，${group.tabs.length} 个标签页`); summary.append(name, count); detail.append(summary);
       for (const path of group.tabs) {
         const exists = state.files.has(path);
-        const item = button(path.split('/').pop().replace(/\.(md|markdown|txt)$/i, '') + (exists ? '' : '（已不存在）'), 'saved-group-note', () => openNote(path));
-        item.title = path; item.dataset.path = path; item.disabled = !exists; detail.append(item);
+        const opened = state.tabs.includes(path), status = !exists ? '已不存在' : opened ? '已打开' : '未打开';
+        const item = button('', 'saved-group-note', () => openNote(path));
+        const dot = document.createElement('span'); dot.className = 'saved-note-dot'; dot.setAttribute('aria-hidden', 'true');
+        const icon = document.createElement('span'); icon.className = 'saved-note-icon'; icon.innerHTML = uiIcon('note');
+        const title = document.createElement('span'); title.className = 'saved-note-title'; title.textContent = path.split('/').pop().replace(/\.(md|markdown|txt)$/i, '');
+        item.dataset.status = !exists ? 'missing' : opened ? 'open' : 'closed'; item.setAttribute('aria-label', `${title.textContent}，${status}`);
+        item.append(dot, icon, title); item.title = `${path}\n${status}`; item.dataset.path = path; item.disabled = !exists; detail.append(item);
       }
       const actions = document.createElement('div'); actions.className = 'saved-group-actions';
       actions.append(button('全部打开', 'saved-group-open', () => openAll(group)));
       const remove = button('移除', 'saved-group-remove', () => { groups = groups.filter(g => g !== group); persist(); });
       remove.title = '移除保存的分组，笔记和已打开的标签不受影响'; actions.append(remove);
-      card.append(detail, actions); box.append(card);
+      const more = button('', 'saved-group-more', () => {
+        if (menuAnchor === more) { closeMenu(true); return; }
+        closeMenu(); menuAnchor = more; menu = actions; document.body.append(actions); actions.setAttribute('role', 'menu');
+        const rect = more.getBoundingClientRect();
+        actions.style.left = `${Math.max(8, Math.min(innerWidth - 176, rect.right - 164))}px`;
+        actions.style.top = `${Math.max(8, Math.min(innerHeight - 100, rect.bottom + 6))}px`;
+        more.setAttribute('aria-expanded', 'true'); actions.querySelector('button').focus();
+      });
+      more.innerHTML = uiIcon('more'); more.title = '分组操作'; more.setAttribute('aria-label', `${group.name}的操作`); more.setAttribute('aria-haspopup', 'menu'); more.setAttribute('aria-expanded', 'false');
+      for (const action of actions.querySelectorAll('button')) { action.setAttribute('role', 'menuitem'); const run = action.onclick; action.onclick = event => { closeMenu(); run(event); }; }
+      actions.addEventListener('keydown', event => {
+        const items = [...actions.querySelectorAll('button')], index = items.indexOf(document.activeElement);
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) { event.preventDefault(); items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus(); }
+      });
+      card.append(detail, more); box.append(card);
     }
     if (!groups.length) { const empty = document.createElement('p'); empty.className = 'panel-empty'; empty.textContent = '右键顶部的分组名称，选择「保存分组」。名称、颜色和笔记会一起保存到此设备。'; box.append(empty); }
   }

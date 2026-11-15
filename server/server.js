@@ -331,6 +331,23 @@ async function processRequest(req, res) {
       broadcast({ type: 'settings', settings });
       return sendJson(res, 200, { ok: true, settings });
     }
+    if (p === '/api/vault/create' && req.method === 'POST') {
+      if (!isLocalClient(req)) return sendJson(res, 403, { error: '请在电脑本机创建仓库' });
+      const { name, parent } = await readBody(req);
+      if (typeof name !== 'string' || !name.trim() || name !== name.trim() || name.length > 120 || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name) || /^(?:\.{1,2}|con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) {
+        return sendJson(res, 400, { error: '请填写有效的仓库名称，不能包含路径分隔符、特殊字符或系统保留名称' });
+      }
+      if (typeof parent !== 'string' || !path.isAbsolute(parent) || !fs.existsSync(parent) || !fs.statSync(parent).isDirectory()) {
+        return sendJson(res, 400, { error: '请选择已存在的存放目录，或填写绝对路径' });
+      }
+      const destination = path.join(path.resolve(parent), name);
+      try { await fsp.mkdir(destination); }
+      catch (error) {
+        if (error.code === 'EEXIST') return sendJson(res, 409, { error: '此位置已有同名文件或文件夹，请修改仓库名称' });
+        throw error;
+      }
+      return sendJson(res, 201, { ok: true, path: destination });
+    }
     if (p === '/api/vault/open' && req.method === 'POST') {
       if (!isLocalClient(req)) return sendJson(res, 403, { error: '请在电脑本机切换仓库；手机仅访问当前仓库' });
       const { path: vaultPath } = await readBody(req);

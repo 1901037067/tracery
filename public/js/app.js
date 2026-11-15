@@ -46,6 +46,7 @@ import { createStudyUI } from './study-tools-ui.js';
 import { enterModal, leaveModal } from './modal-focus.js';
 import { initNavigationPeek } from './navigation-peek.js';
 import { THEMES, themeLabel } from './themes.js';
+import { createVaultUI } from './vault-create-ui.js';
 
 initTooltips();
 configurePdfViewer({ open: (path, page) => openPdfAt(path, page), close: () => closeTab(state.activeTab), root: () => state.vault?.root, readOnly: () => editor.accessReadOnly, cite: () => studyTools.cite() });
@@ -189,6 +190,7 @@ async function boot() {
 }
 
 /* ================= 欢迎页 / 仓库管理 ================= */
+const vaultCreateUI = createVaultUI({ prepare: async () => suspendDraw() && await editor.flush(), open: openVault });
 function showWelcome(recents) {
   $('welcome').hidden = false;
   // 已有仓库时是「浮层」：应用留在背后，随时可以关掉返回
@@ -200,12 +202,17 @@ function showWelcome(recents) {
     ? '按 <code>Esc</code> 或点右上角关闭，返回当前仓库'
     : '提示：首次启动会自动打开内置 <code>demo-vault</code> 演示仓库';
   renderRecentVaults(recents || []);
+  $('recent-vaults').classList.remove('is-managing');
+  $('btn-manage-vaults').textContent = '管理';
+  $('btn-manage-vaults').setAttribute('aria-pressed', 'false');
+  enterModal($('welcome'), $('btn-browse-vault'));
 }
 
 /** 关闭仓库选择浮层（仅在已有仓库时可关） */
 function closeWelcome() {
   if (!state.vault) return;
   $('welcome').hidden = true;
+  leaveModal($('welcome'));
 }
 
 /** 打开仓库选择浮层（标题栏仓库名 / 文件夹按钮 / 命令面板） */
@@ -232,7 +239,10 @@ function renderRecentVaults(recents) {
     open.title = `打开 ${v}`;
     const name = document.createElement('span');
     name.className = 'recent-name';
-    name.textContent = v.replace(/\\/g, '/').split('/').filter(Boolean).slice(-1)[0] || v;
+    const folder = document.createElement('span'); folder.className = 'recent-folder'; folder.innerHTML = uiIcon('folder');
+    const title = document.createElement('span'); title.className = 'recent-title';
+    title.textContent = v.replace(/\\/g, '/').split('/').filter(Boolean).slice(-1)[0] || v;
+    name.append(folder, title);
     if (isCurrent) {
       const badge = document.createElement('span');
       badge.className = 'recent-badge';
@@ -248,6 +258,7 @@ function renderRecentVaults(recents) {
     const rm = document.createElement('button');
     rm.className = 'recent-remove';
     rm.title = '从列表移除（不会删除磁盘文件）';
+    rm.setAttribute('aria-label', `从最近列表移除 ${title.textContent}`);
     rm.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="width:12px;height:12px"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
     rm.onclick = async (e) => {
       e.stopPropagation();
@@ -263,10 +274,15 @@ function renderRecentVaults(recents) {
 }
 
 async function browseVault() {
-  const picked = await window.electronAPI?.pickVault?.();
-  if (!picked) return;
-  $('vault-path').value = picked;
-  openVault(picked);
+  if (!window.electronAPI?.pickVault) {
+    $('vault-manual').hidden = false; $('vault-path').focus(); return;
+  }
+  try {
+    const picked = await window.electronAPI.pickVault();
+    if (!picked) return;
+    $('vault-path').value = picked;
+    await openVault(picked);
+  } catch (error) { toast(error.message); }
 }
 
 async function openVault(path) {
@@ -276,6 +292,7 @@ async function openVault(path) {
     if (!await editor.flush()) { toast('笔记尚未保存，请保存后再切换仓库'); return; }
     const res = await Api.openVault(path);
     $('welcome').hidden = true;
+    leaveModal($('welcome'));
     $('app').hidden = false;
     await enterApp(res.vault);
     toast(`已打开仓库：${res.vault.name}`);
@@ -1552,6 +1569,7 @@ function toggleTabGroup(group) {
 }
 
 function renderTabs() {
+  savedGroups.render();
   cancelTabMotion();
   tidyTabGroups(state);
   updateEmptyNote();
@@ -2145,7 +2163,7 @@ let graphReturnPanel = 'files';
 let graphFitTimers = [];
 function switchPanel(name, { mobileOpen = true, pane = 'library', preview = false } = {}) {
   preview ||= document.body.classList.contains('navigation-peek') && !getSettings().layout.navigationVisible && ['files', 'search', 'tags'].includes(name);
-  if (!preview) { navigationPeek?.close(); if (!suspendDraw()) return; }
+  if (!preview) { navigationPeek?.close(); if (!suspendDraw()) return; noteTools.closeList(); studyTools.closeTasks(); }
   if (isCompact()) {
     if (name === 'graph') closeMobilePanels();
     else if (mobileOpen && !document.body.classList.contains('mobile-left-open')) toggleMobilePanel('left');
@@ -2479,7 +2497,7 @@ $('editor-live').contentEditable = 'false';
 window.__editor = editor;
 
 const noteTools = createNoteTools({
-  showList: () => { studyTools.closeTasks(); if (isCompact()) closeMobilePanels(); },
+  showList: () => { if (!suspendDraw()) return false; studyTools.closeTasks(); navigationPeek?.close(); toggleGraphFocus(false); if (isCompact()) closeMobilePanels(); return true; },
   context: () => {
     const selection = editor.view.state.selection.main, current = editor.path === state.currentPath;
     return { root: state.vault?.root, path: state.currentPath, content: current ? editor.getContent() : '', generation: editor._generation,
@@ -2516,7 +2534,7 @@ const studyTools = createStudyUI({
   notes: () => [...state.files.keys()].filter(path => /\.(md|markdown)$/i.test(path)),
   flush: () => editor.flush(),
   refresh: () => refreshTree(),
-  showTasks: () => { noteTools.closeList(); if (isCompact()) closeMobilePanels(); },
+  showTasks: () => { if (!suspendDraw()) return false; noteTools.closeList(); navigationPeek?.close(); toggleGraphFocus(false); if (isCompact()) closeMobilePanels(); return true; },
   open: async (path, line) => { const root = state.vault?.root; const result = await openNote(path, null, { newTab: true }); if (result !== false && root === state.vault?.root && state.currentPath === path && line) editor.scrollToLine(line); },
 });
 
@@ -2568,7 +2586,8 @@ async function openDrawPanel() {
   if (!state.currentPath || PDF_FILE_RE.test(state.currentPath)) { toast('先打开一篇笔记，绘图会插入到光标处'); return; }
   // 阅读模式是只读的，插不进去：先切回实时预览，避免「画完点了插入却什么也没发生」
   if (editor.isRead) editor.setMode('live');
-  await editor.flush();
+  if (!await editor.flush()) return;
+  noteTools.closeList(); studyTools.closeTasks();
   if (isCompact()) closeMobilePanels();
   openDraw(drawingOptions());
 }
@@ -2716,6 +2735,13 @@ function bindGlobalEvents() {
   };
   $('vault-path').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-open-vault').click(); });
   $('btn-browse-vault').onclick = () => browseVault();
+  for (const icon of document.querySelectorAll('[data-vault-icon]')) icon.innerHTML = uiIcon(icon.dataset.vaultIcon);
+  $('btn-create-vault').onclick = () => vaultCreateUI.open();
+  $('btn-manage-vaults').onclick = () => {
+    const managing = $('recent-vaults').classList.toggle('is-managing');
+    $('btn-manage-vaults').textContent = managing ? '完成' : '管理';
+    $('btn-manage-vaults').setAttribute('aria-pressed', String(managing));
+  };
   $('btn-welcome-close').onclick = () => closeWelcome();
   $('welcome').addEventListener('click', (e) => {
     // 点遮罩空白处退出（有仓库时）
@@ -2982,6 +3008,7 @@ function onWsMessage(msg) {
         $('vault-name').title = `${s.vault.root}\n点击切换 / 管理仓库`;
         document.title = `${s.vault.name} — Tracery`;
         $('welcome').hidden = true;
+        leaveModal($('welcome'));
         $('app').hidden = false;
       }
       // 先等树刷新再恢复标签：loadTabsState 靠 hasNotePath 过滤，
@@ -3000,6 +3027,7 @@ function onWsMessage(msg) {
 }
 
 function toggleSidebar(side) {
+  noteTools.closeList(); studyTools.closeTasks();
   if (isCompact()) {
     if (side === 'left' && document.body.classList.contains('graph-focus')) toggleGraphFocus(false);
     toggleMobilePanel(side);

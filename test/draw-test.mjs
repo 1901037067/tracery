@@ -348,7 +348,8 @@ async function main() {
   check('多开画板：草稿箱能同时存两份',
     drafts2.length === 2 && drafts2.includes('端到端草稿甲') && drafts2.includes('端到端草稿乙'), JSON.stringify(drafts2));
 
-  await page.evaluate(() => document.getElementById('draw-cancel').click());
+  await page.focus('.draw-tools-handle'); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.querySelector('.draw-overlay').hidden);
   await sleep(400);
   check('关闭绘图后草稿仍在（本地暂存不随浮层清空）',
     (await page.evaluate(() => JSON.parse(localStorage.getItem('tracery.drawDrafts') || '[]').length)) === 2);
@@ -368,7 +369,7 @@ async function main() {
   }));
   check('已插入区可发现既有绘图并显示缩略图', insertedRow.count === 1 && insertedRow.path === embed?.[1] && insertedRow.imageLoaded, JSON.stringify(insertedRow));
   await page.click('#draw-drafts .dd-open');
-  await sleep(400);
+  await page.waitForFunction(() => document.querySelector('#draw-save').textContent === '更新绘图');
   check('图片库可重开既有场景并更新原图', (await counts()).n === 4 && await page.$eval('#draw-save', (el) => el.textContent === '更新绘图'));
   check('图片库重开保留网格线背景', await page.$eval('#draw-canvas', e => e.dataset.background === 'lines'));
   const originalImage = fs.readFileSync(imgPath);
@@ -428,15 +429,10 @@ async function main() {
   }));
   // 缩放视口后 Puppeteer 的 scrollIntoView/IntersectionObserver 偶发不返回。
   // 此按钮本就在固定头栏：核对实际命中元素，再直接用鼠标坐标点击，不能用合成 click 绕过遮挡。
-  const cancel = await page.$eval('#draw-cancel', button => {
-    const r = button.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
-    return { x, y, hit: !!document.elementFromPoint(x, y)?.closest('#draw-cancel') };
-  });
-  check('窄屏取消按钮可见且未被遮挡', cancel.hit);
-  if (!cancel.hit) throw new Error('窄屏取消按钮不可点击');
-  await page.mouse.click(cancel.x, cancel.y);
+  check('右上角取消已移除，主导航仍可退出绘图', await page.$('#draw-cancel') === null);
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
   await page.waitForFunction(() => document.querySelector('.draw-overlay').hidden);
-  check('窄屏真实鼠标点击取消后画板关闭', true);
+  check('窄屏可通过 Esc 退出画板', true);
 
   check('无渲染错误', errors.length === 0, errors.join(' | '));
 

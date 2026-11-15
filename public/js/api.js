@@ -31,6 +31,7 @@ export const Api = {
   phoneStop: () => api('/api/access/stop', {method:'POST',body:{}}),
   phoneRevoke: () => api('/api/access/revoke', {method:'POST',body:{}}),
   openVault: (path) => api('/api/vault/open', { method: 'POST', body: { path } }),
+  createVault: (name, parent) => api('/api/vault/create', { method: 'POST', body: { name, parent } }),
   forgetVault: (path) => api('/api/vault/forget', { method: 'POST', body: { path } }),
   tree: () => api('/api/tree'),
   drawings: () => api('/api/drawings'),

@@ -3,7 +3,7 @@ export function initNavigationPeek({ layout, compact, select }) {
   const sidebar = document.getElementById('sidebar'), buttons = [...document.querySelectorAll('.ribbon-btn[data-panel]')]
     .filter(button => ['files', 'search', 'tags'].includes(button.dataset.panel));
   let openTimer, closeTimer, active = false;
-  const eligible = () => !compact() && !layout().navigationVisible && layout().ribbonVisible !== false && !document.body.classList.contains('graph-focus');
+  const eligible = () => !compact() && !document.body.dataset.workspaceView && !layout().navigationVisible && layout().ribbonVisible !== false && !document.body.classList.contains('graph-focus');
   const inside = target => target instanceof Element && (sidebar.contains(target) || buttons.some(button => button.contains(target)) || !!target.closest('.context-menu, .select-popover'));
   function close() {
     clearTimeout(openTimer); clearTimeout(closeTimer); openTimer = closeTimer = null;

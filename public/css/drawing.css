@@ -1,28 +1,39 @@
 /* 画板在应用工作区中展开，保留主导航；所有工具悬浮在同一块画布上。 */
-.draw-overlay { --draw-gap: 8px; inset: auto var(--draw-gap) var(--draw-gap) auto; height: calc(var(--app-height, 100dvh) - var(--draw-top, 46px) - var(--draw-gap)); z-index: 80; background: var(--bg-sheet); overflow: hidden; padding: 0; border: 1px solid var(--hairline); border-radius: 18px; box-shadow: -3px -3px 14px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.08); }
+.draw-overlay { --draw-gap: 14px; --draw-float-shadow: 0 3px 8px rgb(0 0 0 / 3%), 0 8px 24px color-mix(in srgb, var(--accent) 9%, transparent); inset: auto var(--draw-gap) var(--draw-gap) auto; height: calc(var(--app-height, 100dvh) - var(--draw-top, 46px) - var(--draw-gap)); z-index: 80; background: var(--bg-sheet); overflow: hidden; padding: 0; border: 1px solid var(--hairline); border-radius: 22px; box-shadow: 0 0 30px color-mix(in srgb, var(--accent) 10%, transparent), 0 8px 24px rgb(0 0 0 / 6%); }
 .draw-workspace, .draw-center, .draw-stage { position: absolute; inset: 0; display: block; margin: 0; border: 0; border-radius: 0; }
 .draw-stage { background: var(--bg-sheet); }
-.draw-top { position: absolute; inset: 12px 54px auto auto; z-index: 12; padding: 0; height: 46px; min-height: 0; border: 0; background: none; backdrop-filter: none; gap: 0; pointer-events: none; }
+.draw-top { position: absolute; inset: 18px 80px auto auto; z-index: 12; padding: 0; height: 50px; min-height: 0; border: 0; background: none; backdrop-filter: none; gap: 0; pointer-events: none; }
 .draw-brand { display: none; }
-.draw-actions { padding: 4px; height: 46px; gap: 3px; }
-.draw-actions, .draw-tools, .draw-mobile-switches, .draw-toggle-ui, .draw-zoom, .draw-workspace > .draw-props, .draw-workspace > .draw-drafts {
-  background: var(--bg-sheet); border: 1px solid var(--hairline); border-radius: 13px; box-shadow: 0 3px 14px rgba(0,0,0,.09); pointer-events: auto;
+.draw-actions { padding: 4px; height: 50px; gap: 4px; }
+.draw-actions, .draw-tools, .draw-toggle-ui, .draw-zoom, .draw-workspace > .draw-props, .draw-workspace > .draw-drafts {
+  background: color-mix(in srgb, var(--bg-sheet) 97%, var(--accent-soft)); border: 1px solid var(--hairline); border-radius: 15px; box-shadow: var(--draw-float-shadow); pointer-events: auto;
 }
-.draw-actions .btn-primary, .draw-actions .btn-ghost { padding: 5px 10px; min-height: 28px; font-size: 12px; }
-.draw-mobile-switches { position: absolute; z-index: 12; left: 12px; top: 12px; display: flex; height: 46px; padding: 3px; gap: 2px; }
-.draw-mobile-switches button { padding: 0 10px; color: var(--text-secondary); font-size: 12px; min-height: 30px; border-radius: 9px; }
+.draw-actions .btn-primary, .draw-actions .btn-ghost { padding: 8px 12px; min-height: 40px; font-size: 14px; font-weight: 600; border-radius: 11px; }
+.draw-actions .btn-ghost { color: var(--text-primary); }
+.draw-actions #draw-stash { background: transparent; }
+.draw-actions #draw-stash:hover { background: var(--bg-fill); }
+.draw-actions .btn-primary { box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 24%, transparent); }
+.draw-mobile-switches { position: absolute; z-index: 12; left: 20px; top: 18px; display: flex; justify-content: flex-start; height: 50px; padding: 0; gap: 12px; border: 0; background: none; box-shadow: none; }
+.draw-mobile-switches button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; color: var(--text-primary); background: var(--bg-sheet); border: 1px solid var(--hairline); box-shadow: var(--draw-float-shadow); font-size: 14px; font-weight: 600; min-height: 44px; border-radius: 15px; }
+.draw-mobile-switches svg { width: 21px; height: 21px; flex-shrink: 0; }
 .draw-mobile-switches button:hover, .draw-mobile-switches button[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
-.draw-tools { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 13; width: max-content; max-width: calc(100% - 24px); padding: 4px 8px; gap: 4px; flex-wrap: wrap; overflow: visible; }
-.draw-tools-handle { flex: 0 0 20px; height: 36px; padding: 0; border-radius: 7px; color: var(--text-tertiary); cursor: grab; touch-action: none; user-select: none; }
+.draw-tools { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); z-index: 13; width: max-content; max-width: calc(100% - 24px); padding: 4px 8px; gap: 4px; flex-wrap: wrap; overflow: visible; }
+.draw-tools-handle { flex: 0 0 20px; height: 42px; padding: 0; border-radius: 9px; font-size: 20px; color: var(--text-tertiary); cursor: grab; touch-action: none; user-select: none; }
 .draw-tools-handle:hover { background: var(--bg-fill); color: var(--text-primary); }
 .draw-tools-handle:active, .draw-tools.dragging { cursor: grabbing; }
 .draw-tools.dragging { user-select: none; }
-.draw-tool-sep { flex-shrink: 0; }
-.draw-tool { width: 36px; height: 36px; }
+.draw-tool-sep { flex-shrink: 0; height: 26px; }
+.draw-tool { width: 42px; height: 42px; border-radius: 11px; }
+.draw-tool svg { width: 22px; height: 22px; }
 .draw-tool.active { background: var(--accent-soft); color: var(--accent); }
-.draw-zoom { position: absolute; z-index: 10; bottom: 12px; left: 12px; margin: 0; padding: 4px; }
-.draw-toggle-ui { position: absolute; z-index: 15; top: 12px; right: 12px; width: 34px; height: 46px; font-size: 20px; color: var(--text-secondary); }
-.draw-hint { position: absolute; right: 12px; bottom: 12px; z-index: 5; max-width: calc(100% - 160px); padding: 6px 10px; background: color-mix(in srgb, var(--bg-sheet) 85%, transparent); border-radius: 8px; }
+.draw-zoom { position: absolute; z-index: 10; bottom: 20px; left: 20px; margin: 0; padding: 4px; border-radius: 18px; }
+.draw-zoom button { min-width: 32px; height: 34px; padding: 0 8px; font-size: 18px; color: var(--text-primary); border-radius: 12px; }
+.draw-zoom .draw-zoom-val { min-width: 58px; font-size: 14px; font-weight: 600; }
+.draw-toggle-ui { position: absolute; display: grid; place-items: center; z-index: 15; top: 18px; right: 20px; width: 46px; height: 50px; padding: 12px; color: var(--text-primary); }
+.draw-toggle-ui svg { width: 20px; height: 20px; }
+.draw-toggle-ui[aria-expanded="true"] svg { transform: rotate(180deg); }
+.draw-hint { position: absolute; display: flex; align-items: center; gap: 10px; right: 20px; bottom: 20px; z-index: 5; max-width: calc(100% - 200px); padding: 10px 14px; color: var(--text-secondary); font-size: 12px; line-height: 1.6; background: color-mix(in srgb, var(--bg-sheet) 86%, var(--accent-soft)); border-radius: 14px; pointer-events: none; }
+.draw-hint svg { width: 19px; height: 19px; flex-shrink: 0; color: var(--accent); }
 .draw-overlay .draw-workspace > .draw-drafts, .draw-overlay .draw-workspace > .draw-props { display: none; position: absolute; inset: var(--draw-panels-top, 120px) auto auto 12px; width: 234px; max-width: calc(100% - 24px); max-height: calc(100% - var(--draw-panels-top, 120px) - 58px); z-index: 11; }
 .draw-show-library .draw-workspace > .draw-drafts { display: flex; }
 .draw-show-props .draw-workspace > .draw-props { display: block; padding: 16px; }
@@ -49,12 +60,77 @@
 .draw-side-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .draw-panel-backdrop { display: none; }
 .draw-ui-hidden .draw-top, .draw-ui-hidden .draw-tools, .draw-ui-hidden .draw-mobile-switches, .draw-ui-hidden .draw-hint, .draw-overlay.draw-ui-hidden .draw-workspace > aside { display: none; }
+@media (min-width:1600px) {
+  .draw-top, .draw-actions, .draw-mobile-switches { height: 58px; }
+  .draw-mobile-switches button { padding-inline: 18px; font-size: 16px; gap: 10px; }
+  .draw-mobile-switches svg { width: 24px; height: 24px; }
+  .draw-actions .btn-primary, .draw-actions .btn-ghost { min-height: 46px; padding: 10px 16px; font-size: 16px; }
+  .draw-tools { gap: 6px; padding: 4px 10px; }
+  .draw-tool { width: 50px; height: 50px; border-radius: 13px; }
+  .draw-tool svg { width: 25px; height: 25px; }
+  .draw-tools-handle { height: 50px; font-size: 23px; }
+  .draw-toggle-ui { width: 48px; height: 58px; }
+  .draw-zoom button { height: 38px; min-width: 36px; }
+  .draw-zoom .draw-zoom-val { min-width: 60px; font-size: 16px; }
+  .draw-hint { font-size: 14px; padding: 11px 15px; }
+}
 @media(max-width:600px) {
   .draw-overlay { --draw-gap: 4px; border-radius: 14px; }
-  .draw-top { top: 66px; left: 12px; right: auto; }
+  .draw-mobile-switches { top: 12px; left: 12px; height: 44px; gap: 8px; }
+  .draw-mobile-switches button { padding: 0 10px; font-size: 12px; gap: 6px; border-radius: 12px; }
+  .draw-mobile-switches svg { width: 18px; height: 18px; }
+  .draw-top { top: 66px; left: 12px; right: auto; height: 44px; }
+  .draw-actions { height: 44px; }
+  .draw-actions .btn-primary, .draw-actions .btn-ghost { min-height: 34px; font-size: 12px; padding: 6px 10px; }
+  .draw-toggle-ui { top: 12px; right: 12px; width: 38px; height: 44px; padding: 10px; border-radius: 12px; }
   .draw-tools { top: 120px; }
   .draw-overlay .draw-workspace > .draw-drafts, .draw-overlay .draw-workspace > .draw-props { top: var(--draw-panels-top, 196px); max-height: calc(100% - var(--draw-panels-top, 196px) - 56px); }
   .draw-hint { display: none; }
   .draw-tool { width: 38px; height: 40px; }
-  .draw-zoom button { height: 30px; }
+  .draw-zoom { bottom: 12px; left: 12px; }
+  .draw-zoom button { height: 32px; }
 }
+
+/* The board covers the workspace; only the title tabs and main navigation stay outside it. */
+.draw-overlay { --draw-gap: 0px; border-radius: 0; box-shadow: none; }
+.draw-overlay .draw-mobile-switches { --draw-label-size: 14px; padding: 4px; gap: 0; background: var(--bg-sheet); border: 1px solid var(--hairline); border-radius: 15px; box-shadow: var(--draw-float-shadow); isolation: isolate; }
+.draw-overlay .draw-mobile-switches button { position: relative; z-index: 1; height: 100%; min-height: 0; padding: 0 13px; border: 0; background: transparent; border-radius: 11px; box-shadow: none; font-size: var(--draw-label-size); transition: color 160ms; }
+.draw-overlay .draw-mobile-switches button:hover { color: var(--accent); background: transparent; }
+.draw-overlay .draw-mobile-switches button[aria-expanded="true"] { color: var(--accent); background: transparent; }
+.draw-panel-indicator { position: absolute; top: 4px; bottom: 4px; left: 0; width: var(--panel-width, 0px); transform: translateX(var(--panel-x, 0px)); background: var(--accent-soft); border-radius: 11px; opacity: 0; transition: transform 220ms var(--ease), width 220ms var(--ease), opacity 140ms; pointer-events: none; }
+.draw-mobile-switches[data-panel] .draw-panel-indicator { opacity: 1; }
+.draw-overlay .draw-workspace > .draw-props { width: 292px; padding: 0; overflow: hidden; }
+.draw-overlay.draw-show-props .draw-workspace > .draw-props { display: flex; flex-direction: column; }
+.draw-props .draw-side-title { flex-shrink: 0; margin: 0; padding: 16px 18px; border-bottom: 1px solid var(--hairline); align-items: flex-start; }
+.draw-side-title strong { display: block; color: var(--text-primary); font-size: 14px; font-weight: 650; }
+.draw-side-title small { display: block; margin-top: 4px; color: var(--text-tertiary); font-size: 11px; font-weight: 400; }
+.draw-side-title #draw-close-props { display: grid; place-items: center; padding: 4px; }
+#draw-close-props svg { width: 16px; height: 16px; }
+.draw-props-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px; }
+.draw-props-body .dp-label { display: flex; align-items: center; justify-content: space-between; margin: 0 0 10px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.draw-props-body .draw-board-background { margin: 0 0 20px; padding: 0 0 18px; border-bottom: 1px solid var(--hairline); }
+.draw-props-body .draw-board-background .dp-row, .draw-props-body .dp-group > .dp-row:not(.draw-color-presets) { display: flex; gap: 3px; padding: 3px; border-radius: 10px; background: var(--bg-fill); }
+.draw-props-body .draw-board-background button, .draw-props-body :is(.draw-fill, .draw-size, .draw-dash) { flex: 1; height: 30px; min-height: 30px; padding: 4px; border-radius: 7px; font-size: 11px; color: var(--text-secondary); }
+.draw-props-body .draw-board-background button[aria-pressed="true"], .draw-props-body :is(.draw-fill, .draw-size, .draw-dash).active { background: var(--bg-sheet); color: var(--accent); box-shadow: 0 1px 4px rgb(0 0 0 / 6%); }
+.draw-props-body .dp-group, .draw-props-body .draw-element-style .dp-group + .dp-group { padding: 0; border: 0; margin: 0 0 18px; }
+.draw-props-body .dp-group:last-child { margin-bottom: 0; }
+.draw-color-value { font: 10px var(--font-mono); font-weight: 400; color: var(--text-tertiary); }
+.draw-props-body .draw-color-presets { display: flex; align-items: center; gap: 7px; flex-wrap: nowrap; }
+.draw-props-body .draw-color-presets :is(.draw-swatch, .draw-bg) { width: 21px; height: 21px; flex: 0 0 21px; border-radius: 50%; border: 1px solid rgb(0 0 0 / 12%); }
+.draw-props-body .draw-color-presets :is(.draw-swatch, .draw-bg).active { box-shadow: 0 0 0 2px var(--bg-sheet), 0 0 0 3.5px var(--accent); }
+.draw-props-body .draw-custom-color { gap: 0; margin-top: 12px; padding: 3px; border: 1px solid var(--hairline); border-radius: 9px; background: var(--bg-sheet); }
+.draw-props-body .draw-color-picker { width: 30px; flex-basis: 30px; height: 28px; padding: 3px; border: 0; border-radius: 6px; }
+.draw-props-body .draw-color-hex { width: 0; height: 28px; min-height: 28px; padding: 4px 8px; border: 0; border-radius: 0; background: transparent; font-size: 11px; }
+.draw-props-body .draw-color-apply { display: grid; place-items: center; width: 28px; height: 28px; padding: 6px; background: transparent; border-radius: 6px; color: var(--text-secondary); }
+.draw-props-body .draw-color-apply:hover { color: var(--accent); background: var(--accent-soft); }
+.draw-color-apply svg { width: 16px; height: 16px; }
+.draw-props-body .draw-color-recent { gap: 6px; margin-top: 10px; }
+.draw-props-body .draw-recent-swatch { width: 14px; height: 14px; flex-basis: 14px; border-radius: 50%; }
+.draw-props-body .draw-color-recent > span { font-size: 10px; margin-right: 3px; }
+.draw-props-body .draw-size span { border-radius: 2px; }
+.draw-show-props .draw-workspace > .draw-props, .draw-show-library .draw-workspace > .draw-drafts { animation: draw-panel-in 180ms var(--ease); }
+@keyframes draw-panel-in { from { opacity: 0; } to { opacity: 1; } }
+@media (min-width: 1600px) { .draw-overlay .draw-mobile-switches { --draw-label-size: 16px; } .draw-overlay .draw-mobile-switches button { padding-inline: 15px; } }
+@media (max-width: 600px) { .draw-overlay { --draw-gap: 0px; border-radius: 0; } .draw-overlay .draw-mobile-switches { --draw-label-size: 12px; } .draw-overlay .draw-mobile-switches button { padding-inline: 9px; } .draw-overlay .draw-workspace > .draw-props { max-height: calc(100% - var(--draw-panels-top, 196px) - 16px); } }
+@media (prefers-reduced-motion: reduce) { .draw-panel-indicator { transition: none; } .draw-show-props .draw-workspace > .draw-props, .draw-show-library .draw-workspace > .draw-drafts { animation: none; } }
+.draw-overlay.draw-ui-hidden .draw-workspace > .draw-props, .draw-overlay.draw-ui-hidden .draw-workspace > .draw-drafts { display: none; }

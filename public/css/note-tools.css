@@ -37,7 +37,7 @@
 .note-tool-dialog .btn-primary { background: var(--text-primary); color: var(--bg-sheet); box-shadow: none; }
 .note-tool-dialog button:disabled, .note-list-sheet button:disabled { opacity: .5; cursor: default; }
 .note-tool-footer { flex-shrink: 0; padding: 12px 24px; border-top: 1px solid var(--hairline); }
-.note-tool-footer:has(#note-tools-message:empty) { padding: 0; border: 0; }
+.note-tool-footer:has(#note-tools-message:empty):not(:has(.properties-actions)) { padding: 0; border: 0; }
 #note-tools-message:empty { min-height: 0; }
 #note-tools-message { font-size: 12.5px; line-height: 1.6; min-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); }
 .property-tags { grid-column: 1 / -1; }
@@ -57,7 +57,6 @@
 .task-label input { margin-top: 4px; flex: 0 0 auto; accent-color: var(--accent); }
 .task-label span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 .task-sheet td:nth-child(2) { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.citation-overlay .note-tool-footer:has(#citation-message:empty) { padding: 0; border: 0; }
 .citation-recheck { margin: -6px 0 16px; }
 #citation-message { min-height: 20px; font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; color: var(--text-secondary); }
 #citation-message:empty { min-height: 0; }

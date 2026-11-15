@@ -10,7 +10,7 @@
 .tablist .tab:hover { background: var(--bg-fill); color: var(--text-primary); }
 .tablist .tab.active { background: var(--bg-sheet); color: var(--text-primary); border-color: var(--hairline); border-radius: var(--chrome-tab-radius); box-shadow: 0 1px 4px rgba(0,0,0,.07); }
 .tablist .tab.active::after { left: calc(25% + 5px); right: calc(25% + 5px); bottom: 3px; border-radius: 2px; background: var(--group-color, var(--accent)); }
-.tab-group-rail { position: absolute; top: 2px; height: 2px; border-radius: 2px; background: var(--group-color); pointer-events: none; }
+.tab-group-rail { position: absolute; top: 6px; height: 2px; border-radius: 2px; background: var(--group-color); pointer-events: none; }
 .tablist.tab-motion-overlay { position: fixed; inset: 0; display: block; z-index: 150; padding: 0; pointer-events: none; -webkit-app-region: no-drag; }
 .tab-motion-overlay .tab { position: absolute; min-width: 0; max-width: none; margin: 0; transform: none; pointer-events: none; }
 .tablist .tab[data-file-kind="pdf"] .tab-name::before { content: 'PDF'; margin-right: 5px; color: var(--text-tertiary); font: 8px var(--font-mono); letter-spacing: .02em; }

@@ -21,8 +21,9 @@ try {
   await page.evaluate(note => window.__tracery.openNote(note), NOTE); await waitForNote(page, NOTE, SOURCE);
   const set = settings => page.evaluate(async settings => { const { updateSettings } = await import('/js/settings.js'); await updateSettings(settings); }, settings);
   const aligned = async label => {
-    await page.waitForFunction(() => { const tools = document.querySelector('#workspace-tools').getBoundingClientRect(); const footer = [...document.querySelectorAll('#editor-area .statusbar, #editor-area .note-list-footer')].find(el => el.getBoundingClientRect().height > 0); return footer && Math.abs(tools.top - footer.getBoundingClientRect().top) < 1; });
-    return page.evaluate(label => { const tools = document.querySelector('#workspace-tools').getBoundingClientRect(), footer = [...document.querySelectorAll('#editor-area .statusbar, #editor-area .note-list-footer')].find(el => el.getBoundingClientRect().height > 0).getBoundingClientRect(); return { label, tools: tools.top, footer: footer.top, height: tools.height }; }, label);
+    const geometry = await page.evaluate(label => { const list = document.querySelector('#btn-note-list'), tasks = document.querySelector('#btn-task-list'), a = list.getBoundingClientRect(), b = tasks.getBoundingClientRect(); return { label, ribbon: !!list.closest('.ribbon') && !!tasks.closest('.ribbon'), left: a.left, otherLeft: b.left, width: a.width, otherWidth: b.width }; }, label);
+    assert.ok(geometry.ribbon && geometry.left === geometry.otherLeft && geometry.width === geometry.otherWidth);
+    return geometry;
   };
   const geometry = [await aligned('note')];
   await page.click('#tab-info'); await page.waitForSelector('#panel-note-tags', { visible: true });

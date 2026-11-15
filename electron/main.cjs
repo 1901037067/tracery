@@ -194,11 +194,11 @@ function createWindow() {
   });
 
   // 原生「选择仓库文件夹」对话框
-  ipcMain.handle('tracery:pick-vault', async () => {
+  ipcMain.handle('tracery:pick-vault', async (event, purpose) => {
     const res = await dialog.showOpenDialog(mainWindow, {
-      title: '选择仓库文件夹',
+      title: purpose === 'parent' ? '选择新仓库的存放目录' : '选择仓库文件夹',
       properties: ['openDirectory', 'createDirectory'],
-      buttonLabel: '打开仓库',
+      buttonLabel: purpose === 'parent' ? '选择此文件夹' : '打开仓库',
     });
     if (res.canceled || !res.filePaths?.length) return null;
     return res.filePaths[0];
