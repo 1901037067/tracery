@@ -13,6 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import http from 'node:http';
+import { SyncEngine } from '../server/sync.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TMP = path.join(os.tmpdir(), 'tracery-sync-test');
@@ -85,7 +87,7 @@ async function main() {
   };
 
   console.log('\n▶ 启动同步服务端与两个 Tracery 实例\n');
-  start('sync', process.execPath, ['sync-server/index.js', '--port', String(SYNC_PORT), '--data', SYNC_DATA, '--name', 'TestSync', '--pair-code', PAIR_CODE]);
+  start('sync', process.execPath, ['sync-server/index.js', '--port', String(SYNC_PORT), '--data', SYNC_DATA, '--name', 'TestSync', '--pair-code', PAIR_CODE], { TRACERY_SYNC_MAX_BLOB: '8388608' });
   start('A', process.execPath, ['server/server.js'], { PORT: '9561', TRACERY_HOME: HOME_A, TRACERY_CHUNK_THRESHOLD: '1048576' });
   start('B', process.execPath, ['server/server.js'], { PORT: '9562', TRACERY_HOME: HOME_B, TRACERY_CHUNK_THRESHOLD: '1048576' });
 
@@ -248,6 +250,53 @@ async function main() {
   check('状态接口返回连接信息', st.configured === true && !!st.lastSyncAt, `server=${st.serverUrl}`);
   const offline = await api(API_A, '/api/sync/disconnect', { method: 'POST', body: {} });
   check('可断开同步', offline.status?.configured === false);
+
+  // 8. 安全性回归：状态页 XSS 转义/CSP、超限 blob 拒绝、远端非法路径拒绝
+  const xssPair = await (await fetch(`${server}/api/pair`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: PAIR_CODE, deviceName: '<img src=x onerror=alert(1)>' }),
+  })).json();
+  const unauthPage = await fetch(`${server}/`);
+  const statusPage = await fetch(`${server}/`, { headers: { Authorization: `Bearer ${xssPair.token}` } });
+  const statusHtml = await statusPage.text();
+  check('状态页未鉴权拒绝且鉴权后转义设备名与附带 CSP', unauthPage.status === 401
+    && statusPage.status === 200
+    && !!statusPage.headers.get('content-security-policy')
+    && !statusHtml.includes('<img')
+    && statusHtml.includes('&lt;img'), statusPage.headers.get('content-security-policy') || '');
+
+  const huge = Buffer.alloc(9 * 1024 * 1024, 7);
+  const hugeSha = crypto.createHash('sha256').update(huge).digest('hex');
+  const hugeRes = await fetch(`${server}/api/blob/${hugeSha}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${xssPair.token}` },
+    body: huge,
+  });
+  check('sync-server 拒绝超限 blob 上传', hugeRes.status === 413, `status=${hugeRes.status}`);
+
+  const badVault = path.join(TMP, 'vault-bad-remote');
+  fs.mkdirSync(badVault, { recursive: true });
+  const evilBuf = Buffer.from('escaped');
+  const evilSha = crypto.createHash('sha256').update(evilBuf).digest('hex');
+  const mockServer = http.createServer((req, res) => {
+    if (req.url === '/api/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ ok: true, app: 'tracery-sync', name: 'Evil' })); }
+    if (req.url === '/api/pair') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ token: 't', vaultId: 'v', serverName: 'Evil', version: 1 })); }
+    if (req.url === '/api/manifest') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ version: 1, files: { '../escape.md': { sha: evilSha, size: evilBuf.length, mtime: 1 } } }));
+    }
+    if (req.url === `/api/blob/${evilSha}`) { res.writeHead(200); return res.end(evilBuf); }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((resolve) => mockServer.listen(0, '127.0.0.1', resolve));
+  const mockUrl = `http://127.0.0.1:${mockServer.address().port}`;
+  const guardedEngine = new SyncEngine({ getVaultRoot: () => badVault });
+  let remoteBlocked = false;
+  try { await guardedEngine.pair({ serverUrl: mockUrl, code: '1234', deviceName: 'test' }); }
+  catch (err) { remoteBlocked = /非法路径/.test(err.message); }
+  mockServer.close();
+  check('SyncEngine 拒绝远端目录穿越路径且未写穿仓库', remoteBlocked && !fs.existsSync(path.join(TMP, 'escape.md')));
 
   console.log('\n========== 结果 ==========');
   const pass = results.filter((r) => r.ok).length;

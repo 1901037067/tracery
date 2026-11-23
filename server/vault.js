@@ -7,6 +7,7 @@ import { resolveInVault } from './path-guard.js';
 import { isPrivateUserPath } from './user-path.js';
 import { readProperties } from '../public/js/note-properties.js';
 import { parseSearch, matchesSearch } from '../public/js/search-query.js';
+import { addPropertyTags, codeMask, scanNoteIndex } from '../public/js/reference-path.js';
 export const IGNORED_DIRS = new Set(['.tracery', '.evnote', '.obsidian', '.git', 'node_modules', '.trash', '.local']);
 const TEXT_EXT = new Set(['.md', '.markdown', '.txt']);
 // 仅影响浏览列表；其他文件仍保留在仓库、附件下载与同步清单中。
@@ -74,8 +75,7 @@ export class Vault {
           if (sameStat(e, st)) {
             const links = e.links.filter(link => !isAttachmentTarget(link));
             if (links.length !== e.links.length) this._linksRepaired = true;
-            const tags = new Set(e.tags), properties = readProperties(e.content).values;
-            for (const tag of Array.isArray(properties.tags) ? properties.tags : typeof properties.tags === 'string' ? [properties.tags] : []) if (typeof tag === 'string') tags.add(tag.replace(/^#/, ''));
+            const tags = addPropertyTags(new Set(e.tags), readProperties(e.content).values.tags);
             this.notes.set(rel, { name: e.name, links, tags, headings: e.headings, mtimeMs: st.mtimeMs, backlinks: new Set() });
             this.contentCache.set(rel, e.content); this._addName(rel, e.name); this.stats.reused++;
           } else await this._readNote(rel, st, abs);
@@ -163,42 +163,16 @@ export class Vault {
     // 于是「# 不隐藏、没有标题样式、右栏大纲漏」，搜索/反链/标签索引同样漏（2026-10-20 用户报障）。
     // 只在**读**的这一个入口剥掉：下游（编辑器、大纲、索引、图谱）拿到的都是干净文本，
     // 而磁盘上的字节保持原样——用户不改这篇笔记就不会动到文件；一旦保存，文件顺手被规范化。
-    const text = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+    const { text, links, tags, headings } = scanNoteIndex(content);
     const ext = path.extname(rel).toLowerCase();
     const name = path.basename(rel, ext);
     this.contentCache.set(rel, text);
     const note = this.notes.get(rel) || { name, links: [], tags: new Set(), headings: [], backlinks: new Set() };
     note.name = name;
     note.mtimeMs = mtimeMs ?? note.mtimeMs;
-    note.links = [];
-    note.tags = new Set();
-    const properties = readProperties(text).values;
-    for (const tag of Array.isArray(properties.tags) ? properties.tags : typeof properties.tags === 'string' ? [properties.tags] : []) if (typeof tag === 'string') note.tags.add(tag.replace(/^#/, ''));
-    note.headings = [];
-
-    // [[双链]]：支持 [[目标]] / [[目标|别名]] / [[目标#标题]] / [[目标#标题|别名]]
-    // 先剔除代码围栏与行内代码，避免把示例代码里的 [[...]] 当成真链接
-    const codeFree = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]+`/g, '');
-    const linkRe = /\[\[([^\]\|#]+)(?:#[^\]\|]*)?(?:\|[^\]]*)?\]\]/g;
-    let m;
-    while ((m = linkRe.exec(codeFree))) if (!isAttachmentTarget(m[1])) note.links.push(m[1].trim());
-
-    // #标签（排除代码块内的，简化处理：跳过 ``` 围栏）
-    const tagRe = /(^|[\s\(（])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
-    let inFence = false;
-    for (const line of text.split('\n')) {
-      if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
-      if (inFence) continue;
-      let tm;
-      const lineRe = new RegExp(tagRe.source, 'gu');
-      while ((tm = lineRe.exec(line))) note.tags.add(tm[2]);
-    }
-
-    // 标题（大纲）
-    for (const line of text.split('\n')) {
-      const h = /^(#{1,6})\s+(.*)$/.exec(line);
-      if (h) note.headings.push({ level: h[1].length, text: h[2].replace(/[*_`~]/g, '') });
-    }
+    note.links = links;
+    note.tags = tags;
+    note.headings = headings;
 
     this.notes.set(rel, note);
     this._addName(rel, name);
@@ -292,8 +266,8 @@ export class Vault {
     }
     for (const [notePath, content] of this.contentCache) {
       // 代码示例不算插图；双链与 Markdown 图片均按原路径或唯一文件名匹配。
-      const text = content.replace(/^\s*(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\s*\1\s*$/gm, '').replace(/`[^`\n]*`/g, '');
-      const refs = [...text.matchAll(/!\[\[([^\]]+)\]\]|!\[[^\]]*\]\(([^)]+)\)/g)];
+      const blocked = codeMask(content, { indented: false });
+      const refs = [...content.matchAll(/!\[\[([^\]]+)\]\]|!\[[^\]]*\]\(([^)]+)\)/g)].filter((m) => !blocked(m.index));
       for (const match of refs) {
         let target = match[1] ? match[1].split('|')[0] : match[2].replace(/\s+"[^"]*"$/, '').replace(/^<|>$/g, '');
         try { target = decodeURIComponent(target); } catch { /* 保留原路径 */ }

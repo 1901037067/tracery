@@ -2,7 +2,7 @@
 import { parseCached } from './cm/decorations.js';
 import { panelDock } from './pane-docking.js';
 import { inlineToHtml } from './markdown.js';
-import { readProperties } from './note-properties.js';
+import { scanNoteIndex } from './reference-path.js';
 import { enterModal, leaveModal } from './modal-focus.js';
 
 const $ = id => document.getElementById(id);
@@ -121,21 +121,8 @@ export function createSidebarContext({ state, editor, api, navigate, createMissi
     $('btn-note-history').disabled = !path || /\.pdf$/i.test(path);
     $('btn-note-properties').disabled = !path || /\.pdf$/i.test(path);
     $('btn-note-tag-add').disabled = !path || /\.pdf$/i.test(path) || editor.accessReadOnly || editor.isRead;
-    const src = path ? String(content || '').replace(/\r\n?/g, '\n') : '';
     renderOutline();
-    const tags = new Set();
-    const properties = readProperties(src), propertyTags = properties.values.tags;
-    for (const tag of Array.isArray(propertyTags) ? propertyTags : typeof propertyTags === 'string' ? propertyTags.split(/[,，]/) : []) {
-      const value = String(tag).trim().replace(/^#/, ''); if (value) tags.add(value);
-    }
-    // 只扫描非围栏内容，避免示例代码里的 # 被误认为笔记标签。
-    let fence = null;
-    for (const line of properties.body.split('\n')) {
-      const mark = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
-      if (mark) { if (!fence) fence = mark[1]; else if (mark[1][0] === fence[0] && mark[1].length >= fence.length) fence = null; continue; }
-      if (fence) continue;
-      for (const m of line.matchAll(/(^|[\s(（])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu)) tags.add(m[2]);
-    }
+    const tags = path ? scanNoteIndex(String(content || '')).tags : new Set();
     const tagBox = $('note-tags-list'); tagBox.replaceChildren();
     $('note-tag-count').textContent = `${tags.size} 个`;
     if (!tags.size) empty(tagBox, path ? '暂无标签' : '打开笔记后显示标签');

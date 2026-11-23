@@ -1,0 +1,455 @@
+/* ==========================================================================
+   Tracery 简洁科技感与微动效增强层
+   克制原则：不改变既有布局几何与对比度契约，不使用无限循环动画，
+   通过微高光边界、精准强调光条与轻量有限动效提升整体精致度。
+   ========================================================================== */
+
+:root {
+  --motion-fast: 130ms;
+  --motion-base: 190ms;
+  --motion-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --tech-border: color-mix(in srgb, var(--accent) 18%, var(--hairline-strong));
+  --tech-border-subtle: color-mix(in srgb, var(--accent) 12%, var(--hairline));
+  --tech-specular: inset 0 1px 0 rgb(255 255 255 / 55%);
+  --tech-glow-sm: 0 0 10px color-mix(in srgb, var(--accent) 24%, transparent);
+  --tech-glow-md: 0 4px 18px color-mix(in srgb, var(--accent) 18%, transparent);
+  --tech-dot-color: rgb(0 0 0 / 5%);
+}
+
+:root[data-theme="dark"] {
+  --tech-border: color-mix(in srgb, var(--accent) 26%, var(--hairline-strong));
+  --tech-border-subtle: color-mix(in srgb, var(--accent) 16%, var(--hairline));
+  --tech-specular: inset 0 1px 0 rgb(255 255 255 / 8%);
+  --tech-glow-sm: 0 0 12px color-mix(in srgb, var(--accent) 32%, transparent);
+  --tech-glow-md: 0 6px 22px color-mix(in srgb, var(--accent) 24%, transparent);
+  --tech-dot-color: rgb(255 255 255 / 4.5%);
+}
+
+/* ---------------- 有限微动效关键帧 ---------------- */
+@keyframes panel-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes tab-bar-in {
+  from { opacity: 0; transform: scaleX(0.35); }
+  to { opacity: 1; transform: scaleX(1); }
+}
+
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes palette-enter {
+  from { opacity: 0; transform: translateY(-6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------------- 浮动主纸张与状态栏 ---------------- */
+.editor-area {
+  box-shadow: var(--tech-specular), var(--chrome-paper-shadow);
+}
+
+:root[data-theme="dark"] .editor-area:focus-within {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 28%, rgb(255 255 255 / 10%)),
+    var(--chrome-paper-shadow);
+}
+
+.document-header {
+  letter-spacing: 0.005em;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-fill) 32%, transparent), transparent);
+}
+
+.statusbar {
+  font-variant-numeric: tabular-nums;
+}
+
+.statusbar .mode-btn {
+  border-radius: var(--r-full);
+  transition: background var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring),
+    transform var(--motion-fast) var(--motion-spring);
+}
+
+.statusbar .mode-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.statusbar .mode-btn:active {
+  transform: scale(0.96);
+}
+
+/* ---------------- 标题栏与标签页 ---------------- */
+button.vault-name {
+  border: 1px solid transparent;
+  transition: background var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring),
+    border-color var(--motion-fast) var(--motion-spring),
+    transform var(--motion-fast) var(--motion-spring);
+}
+
+button.vault-name:hover {
+  border-color: var(--tech-border-subtle);
+}
+
+button.vault-name:active {
+  transform: scale(0.98);
+}
+
+.tablist .tab {
+  transition: background var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring),
+    border-color var(--motion-fast) var(--motion-spring),
+    box-shadow var(--motion-fast) var(--motion-spring);
+}
+
+.tablist .tab.active {
+  border-color: var(--tech-border-subtle);
+  box-shadow: var(--tech-specular), 0 1px 5px rgb(0 0 0 / 8%);
+}
+
+.tablist .tab.active::after {
+  box-shadow: var(--tech-glow-sm);
+  transform-origin: center;
+  animation: tab-bar-in var(--motion-base) var(--motion-spring);
+}
+
+.tab-new,
+.tab-more {
+  transition: background var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring),
+    transform var(--motion-fast) var(--motion-spring);
+}
+
+.tab-new:active,
+.tab-more:active {
+  transform: scale(0.94);
+}
+
+/* ---------------- 左侧功能栏（Ribbon） ---------------- */
+.ribbon-btn {
+  transition: background var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring),
+    transform var(--motion-fast) var(--motion-spring);
+}
+
+.ribbon-btn svg {
+  transition: transform var(--motion-fast) var(--motion-spring);
+}
+
+.ribbon-btn:hover svg {
+  transform: scale(1.08);
+}
+
+.ribbon-btn:active {
+  transform: scale(0.94);
+}
+
+.ribbon-btn.active {
+  box-shadow: inset 2.5px 0 0 var(--accent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+/* ---------------- 侧栏、文件树与大纲 ---------------- */
+.sidebar-tab {
+  border: 1px solid transparent;
+  transition: background var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring),
+    border-color var(--motion-fast) var(--motion-spring),
+    box-shadow var(--motion-fast) var(--motion-spring);
+}
+
+.sidebar-tab[aria-selected="true"] {
+  border-color: var(--tech-border-subtle);
+  box-shadow: var(--tech-specular), 0 1px 4px rgb(0 0 0 / 7%);
+}
+
+.settings-pane.active {
+  animation: panel-enter 160ms var(--motion-spring);
+}
+
+.tree-item {
+  transition: background var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring),
+    box-shadow var(--motion-fast) var(--motion-spring);
+}
+
+.tree-item .label {
+  transition: transform var(--motion-fast) var(--motion-spring);
+}
+
+.tree-item:hover .label {
+  transform: translateX(1.5px);
+}
+
+.tree-item.active {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.outline-row.active::before {
+  box-shadow: var(--tech-glow-sm);
+}
+
+#outline-list .outline-item {
+  transition: color var(--motion-fast) var(--motion-spring),
+    transform var(--motion-fast) var(--motion-spring);
+}
+
+#outline-list .outline-row:hover .outline-item {
+  transform: translateX(1.5px);
+}
+
+.backlink-item {
+  border: 1px solid transparent;
+  transition: background var(--motion-fast) var(--motion-spring),
+    border-color var(--motion-fast) var(--motion-spring);
+}
+
+.backlink-item:hover {
+  border-color: var(--tech-border-subtle);
+}
+
+.saved-group {
+  transition: border-color var(--motion-fast) var(--motion-spring),
+    box-shadow var(--motion-base) var(--motion-spring);
+}
+
+.saved-group:hover {
+  border-color: var(--tech-border);
+}
+
+.workspace-tools button {
+  transition: background var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring),
+    transform var(--motion-fast) var(--motion-spring);
+}
+
+.workspace-tools button:active {
+  transform: scale(0.97);
+}
+
+/* ---------------- 空白笔记页 ---------------- */
+.empty-note-content {
+  animation: panel-enter 200ms var(--motion-spring);
+}
+
+.empty-note-symbol {
+  transition: color var(--motion-base) var(--motion-spring),
+    transform var(--motion-base) var(--motion-spring);
+}
+
+.empty-note-content:hover .empty-note-symbol {
+  color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.empty-note-actions button {
+  transition: background var(--motion-fast) var(--motion-spring),
+    border-color var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring),
+    transform var(--motion-fast) var(--motion-spring),
+    box-shadow var(--motion-base) var(--motion-spring);
+}
+
+.empty-note-actions button:hover {
+  border-color: var(--tech-border);
+  transform: translateY(-1px);
+  box-shadow: var(--tech-glow-md);
+}
+
+.empty-note-actions button:active {
+  transform: scale(0.985);
+}
+
+.empty-note-actions kbd {
+  font-family: var(--font-mono);
+  border: 1px solid var(--hairline);
+  transition: background var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring),
+    border-color var(--motion-fast) var(--motion-spring);
+}
+
+.empty-note-actions button:hover kbd {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* ---------------- 欢迎页（精密点阵与卡片交互） ---------------- */
+.welcome {
+  background:
+    radial-gradient(circle at 1px 1px, var(--tech-dot-color) 1px, transparent 0) 0 0 / 24px 24px,
+    radial-gradient(90% 75% at 18% 8%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 58%),
+    radial-gradient(80% 70% at 88% 92%, color-mix(in srgb, var(--tag) 10%, transparent), transparent 58%),
+    color-mix(in srgb, var(--bg-window) 86%, transparent);
+}
+
+.welcome-card {
+  border-color: var(--tech-border-subtle);
+  box-shadow: var(--tech-specular), var(--shadow-float);
+  animation: card-enter 220ms var(--motion-spring);
+}
+
+.vault-action {
+  transition: border-color var(--motion-base) var(--motion-spring),
+    transform var(--motion-base) var(--motion-spring),
+    box-shadow var(--motion-base) var(--motion-spring),
+    background var(--motion-base) var(--motion-spring);
+}
+
+.vault-action:hover {
+  border-color: var(--tech-border);
+  transform: translateY(-2px);
+  box-shadow: var(--tech-glow-md);
+}
+
+.vault-action-icon {
+  transition: transform var(--motion-base) var(--motion-spring),
+    box-shadow var(--motion-base) var(--motion-spring);
+}
+
+.vault-action:hover .vault-action-icon {
+  transform: scale(1.05);
+}
+
+.vault-action-open:hover .vault-action-icon {
+  box-shadow: var(--tech-glow-sm);
+}
+
+.recent-item {
+  border: 1px solid transparent;
+  transition: background var(--motion-fast) var(--motion-spring),
+    border-color var(--motion-fast) var(--motion-spring);
+}
+
+.recent-item:hover {
+  border-color: var(--tech-border-subtle);
+}
+
+/* ---------------- 命令面板、链接预览与 Toast ---------------- */
+.palette-box {
+  border: 1px solid var(--tech-border);
+  box-shadow: var(--tech-specular), var(--shadow-float);
+  animation: palette-enter 170ms var(--motion-spring);
+}
+
+.palette-list li {
+  position: relative;
+  transition: background var(--motion-fast) var(--motion-spring),
+    color var(--motion-fast) var(--motion-spring);
+}
+
+.palette-list li.selected {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.palette-list li.selected::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 7px;
+  bottom: 7px;
+  width: 2.5px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+}
+
+.link-preview {
+  border: 1px solid var(--tech-border);
+  box-shadow: var(--tech-specular), var(--shadow-float);
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--tech-border);
+  box-shadow: var(--tech-specular), var(--shadow-float);
+}
+
+.toast::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--tech-glow-sm);
+  flex-shrink: 0;
+}
+
+/* ---------------- 按钮、标签与主题选择卡片 ---------------- */
+.btn-primary {
+  box-shadow: var(--tech-specular), 0 1px 3px rgb(0 0 0 / 10%);
+  transition: background var(--motion-fast) var(--motion-spring),
+    box-shadow var(--motion-base) var(--motion-spring),
+    transform var(--motion-fast) var(--motion-spring);
+}
+
+.btn-primary:hover:not(:disabled) {
+  box-shadow: var(--tech-specular), var(--tech-glow-md);
+}
+
+.tag-chip {
+  border: 1px solid transparent;
+  transition: background var(--motion-fast) var(--motion-spring),
+    border-color var(--motion-fast) var(--motion-spring),
+    transform var(--motion-fast) var(--motion-spring);
+}
+
+.tag-chip:hover {
+  border-color: color-mix(in srgb, var(--tag) 35%, transparent);
+  transform: translateY(-1px);
+}
+
+.theme-picker button {
+  transition: border-color var(--motion-fast) var(--motion-spring),
+    box-shadow var(--motion-base) var(--motion-spring),
+    transform var(--motion-fast) var(--motion-spring);
+}
+
+.theme-picker button:hover {
+  border-color: var(--tech-border);
+  transform: translateY(-1px);
+}
+
+.theme-picker button.active {
+  box-shadow: 0 0 0 1px var(--accent), var(--tech-glow-sm);
+}
+
+.phone-access-card,
+.vault-create-dialog,
+.citation-dialog {
+  box-shadow: var(--tech-specular), var(--shadow-float);
+}
+
+/* ---------------- 减少动态效果 ---------------- */
+@media (prefers-reduced-motion: reduce) {
+  .settings-pane.active,
+  .empty-note-content,
+  .welcome-card,
+  .palette-box,
+  .tablist .tab.active::after {
+    animation: none !important;
+  }
+
+  .statusbar .mode-btn:active,
+  button.vault-name:active,
+  .tab-new:active,
+  .tab-more:active,
+  .ribbon-btn:hover svg,
+  .ribbon-btn:active,
+  .tree-item:hover .label,
+  #outline-list .outline-row:hover .outline-item,
+  .workspace-tools button:active,
+  .empty-note-content:hover .empty-note-symbol,
+  .empty-note-actions button:hover,
+  .empty-note-actions button:active,
+  .vault-action:hover,
+  .vault-action:hover .vault-action-icon,
+  .tag-chip:hover,
+  .theme-picker button:hover {
+    transform: none !important;
+  }
+}

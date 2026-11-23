@@ -55,13 +55,20 @@ const check = (name, ok, detail = '') => {
 await page.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle0' });
 await sleep(1000);
 
-// 在页面里装载引擎，并挂一个 round-trip 辅助函数
+// 在页面里装载引擎，并挂一个 CM6 往返与渲染验证辅助函数
 await page.evaluate(async () => {
   const mod = await import('/js/markdown.js');
+  const { CmEditor } = await import('/js/cm/engine.js');
+  const host = document.createElement('div');
+  host.style.display = 'none';
+  document.body.appendChild(host);
+  const cm = new CmEditor({ liveEl: host });
   window.__rt = (md) => {
-    const div = document.createElement('div');
-    div.appendChild(mod.renderMarkdown(md));
-    return mod.serializeHtml(div);
+    cm.load('roundtrip.md', md, { discardChanges: true });
+    cm.setMode('read');
+    cm.setMode('source');
+    cm.setMode('live');
+    return cm.view.state.doc.toString();
   };
   window.__renderHtml = (md) => {
     const div = document.createElement('div');

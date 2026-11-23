@@ -942,7 +942,7 @@ async function deleteFolder(rel) {
 /** 生成自包含的导出 HTML：内联样式 + 图片转 data URL，发给别人也能直接看 */
 async function buildExportHtml() {
   const md = editor.getContent();
-  const root = renderMarkdown(md, { tagOffsets: false });
+  const root = renderMarkdown(md);
   // 图片转 data URL（导出文件不依赖本机服务）
   for (const img of root.querySelectorAll('img')) {
     const src = img.getAttribute('src') || '';

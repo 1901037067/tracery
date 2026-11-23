@@ -25,7 +25,22 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
+
+const MAX_BLOB_BYTES = Number(process.env.TRACERY_SYNC_MAX_BLOB) || 128 * 1024 * 1024;
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function writeFileAtomic(file, text) {
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(tmp, text, { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } finally {
+    try { fs.unlinkSync(tmp); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  }
+}
 
 /* ---------------- 参数 ---------------- */
 function parseArgs(argv) {
@@ -99,7 +114,7 @@ function loadIdentity() {
       tokens: {},          // token -> { device, createdAt }
       createdAt: new Date().toISOString(),
     };
-    fs.writeFileSync(IDENTITY_FILE, JSON.stringify(identity, null, 2), 'utf8');
+    writeFileAtomic(IDENTITY_FILE, JSON.stringify(identity, null, 2));
     return identity;
   }
 }
@@ -107,7 +122,7 @@ function loadIdentity() {
 const identity = loadIdentity();
 if (args.pairCode && identity.pairCode !== args.pairCode) {
   identity.pairCode = args.pairCode;
-  fs.writeFileSync(IDENTITY_FILE, JSON.stringify(identity, null, 2), 'utf8');
+  writeFileAtomic(IDENTITY_FILE, JSON.stringify(identity, null, 2));
 }
 
 const VAULT_DIR = path.join(DATA, identity.vaultId);
@@ -177,9 +192,33 @@ const json = (res, code, obj) => {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
   });
   res.end(body);
 };
+
+async function streamToFileWithHash(readable, destPath, maxBytes) {
+  const hash = crypto.createHash('sha256');
+  let bytes = 0;
+  const meter = new Transform({
+    transform(chunk, encoding, callback) {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        callback(Object.assign(new Error('文件超过大小限制'), { status: 413 }));
+        return;
+      }
+      hash.update(chunk);
+      callback(null, chunk);
+    },
+  });
+  try {
+    await pipeline(readable, meter, fs.createWriteStream(destPath, { mode: 0o600 }));
+    return { sha: hash.digest('hex'), size: bytes };
+  } catch (e) {
+    await fsp.rm(destPath, { force: true }).catch(() => {});
+    throw e;
+  }
+}
 
 function readBody(req, limit = 2 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
@@ -207,13 +246,13 @@ function authorized(req) {
   return token && identity.tokens[token] ? identity.tokens[token] : null;
 }
 
-/** 路径安全：拒绝绝对路径、.. 穿越、隐藏目录 */
+/** 路径安全：拒绝绝对路径、.. 穿越、隐藏目录及非法文件名 */
 function safeRelPath(p) {
-  if (typeof p !== 'string' || !p || p.length > 512) return null;
+  if (typeof p !== 'string' || !p || p.length > 512 || /[\x00-\x1f:*?"<>|]/.test(p)) return null;
   const normalized = p.replace(/\\/g, '/');
   if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) return null;
   const parts = normalized.split('/');
-  if (parts.some((s) => !s || s === '.' || s === '..' || s.startsWith('.'))) return null;
+  if (parts.some((s) => !s || s === '.' || s === '..' || s.startsWith('.') || /[. ]$/.test(s) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(s))) return null;
   return parts.join('/');
 }
 
@@ -256,7 +295,7 @@ const server = http.createServer(async (req, res) => {
         device: String(body.deviceName || '未命名设备').slice(0, 60),
         createdAt: new Date().toISOString(),
       };
-      fs.writeFileSync(IDENTITY_FILE, JSON.stringify(identity, null, 2), 'utf8');
+      writeFileAtomic(IDENTITY_FILE, JSON.stringify(identity, null, 2));
       console.log(`[pair] 新设备已配对：${identity.tokens[token].device}`);
       return json(res, 200, {
         token,
@@ -346,16 +385,15 @@ const server = http.createServer(async (req, res) => {
       if (!meta) return json(res, 404, { error: '上传会话不存在或已过期' });
       const index = Number(idxRaw);
       if (!Number.isInteger(index) || index < 0 || index > 100000) return json(res, 400, { error: '分块序号非法' });
+      const maxChunk = Math.min(MAX_BLOB_BYTES, Math.max((Number(meta.chunkSize) || 1024 * 1024) * 2, 16 * 1024 * 1024));
+      if (Number(req.headers['content-length'] || 0) > maxChunk) {
+        req.resume();
+        return json(res, 413, { error: '分块超过大小限制' });
+      }
       const dir = path.join(UPLOAD_DIR, id);
       const part = path.join(dir, `${String(index).padStart(6, '0')}.part`);
       const tmp = `${part}.tmp`;
-      await new Promise((resolve, reject) => {
-        const ws = fs.createWriteStream(tmp);
-        req.pipe(ws);
-        ws.on('finish', resolve);
-        ws.on('error', reject);
-        req.on('error', reject);
-      });
+      await streamToFileWithHash(req, tmp, maxChunk);
       await fsp.rename(tmp, part);
       return json(res, 200, { ok: true, index, received: receivedChunks(id).length });
     }
@@ -368,18 +406,27 @@ const server = http.createServer(async (req, res) => {
       const files = fs.readdirSync(dir).filter((f) => /^\d+\.part$/.test(f)).sort();
       const target = path.join(BLOB_DIR, meta.sha);
       const tmp = path.join(dir, 'assembled.tmp');
-      const ws = fs.createWriteStream(tmp);
-      for (const f of files) {
-        await new Promise((resolve, reject) => {
-          const rs = fs.createReadStream(path.join(dir, f));
-          rs.on('error', reject);
-          rs.on('end', resolve);
-          rs.pipe(ws, { end: false });
-        });
+      const hash = crypto.createHash('sha256');
+      let totalBytes = 0;
+      try {
+        await pipeline(
+          Readable.from((async function* () {
+            for (const f of files) {
+              for await (const chunk of fs.createReadStream(path.join(dir, f))) {
+                totalBytes += chunk.length;
+                if (totalBytes > MAX_BLOB_BYTES) throw Object.assign(new Error('文件超过大小限制'), { status: 413 });
+                hash.update(chunk);
+                yield chunk;
+              }
+            }
+          })()),
+          fs.createWriteStream(tmp, { mode: 0o600 }),
+        );
+      } catch (err) {
+        await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+        throw err;
       }
-      await new Promise((resolve, reject) => { ws.end(resolve); ws.on('error', reject); });
-      const hash = crypto.createHash('sha256').update(await fsp.readFile(tmp)).digest('hex');
-      if (hash !== meta.sha) {
+      if (hash.digest('hex') !== meta.sha) {
         await fsp.rm(dir, { recursive: true, force: true });
         return json(res, 400, { error: '分块拼装后哈希不匹配' });
       }
@@ -396,16 +443,13 @@ const server = http.createServer(async (req, res) => {
         req.resume();
         return json(res, 200, { ok: true, dedup: true });
       }
-      const tmp = `${file}.${process.pid}.tmp`;
-      await new Promise((resolve, reject) => {
-        const ws = fs.createWriteStream(tmp);
-        req.pipe(ws);
-        ws.on('finish', resolve);
-        ws.on('error', reject);
-        req.on('error', reject);
-      });
+      if (Number(req.headers['content-length'] || 0) > MAX_BLOB_BYTES) {
+        req.resume();
+        return json(res, 413, { error: '文件超过大小限制' });
+      }
+      const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+      const { sha: actual } = await streamToFileWithHash(req, tmp, MAX_BLOB_BYTES);
       // 完整性校验：内容哈希必须等于声明的 sha
-      const actual = crypto.createHash('sha256').update(await fsp.readFile(tmp)).digest('hex');
       if (actual !== sha) {
         await fsp.rm(tmp, { force: true });
         return json(res, 400, { error: '内容哈希与 sha 不匹配（传输损坏）' });
@@ -444,21 +488,26 @@ const server = http.createServer(async (req, res) => {
 
     // 简易状态页：浏览器打开能看到服务端还活着
     if (p === '/' && req.method === 'GET') {
+      const devices = Object.values(identity.tokens).map((t) => escapeHtml(t.device)).join('、') || '暂无';
       const html = `<!doctype html><meta charset="utf-8"><title>Tracery Sync</title>
 <style>body{font:14px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;max-width:620px;margin:12vh auto;padding:0 24px;color:#1d1d1f}
 h1{font-size:22px}code{background:#f2f2f4;padding:2px 6px;border-radius:5px}p{color:#6b6b70}</style>
 <h1>Tracery 同步服务端</h1>
-<p>服务名：<b>${identity.name}</b> · 仓库版本：<b>v${manifest.version}</b> · 文件数：<b>${Object.keys(manifest.files).length}</b></p>
-${args.showPairCode ? `<p>配对码：<code>${identity.pairCode}</code>（在客户端「设置 → 同步」里填写）</p>` : '<p>请向主机使用者获取通行码，在 Tracery 中完成配对。</p>'}
-<p>已配对设备：${Object.values(identity.tokens).map((t) => t.device).join('、') || '暂无'}</p>`;
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+<p>服务名：<b>${escapeHtml(identity.name)}</b> · 仓库版本：<b>v${manifest.version}</b> · 文件数：<b>${Object.keys(manifest.files).length}</b></p>
+${args.showPairCode ? `<p>配对码：<code>${escapeHtml(identity.pairCode)}</code>（在客户端「设置 → 同步」里填写）</p>` : '<p>请向主机使用者获取通行码，在 Tracery 中完成配对。</p>'}
+<p>已配对设备：${devices}</p>`;
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'",
+      });
       return res.end(html);
     }
 
     return json(res, 404, { error: '接口不存在' });
   } catch (e) {
     console.error('[error]', e);
-    if (!res.headersSent) json(res, 500, { error: e.message });
+    if (!res.headersSent) json(res, e.status || 500, { error: e.message });
     else res.end();
   }
 });

@@ -1,6 +1,7 @@
 /* 引用的目标范围与路径解析共用；改写只替换目标，保留别名、宽度、锚点和标题。 */
 import { normalizeNotePath, noteIndex, resolveNote, isAttachmentTarget } from './wiki-path.js';
 import { encodePdfPath } from './pdf-reference.js';
+import { readProperties } from './note-properties.js';
 const NOTE = /\.(md|markdown|txt)$/i;
 const external = value => /^(?:[a-z][\w+.-]*:|\/\/|#)/i.test(value);
 export const parentPath = value => value.includes('/') ? value.slice(0, value.lastIndexOf('/')) : '';
@@ -33,25 +34,65 @@ export function resolveReference(raw, from, index, kind = 'wiki') {
   const matches = index.names.get(target.toLowerCase()); return matches?.length === 1 ? matches[0] : null;
 }
 
-function codeMask(text) {
-  const ranges = []; let fence = null, offset = 0;
+export function parseFenceOpen(line, { allowDeepIndent = false } = {}) {
+  const match = (allowDeepIndent ? /^\s*(`{3,}|~{3,})(.*)$/ : /^ {0,3}(`{3,}|~{3,})(.*)$/).exec(line);
+  if (!match) return null;
+  const marker = match[1], info = match[2] || '';
+  if (marker[0] === '`' && info.includes('`')) return null;
+  return { marker, lang: info.trim().split(/\s+/)[0], info, prefixLength: match[0].length - info.length };
+}
+export function isFenceClose(line, fence, { allowDeepIndent = false } = {}) {
+  const match = (allowDeepIndent ? /^\s*(`{3,}|~{3,})\s*$/ : /^ {0,3}(`{3,}|~{3,})\s*$/).exec(line);
+  return !!match && match[1][0] === fence[0] && match[1].length >= fence.length;
+}
+function mergeRanges(ranges) {
+  if (ranges.length <= 1) return ranges;
+  ranges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged = [ranges[0]];
+  for (let i = 1; i < ranges.length; i++) {
+    const prev = merged[merged.length - 1], cur = ranges[i];
+    if (cur[0] <= prev[1]) prev[1] = Math.max(prev[1], cur[1]);
+    else merged.push(cur);
+  }
+  return merged;
+}
+function hasRange(ranges, pos) {
+  let lo = 0, hi = ranges.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1, [a, b] = ranges[mid];
+    if (pos < a) hi = mid - 1;
+    else if (pos >= b) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}
+export function codeMask(text, { indented = true } = {}) {
+  const raw = []; let fence = null, offset = 0;
   for (const line of text.split('\n')) {
-    const match = /^ {0,3}(`{3,}|~{3,})/.exec(line);
     if (fence) {
-      ranges.push([offset, offset + line.length]);
-      if (match && match[1][0] === fence[0] && match[1].length >= fence.length && /^\s*$/.test(line.slice(match[0].length))) fence = null;
-    } else if (match) { fence = match[1]; ranges.push([offset, offset + line.length]); }
-    else if (/^(?: {4}|\t)/.test(line)) ranges.push([offset, offset + line.length]);
+      raw.push([offset, offset + line.length]);
+      if (isFenceClose(line, fence, { allowDeepIndent: !indented })) fence = null;
+    } else {
+      const open = parseFenceOpen(line, { allowDeepIndent: !indented });
+      if (open) { fence = open.marker; raw.push([offset, offset + line.length]); }
+      else if (indented && /^(?: {4}|\t)/.test(line)) raw.push([offset, offset + line.length]);
+    }
     offset += line.length + 1;
   }
-  const fenced = pos => ranges.some(([a, b]) => pos >= a && pos < b);
-  const ticks = /(`+)([\s\S]*?)\1(?!`)/g; let match;
-  while ((match = ticks.exec(text))) if (!fenced(match.index)) ranges.push([match.index, ticks.lastIndex]);
-  return pos => ranges.some(([a, b]) => pos >= a && pos < b);
+  const fenced = mergeRanges(raw);
+  const all = [...fenced];
+  if (text.includes('`')) {
+    const ticks = /(`+)([\s\S]*?)\1(?!`)/g; let match;
+    while ((match = ticks.exec(text))) if (!hasRange(fenced, match.index)) all.push([match.index, ticks.lastIndex]);
+  }
+  const merged = mergeRanges(all);
+  const blocked = pos => hasRange(merged, pos);
+  blocked.ranges = merged;
+  return blocked;
 }
 const escaped = (text, pos) => { let count = 0; while (pos > 0 && text[--pos] === '\\') count++; return count % 2 === 1; };
-export function scanReferences(text) {
-  const blocked = codeMask(text), result = [];
+export function scanReferences(text, { indented = true } = {}) {
+  const blocked = codeMask(text, { indented }), result = [];
   const push = (from, to, kind, angle = false) => {
     const raw = text.slice(from, to), start = raw.search(/\S/), end = raw.trimEnd().length;
     if (start < 0 || external(raw.trim())) return;
@@ -120,4 +161,54 @@ export function rewriteReferences(text, from, nextFrom, before, after, moveTarge
   }
   for (const edit of edits.reverse()) text = text.slice(0, edit.from) + edit.value + text.slice(edit.to);
   return { text, count: edits.length };
+}
+
+const TAG_RE = /(^|[\s(（])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
+const WIKI_LINK_RE = /!?\[\[([^\]\|#\n]+)(?:#[^\]\|\n]*)?(?:\|[^\]\n]*)?\]\]/g;
+const HEADING_RE = /^(#{1,6})\s+(.*)$/;
+const INLINE_CODE_RE = /(`+)[^\n]*?\1(?!`)/g;
+
+export function addPropertyTags(tags, propTags) {
+  for (const tag of Array.isArray(propTags) ? propTags : typeof propTags === 'string' ? propTags.split(/[,，]/) : []) {
+    if (typeof tag !== 'string') continue;
+    const clean = tag.trim().replace(/^#/, '');
+    if (clean) tags.add(clean);
+  }
+  return tags;
+}
+
+export function scanNoteIndex(source) {
+  const text = source.charCodeAt(0) === 0xfeff ? source.slice(1) : source;
+  const properties = readProperties(text);
+  const tags = addPropertyTags(new Set(), properties.values.tags);
+  const body = properties.exists && !properties.error ? properties.body : text;
+  const links = [], headings = [];
+  if (body.includes('[[')) {
+    const blocked = codeMask(body, { indented: false });
+    WIKI_LINK_RE.lastIndex = 0;
+    let m;
+    while ((m = WIKI_LINK_RE.exec(body))) {
+      if (blocked(m.index) || escaped(body, m.index)) continue;
+      if (!isAttachmentTarget(m[1])) links.push(m[1].trim());
+    }
+  }
+  let fence = null;
+  for (const rawLine of body.split('\n')) {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    if (fence) {
+      if (isFenceClose(line, fence, { allowDeepIndent: true })) fence = null;
+      continue;
+    }
+    const open = parseFenceOpen(line, { allowDeepIndent: true });
+    if (open) { fence = open.marker; continue; }
+    const h = HEADING_RE.exec(line);
+    if (h) headings.push({ level: h[1].length, text: h[2].replace(/[*_`~]/g, '') });
+    if (line.includes('#')) {
+      const prose = line.includes('`') ? line.replace(INLINE_CODE_RE, '') : line;
+      TAG_RE.lastIndex = 0;
+      let tm;
+      while ((tm = TAG_RE.exec(prose))) tags.add(tm[2]);
+    }
+  }
+  return { text, links, tags, headings };
 }

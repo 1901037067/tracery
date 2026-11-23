@@ -53,7 +53,6 @@ export function selectNoteContent(content, anchor = '') {
 export function renderNoteContent(result, opts = {}) {
   const resolveFile = name => opts.resolveFile?.(name, result.path);
   const fragment = renderMarkdown(result.md, {
-    tagOffsets: false,
     resolve: raw => opts.resolveLink?.(raw, result.path),
     resolveFile,
     fileUrl: opts.fileUrl,

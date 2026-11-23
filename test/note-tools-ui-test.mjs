@@ -61,7 +61,7 @@ try {
   await page.click('#properties-save'); await page.waitForFunction(() => document.querySelector('#note-tools-overlay').hidden);
   const propertyNote = fs.readFileSync(path.join(VAULT, '原始.md'), 'utf8'); assert.equal(readProperties(propertyNote).body, readProperties(original).body); assert.ok(propertyNote.startsWith('\uFEFF')); assert.ok(propertyNote.includes('custom:\r\n  nested: keep\r\n'));
   assert.equal(readProperties(propertyNote).values.mastery, 65);
-  assert.equal(await page.evaluate(async () => { const { renderMarkdown, serializeHtml } = await import('/js/markdown.js'); const box = document.createElement('div'); box.append(renderMarkdown('---\nstatus: 学习中\n---\n# 正文\n')); return serializeHtml(box); }), '---\nstatus: 学习中\n---\n# 正文\n');
+  assert.deepEqual(await page.evaluate(async () => { const { renderMarkdown } = await import('/js/markdown.js'); const box = document.createElement('div'); box.append(renderMarkdown('---\nstatus: 学习中\n---\n# 正文\n')); return { frontmatter: box.querySelector('[data-frontmatter="true"]')?.textContent, heading: box.querySelector('h1')?.textContent }; }), { frontmatter: '---\nstatus: 学习中\n---', heading: '正文' });
   const history = await (await fetch(BASE + '/api/history?path=' + encodeURIComponent('原始.md'))).json(); assert.ok(JSON.stringify(history).includes('id'));
   await page.click('#btn-note-properties'); await set('#property-status', '旧窗口的修改');
   const external = propertyNote + '\r\n外部修改必须保留。\r\n'; fs.writeFileSync(path.join(VAULT, '原始.md'), external);

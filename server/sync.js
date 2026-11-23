@@ -23,7 +23,7 @@ import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { mergeText, isMergeablePath } from './merge.js';
-import { isPrivateUserPath } from './user-path.js';
+import { isPrivateUserPath, resolveUserPath } from './user-path.js';
 import {
   deriveKeys, newSalt, keyToHex, keyFromHex,
   encryptBuffer, decryptBuffer, nameToken, makeCheck, verifyCheck,
@@ -63,6 +63,11 @@ export function vaultConfigDir(root) {
 }
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
+async function hashFile(absPath) {
+  const hash = crypto.createHash('sha256');
+  for await (const chunk of fs.createReadStream(absPath)) hash.update(chunk);
+  return hash.digest('hex');
+}
 
 export class SyncEngine {
   /**
@@ -88,6 +93,7 @@ export class SyncEngine {
     this._cfgCache = null;
     this._cfgFor = null;
     this._cfgMtime = 0;
+    this._hashCache = new Map();
   }
 
   /* ---------------- 配置（每个仓库一份，存在 <vault>/.tracery/sync.json） ----------------
@@ -377,13 +383,26 @@ export class SyncEngine {
       /* 路径映射：明文模式 key 就是路径；加密模式 key 是 HMAC，只能靠
          「本机已知路径」+「服务端上的加密索引」反查。查不到的远端 key 说明索引过期，
          本轮先跳过（宁可少同步一次，也不猜路径写错地方）。 */
+      const checkRemotePath = (rel) => {
+        try {
+          resolveUserPath(root, rel);
+        } catch (e) {
+          throw new Error(`远端清单包含非法路径（${rel}）：${e.message}`);
+        }
+      };
       const relByKey = new Map();
       let indexMap = new Map();
       if (enc) {
         indexMap = await this._readIndex(remote);
-        for (const [k, v] of indexMap) relByKey.set(k, v);
+        for (const [k, v] of indexMap) {
+          if (!RESERVED_KEYS.has(k)) checkRemotePath(v);
+          relByKey.set(k, v);
+        }
       } else {
-        for (const k of Object.keys(remoteFiles)) relByKey.set(k, k);
+        for (const k of Object.keys(remoteFiles)) {
+          if (!RESERVED_KEYS.has(k)) checkRemotePath(k);
+          relByKey.set(k, k);
+        }
       }
       for (const rel of local.keys()) relByKey.set(this._keyOf(rel), rel);
       for (const rel of Object.keys(base)) relByKey.set(this._keyOf(rel), rel);
@@ -398,13 +417,18 @@ export class SyncEngine {
       stats.unknown = unknownKeys.length;
 
       const changes = [];
-      const uploads = [];      // { blobSha, size, buf }（buf 已在内存里；大文件走临时文件分块）
+      const uploads = [];      // { blobSha, size, buf?, filePath? }（大明文直接流式分块，不进内存）
       const downloads = [];    // { rel, sha, size }
       const nextBase = {};
 
-      /** 把本地文件读成「待上传的 blob」：加密模式下 blob 是密文，sha 也按密文算 */
+      /** 把本地文件准备成「待上传的 blob」：加密模式下 blob 是密文，sha 也按密文算 */
       const prepareUpload = async (rel) => {
-        const abs = path.join(root, rel);
+        const abs = resolveUserPath(root, rel);
+        const st = await fsp.stat(abs);
+        if (!enc && st.size >= CHUNK_THRESHOLD) {
+          const plainSha = local.get(rel)?.sha || await hashFile(abs);
+          return { plainSha, blobSha: plainSha, size: st.size, filePath: abs };
+        }
         const plain = await fsp.readFile(abs);
         const plainSha = sha256(plain);
         if (!enc) return { plainSha, blobSha: plainSha, size: plain.length, buf: plain };
@@ -585,6 +609,8 @@ export class SyncEngine {
   /* ---------------- 文件快照（sha256） ---------------- */
   async _snapshot(root) {
     const files = new Map();
+    const seen = new Set();
+    const now = Date.now();
     const walk = async (abs, rel) => {
       let entries;
       try { entries = await fsp.readdir(abs, { withFileTypes: true }); } catch { return; }
@@ -598,25 +624,47 @@ export class SyncEngine {
         try {
           const st = await fsp.stat(absPath);
           if (st.size > MAX_FILE) continue;          // 超大文件跳过，避免一次爆内存
-          const buf = await fsp.readFile(absPath);
-          files.set(relPath, { sha: sha256(buf), size: st.size, mtime: Math.round(st.mtimeMs) });
+          const cacheKey = `${root}\0${relPath}`;
+          seen.add(cacheKey);
+          const cached = this._hashCache.get(cacheKey);
+          let sha;
+          if (st.size >= 256 * 1024 && cached && cached.size === st.size && cached.mtimeMs === st.mtimeMs
+            && cached.ctimeMs === st.ctimeMs && now - st.mtimeMs > 2000) {
+            sha = cached.sha;
+          } else {
+            sha = await hashFile(absPath);
+            if (st.size >= 256 * 1024) {
+              this._hashCache.set(cacheKey, { size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, sha });
+            }
+          }
+          files.set(relPath, { sha, size: st.size, mtime: Math.round(st.mtimeMs) });
         } catch { /* 瞬时不可读：本轮跳过 */ }
       }
     };
     await walk(root, '');
+    for (const key of this._hashCache.keys()) {
+      if (key.startsWith(`${root}\0`) && !seen.has(key)) this._hashCache.delete(key);
+    }
     return files;
   }
 
   /* ---------------- blob 传输 ---------------- */
-  /** 上传一个已准备好的 blob（明文或密文）：小文件直传，大文件落临时文件走分块续传。
+  /** 上传一个已准备好的 blob（明文或密文）：小文件直传，大文件走分块续传。
    *  sha 是**blob 的 sha**——加密模式即密文的 sha，服务端只按它做内容寻址。 */
-  async _uploadPrepared({ blobSha, size, buf }) {
+  async _uploadPrepared(item) {
+    const { blobSha, size, buf, filePath } = item;
+    if (filePath) {
+      await this._uploadChunked(filePath, blobSha, size);
+      return;
+    }
     if (size < CHUNK_THRESHOLD) {
       await this._fetchRaw('PUT', this.cfg.serverUrl, `/api/blob/${blobSha}`, buf);
+      item.buf = null;
       return;
     }
     const tmp = path.join(os.tmpdir(), `tracery-v3-${blobSha.slice(0, 16)}-${process.pid}.bin`);
     await fsp.writeFile(tmp, buf);
+    item.buf = null;
     try { await this._uploadChunked(tmp, blobSha, size); }
     finally { await fsp.rm(tmp, { force: true }); }
   }
@@ -669,7 +717,7 @@ export class SyncEngine {
   /** 下载：支持 Range 断点续传（中途断了只补缺失部分）。
    *  加密模式下下载到的是密文，落地前解密；返回**明文** sha（写进 base.l）。 */
   async _downloadBlob(root, rel, sha, size = 0, decrypt = false) {
-    const abs = path.join(root, rel);
+    const abs = resolveUserPath(root, rel);
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     const tmp = `${abs}.tracery-tmp`;
     let got = 0;
@@ -715,8 +763,8 @@ export class SyncEngine {
 
   /** 下载落地前的最后一步：需要解密就在原文件上解密，返回最终内容的 sha */
   async _finalizeDownload(file, decrypt) {
+    if (!decrypt) return hashFile(file);
     const data = await fsp.readFile(file);
-    if (!decrypt) return sha256(data);
     const plain = decryptBuffer(this._encKey(), data);
     await fsp.writeFile(file, plain);
     return sha256(plain);
@@ -731,13 +779,13 @@ export class SyncEngine {
     if (this.cfg.autoMerge === false) return null;
     if (!baseSha || !isMergeablePath(rel)) return null;
     try {
+      const abs = resolveUserPath(root, rel);
       const [baseBuf, remoteBuf] = await Promise.all([
         this._fetchRaw('GET', this.cfg.serverUrl, `/api/blob/${baseSha}`),
         this._fetchRaw('GET', this.cfg.serverUrl, `/api/blob/${remoteSha}`),
       ]);
       // 加密模式下服务端只有密文：先解密再交给 diff3
       const dec = (buf) => (this._enc ? decryptBuffer(this._encKey(), buf) : buf);
-      const abs = path.join(root, rel);
       const localText = await fsp.readFile(abs, 'utf8');
       const { text, conflicts } = mergeText(dec(baseBuf).toString('utf8'), localText, dec(remoteBuf).toString('utf8'));
       if (conflicts > 0) return null;              // 同一段被两边改了 → 交给冲突副本
@@ -758,6 +806,7 @@ export class SyncEngine {
   /** 把远端版本写成「冲突副本」，返回相对路径 */
   async _writeConflictCopy(root, rel, remoteSha) {
     try {
+      resolveUserPath(root, rel);
       const raw = await this._fetchRaw('GET', this.cfg.serverUrl, `/api/blob/${remoteSha}`);
       const buf = this._enc ? decryptBuffer(this._encKey(), raw) : raw;
       const ext = path.extname(rel);
@@ -766,10 +815,10 @@ export class SyncEngine {
       const device = (this.cfg.deviceName || defaultDeviceName()).replace(/[\\/:*?"<>|]/g, '-');
       let copyRel = `${base} (冲突 ${device} ${stamp})${ext}`;
       let n = 1;
-      while (fs.existsSync(path.join(root, copyRel))) {
+      while (fs.existsSync(resolveUserPath(root, copyRel))) {
         copyRel = `${base} (冲突 ${device} ${stamp}-${++n})${ext}`;
       }
-      const abs = path.join(root, copyRel);
+      const abs = resolveUserPath(root, copyRel);
       await fsp.mkdir(path.dirname(abs), { recursive: true });
       await fsp.writeFile(abs, buf);
       this.noteWrite();
@@ -782,7 +831,7 @@ export class SyncEngine {
   /** 远端删除时，本地文件移进 .tracery/trash 而不是直接删掉 */
   _trashLocal(root, rel) {
     try {
-      const abs = path.join(root, rel);
+      const abs = resolveUserPath(root, rel);
       if (!fs.existsSync(abs)) return;
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       const dest = path.join(vaultConfigDir(root), 'trash', stamp, rel);
@@ -849,7 +898,8 @@ export class SyncEngine {
     const file = this._stateFile(root);
     if (!file) return { version: 0, files: {} };
     try {
-      const st = JSON.parse(await fsp.readFile(file, 'utf8'));
+      const st = readJson(file, null);
+      if (!st) return { version: 0, files: {} };
       // 换了服务端或仓库：base 作废，否则会把两边的文件误判成「对方删除」
       if (st.serverUrl !== this.cfg.serverUrl || st.vaultId !== this.cfg.vaultId) {
         return { version: 0, files: {} };
@@ -866,7 +916,7 @@ export class SyncEngine {
     const file = this._stateFile(root || this.getVaultRoot());
     if (!file) return;
     await fsp.mkdir(path.dirname(file), { recursive: true });
-    await fsp.writeFile(file, JSON.stringify({ ...state, savedAt: new Date().toISOString() }, null, 2), 'utf8');
+    writeJson(file, { ...state, savedAt: new Date().toISOString() });
   }
 
   async _resetState(serverUrl, vaultId) {
@@ -874,6 +924,7 @@ export class SyncEngine {
     const file = this._stateFile(root);
     if (!file) return;
     try { await fsp.rm(file, { force: true }); } catch { /* ignore */ }
+    try { await fsp.rm(`${file}.bak`, { force: true }); } catch { /* ignore */ }
   }
 }
 

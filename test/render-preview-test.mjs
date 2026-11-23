@@ -94,12 +94,24 @@ try {
   await fetch(BASE + '/api/note', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '离线背景.md', content: '# 后台刷新' }) });
   await page.setOfflineMode(true); await sleep(250); await scroll('数学公式：'); assert.ok(await page.$('.cm-math-block .katex')); await page.setOfflineMode(false);
   console.log('PASS 行内上下标与独立公式、矩阵、字体、点击编辑/撤销/三模式、非法公式回退及离线资源');
-  const roundtrip = await page.evaluate(async () => {
-    const { renderMarkdown, serializeHtml } = await import('/js/markdown.js');
+  const rendered = await page.evaluate(async () => {
+    const { renderMarkdown } = await import('/js/markdown.js');
     const samples = ['<u>下划线</u>', '公式 $E=mc^2$', '$$\n\\hat{y}=w_1x_1+b\n$$', '````text\n```python\ndef x():\n    pass\n```\n````'];
-    return samples.map(md => { const root = document.createElement('div'); root.append(renderMarkdown(md)); return { md, result: serializeHtml(root).trim() }; });
+    return samples.map(md => {
+      const root = document.createElement('div');
+      root.append(renderMarkdown(md));
+      return {
+        hasU: !!root.querySelector('u'),
+        hasMath: !!root.querySelector('.md-math'),
+        hasDisplayMath: !!root.querySelector('.md-math-display'),
+        codeText: root.querySelector('pre code')?.textContent || '',
+      };
+    });
   });
-  for (const sample of roundtrip) assert.equal(sample.result, sample.md);
+  assert.equal(rendered[0].hasU, true);
+  assert.equal(rendered[1].hasMath, true);
+  assert.equal(rendered[2].hasDisplayMath, true);
+  assert.ok(rendered[3].codeText.includes('```python'));
   await page.evaluate(() => { const editor = window.__tracery.editor; editor.view.dispatch({ changes: { from: 0, to: editor.view.state.doc.length, insert: '# 空代码\n\n```python\n```' }, selection: { anchor: 0 } }); });
   await page.waitForSelector('.cm-lp-empty-code');
   assert.ok(await page.$eval('.cm-lp-empty-code', node => node.getBoundingClientRect().height >= 50 && node.dataset.language === 'python'));
